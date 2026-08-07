@@ -93,8 +93,48 @@
 .admin-body {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(300px, 380px) 1fr;
+  grid-template-columns: minmax(280px, 340px) 1fr 0;
   min-height: 0;
+}
+
+.admin-body.drawer-open { grid-template-columns: minmax(280px, 340px) 1fr 440px; }
+.admin-body.sidebar-closed { grid-template-columns: 0 1fr 0; }
+.admin-body.sidebar-closed.drawer-open { grid-template-columns: 0 1fr 440px; }
+.admin-body.sidebar-closed .admin-sidebar { display: none; }
+
+/* ---------- מגירת העריכה ---------- */
+
+.editor-drawer {
+  border-inline-start: 1px solid var(--border);
+  background: var(--card);
+  height: calc(100dvh - 49px);
+  position: sticky;
+  top: 49px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.editor-drawer .editor {
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  max-width: none;
+}
+
+@media (max-width: 1100px) {
+  .admin-body.drawer-open { grid-template-columns: 0 1fr 440px; }
+  .admin-body.drawer-open .admin-sidebar { display: none; }
 }
 
 .admin-sidebar {
@@ -146,47 +186,6 @@
   .admin-main { height: auto; min-height: 70dvh; overflow: visible; }
 }
 
-/* ---------- טאבים ---------- */
-
-.tabs {
-  display: flex;
-  gap: var(--space-1);
-  border-block-end: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.tab {
-  font: inherit;
-  font-weight: 600;
-  font-size: var(--text-sm);
-  background: none;
-  border: none;
-  border-block-end: 2px solid transparent;
-  margin-block-end: -1px;
-  padding: var(--space-2) var(--space-3);
-  color: var(--muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.tab:hover { color: var(--text); }
-
-.tab[aria-selected='true'] {
-  color: var(--text);
-  border-block-end-color: var(--primary);
-}
-
-.tab-id {
-  font-size: var(--text-xs);
-  font-weight: 400;
-  color: var(--muted);
-  background: var(--chip-bg);
-  padding: 0 var(--space-1);
-  border-radius: 4px;
-}
-
 /* ---------- תרשים הזרימה ---------- */
 
 .flow-graph {
@@ -235,6 +234,10 @@
 
 .fg-world {
   position: absolute;
+  /* עיגון מפורש לפינה — בלעדיו RTL ממקם את הבלוק מהקצה הימני
+     וכל תרגומי הקואורדינטות (גרירה, חלוניות) זזים */
+  left: 0;
+  top: 0;
   transform-origin: 0 0;
 }
 
@@ -266,9 +269,27 @@
 .fg-arrow-head { fill: var(--edge); }
 .fg-arrow-head.active { fill: var(--primary); }
 
+/* קו רחב ושקוף מעל כל קשת — שטח פגיעה לריחוף */
+.fg-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.fg-connect-line {
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  fill: none;
+  pointer-events: none;
+}
+
 .fg-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
+  font: inherit;
   font-size: 11px;
   line-height: 1.4;
   color: var(--muted);
@@ -280,7 +301,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.fg-edge-label:hover {
+  color: var(--text);
+  border-color: var(--muted);
 }
 
 .fg-edge-label.active {
@@ -288,8 +314,46 @@
   border-color: var(--primary);
 }
 
+/* + על קשת — הוספת מסך בתוך המעבר */
+.fg-insert-btn {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: var(--surface-raised);
+  color: var(--primary);
+  cursor: pointer;
+  z-index: 3;
+}
+
+.fg-insert-btn:hover { background: var(--selected-bg); }
+.fg-insert-btn svg { width: 12px; height: 12px; }
+
+/* ---------- צמתים ---------- */
+
+.fg-node-wrap {
+  position: absolute;
+}
+
+.fg-node-wrap.dragging { z-index: 20; }
+.fg-node-wrap.dragging .fg-node {
+  box-shadow: var(--drag-shadow);
+  border-color: var(--primary);
+}
+
+.fg-node-wrap.connect-target .fg-node {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
 .fg-node {
   position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -301,9 +365,11 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
-  cursor: pointer;
+  cursor: grab;
   overflow: hidden;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  touch-action: none;
 }
 
 .fg-node:hover { border-color: var(--muted); }
@@ -320,6 +386,116 @@
   background: var(--bg);
   border-style: dashed;
   justify-content: center;
+}
+
+/* סרגל פעולות שמופיע בריחוף על הצומת */
+.fg-node-toolbar {
+  position: absolute;
+  top: -32px;
+  inset-inline-end: 0;
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  z-index: 4;
+}
+
+.fg-node-wrap:hover .fg-node-toolbar,
+.fg-node-toolbar:hover { display: flex; }
+.fg-node-toolbar .a-icon-btn { width: 26px; height: 26px; }
+
+/* נקודת חיבור: גוררים ממנה אל מסך אחר ליצירת כלל ניתוב */
+.fg-port {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--primary);
+  background: var(--surface-raised);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  touch-action: none;
+  z-index: 4;
+  padding: 0;
+}
+
+.fg-node-wrap:hover .fg-port,
+.fg-node.selected ~ .fg-port,
+.fg-canvas.connecting .fg-port { opacity: 1; }
+
+.fg-port:hover { background: var(--selected-bg); }
+
+/* עריכת נוסח במקום (לחיצה כפולה) */
+.fg-inline-edit {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  padding: var(--space-2) var(--space-3);
+  resize: none;
+}
+
+/* מחוון הוספה בזמן גרירת צומת */
+.fg-drop-indicator {
+  position: absolute;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* ---------- חלונית צפה (תנאי קשת / מסך חדש) ---------- */
+
+.fg-popover {
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: 340px;
+  max-width: 90vw;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--drag-shadow);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  cursor: default;
+}
+
+.fg-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.fg-insert-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fg-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 2px;
 }
 
 .fg-node-head {

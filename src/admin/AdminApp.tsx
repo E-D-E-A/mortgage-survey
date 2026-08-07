@@ -12,7 +12,7 @@ import { ScreenEditor } from './ScreenEditor';
 import { FlowGraph } from './FlowGraph';
 import { ValidationPanel } from './ValidationPanel';
 import { PublishDialog } from './PublishDialog';
-import { ErrorIcon, LogoutIcon, WarningIcon } from './Icons';
+import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, WarningIcon } from './Icons';
 import './admin.css';
 
 type Auth = { phase: 'checking' } | { phase: 'login' } | { phase: 'in'; email: string };
@@ -75,13 +75,12 @@ function newScreen(type: Screen['type'], id: string): Screen {
 function Editor({ email, onAuthError }: { email: string; onAuthError: () => void }) {
   const draft = useDraft(onAuthError);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<'flow' | 'edit'>('flow');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [publishOpen, setPublishOpen] = useState(false);
 
-  // בחירת מסך מכל מקום (תרשים, רשימה, פאנל ולידציה) פותחת את הגדרותיו
+  // בחירת מסך מכל מקום (תרשים, רשימה, פאנל ולידציה) פותחת את מגירת העריכה
   const selectScreen = useCallback((id: string) => {
     setSelectedId(id);
-    setTab('edit');
   }, []);
 
   const config = draft.config;
@@ -132,6 +131,14 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
     <div className="admin-app">
       <header className="topbar">
         <div className="topbar-title">
+          <button
+            className="a-icon-btn"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label={sidebarOpen ? 'הסתרת רשימת המסכים' : 'הצגת רשימת המסכים'}
+            title={sidebarOpen ? 'הסתרת רשימת המסכים' : 'הצגת רשימת המסכים'}
+          >
+            <PanelIcon />
+          </button>
           <h1>ניהול השאלון</h1>
           {config && (
             <span className="a-hint" dir="ltr">
@@ -202,7 +209,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
       )}
 
       {draft.phase === 'ready' && config && (
-        <div className="admin-body">
+        <div className={`admin-body${sidebarOpen ? '' : ' sidebar-closed'}${selected ? ' drawer-open' : ''}`}>
           <aside className="admin-sidebar">
             <ScreenList
               screens={config.screens}
@@ -225,33 +232,23 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
           </aside>
           <main className="admin-main">
             <ValidationPanel issues={issues} onSelectScreen={selectScreen} />
-            <div className="tabs" role="tablist">
-              <button
-                className="tab"
-                role="tab"
-                aria-selected={tab === 'flow'}
-                onClick={() => setTab('flow')}
-              >
-                תרשים זרימה
-              </button>
-              <button
-                className="tab"
-                role="tab"
-                aria-selected={tab === 'edit'}
-                onClick={() => setTab('edit')}
-              >
-                עריכת מסך
-                {selected && <code className="tab-id" dir="ltr">{selected.id}</code>}
-              </button>
-            </div>
-            {tab === 'flow' ? (
-              <FlowGraph
-                config={config}
-                issues={issues}
-                selectedId={selectedId}
-                onSelect={selectScreen}
-              />
-            ) : selected ? (
+            <FlowGraph
+              config={config}
+              issues={issues}
+              selectedId={selectedId}
+              vars={knownVars}
+              onSelect={selectScreen}
+              onUpdate={draft.update}
+            />
+          </main>
+          {selected && (
+            <aside className="editor-drawer" aria-label={`עריכת המסך ${selected.id}`}>
+              <div className="drawer-head">
+                <strong>עריכת מסך</strong>
+                <button className="a-icon-btn" onClick={() => setSelectedId(null)} aria-label="סגירת העורך" title="סגירה">
+                  <CloseIcon />
+                </button>
+              </div>
               <ScreenEditor
                 key={selected.id}
                 screen={selected}
@@ -265,13 +262,10 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
                     screens: cfg.screens.filter((s) => s.id !== selected.id),
                   }));
                   setSelectedId(null);
-                  setTab('flow');
                 }}
               />
-            ) : (
-              <div className="admin-empty subtle">בחרו מסך מהתרשים או מהרשימה כדי לערוך אותו</div>
-            )}
-          </main>
+            </aside>
+          )}
         </div>
       )}
 

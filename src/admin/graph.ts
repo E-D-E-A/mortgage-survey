@@ -24,6 +24,8 @@ export interface FlowEdge {
    * skip = נחיתה רחוקה יותר אחרי דילוג על מסכים מותנים (מוצג מעומעם)
    */
   kind: 'goto' | 'primary' | 'skip';
+  /** לקשתות goto: האינדקס של הכלל ב-next של מסך המקור — לעריכת התנאי מהקשת */
+  ruleIndex?: number;
 }
 
 export interface Flow {
@@ -135,7 +137,8 @@ export function buildFlow(config: SurveyConfig): Flow {
 
     const rules = screen.next ?? [];
     let unconditional = false;
-    for (const rule of rules) {
+    for (let r = 0; r < rules.length; r++) {
+      const rule = rules[r];
       if (known.has(rule.goto)) {
         edges.push({
           from: screen.id,
@@ -143,6 +146,7 @@ export function buildFlow(config: SurveyConfig): Flow {
           label: rule.if ? describeCondition(rule.if, screens) : 'תמיד',
           conditional: Boolean(rule.if),
           kind: 'goto',
+          ruleIndex: r,
         });
       }
       if (!rule.if) {
