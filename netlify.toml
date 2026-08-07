@@ -2,7 +2,11 @@
   command = "npm run build"
   publish = "dist"
 
+[functions]
+  directory = "netlify/functions"
+
 # SPA — כל נתיב מוגש מ-index.html
+# (נתיבי ‎/.netlify/functions/*‎ מטופלים לפני ה-redirect ולא נבלעים בו)
 [[redirects]]
   from = "/*"
   to = "/index.html"

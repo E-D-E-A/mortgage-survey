@@ -1,13 +1,16 @@
-// Append-only event delivery to Supabase REST.
+// Append-only event delivery via the Netlify Function (/.netlify/functions/events).
+// No Supabase URL or key exists in the browser bundle — the function holds the
+// credentials server-side and is the only write path to the database.
 // Design constraints:
 // - Sending must never block navigation between screens (fire-and-forget + retry queue).
-// - A refresh or retry must not double-count events (client-generated event_uid + ON CONFLICT DO NOTHING).
-// - Without env vars the app runs in dev mode: events go to console + localStorage only.
+// - A refresh or retry must not double-count events (client-generated event_uid,
+//   deduplicated server-side with ON CONFLICT DO NOTHING).
+// - In dev (vite) events go to console + localStorage only; the real pipeline
+//   runs in production builds (`netlify serve` locally, or the deployed site).
 
-const SUPA_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const ENDPOINT = '/.netlify/functions/events';
 
-export const eventsEnabled = Boolean(SUPA_URL && SUPA_KEY);
+export const eventsEnabled = import.meta.env.PROD;
 
 export type EventType = 'session_start' | 'screen_view' | 'answer' | 'complete' | 'screenout';
 
@@ -101,18 +104,19 @@ async function flush(keepalive = false): Promise<void> {
   // keepalive מוגבל ל-64KB — נשלח באצוות קטנות
   const batch = queue.slice(0, 20);
   try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/survey_events?on_conflict=event_uid`, {
+    const res = await fetch(ENDPOINT, {
       method: 'POST',
       keepalive,
-      headers: {
-        apikey: SUPA_KEY!,
-        Authorization: `Bearer ${SUPA_KEY!}`,
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=ignore-duplicates,return=minimal',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(batch),
     });
-    if (res.ok || res.status === 409) {
+    if (res.ok) {
+      queue = queue.slice(batch.length);
+      persistQueue();
+      if (queue.length > 0) scheduleRetry(250);
+    } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+      // האצווה פסולה — retry לא יעזור; זורקים אותה כדי לא להיתקע לנצח
+      console.warn('[survey] batch rejected', res.status);
       queue = queue.slice(batch.length);
       persistQueue();
       if (queue.length > 0) scheduleRetry(250);
