@@ -80,6 +80,20 @@ export const VarIcon = (props: SVGProps<SVGSVGElement>) => (
   </Svg>
 );
 
+export const UndoIcon = () => (
+  <Svg>
+    <path d="M3 7v6h6" />
+    <path d="M21 17a9 9 0 0 0-15-6.7L3 13" />
+  </Svg>
+);
+
+export const RedoIcon = () => (
+  <Svg>
+    <path d="M21 7v6h-6" />
+    <path d="M3 17a9 9 0 0 1 15-6.7L21 13" />
+  </Svg>
+);
+
 export const CopyIcon = () => (
   <Svg>
     <rect x="9" y="9" width="12" height="12" rx="2" />

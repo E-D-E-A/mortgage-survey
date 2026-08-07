@@ -12,8 +12,10 @@ import { ScreenEditor } from './ScreenEditor';
 import { FlowGraph } from './FlowGraph';
 import { ValidationPanel } from './ValidationPanel';
 import { PublishDialog } from './PublishDialog';
-import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, WarningIcon } from './Icons';
+import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, RedoIcon, UndoIcon, WarningIcon } from './Icons';
 import './admin.css';
+
+const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
 type Auth = { phase: 'checking' } | { phase: 'login' } | { phase: 'in'; email: string };
 
@@ -98,12 +100,30 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
     return () => window.removeEventListener('beforeunload', handler);
   }, [draft.dirty]);
 
-  // שמירה ב-Ctrl/Cmd+S
+  // קיצורי מקלדת: Ctrl/Cmd+S שמירה, Ctrl/Cmd+Z ביטול, Ctrl/Cmd+Shift+Z או
+  // Ctrl+Y חזרה. בתוך שדה טקסט לא מתערבים — שם פועל ה-undo של הדפדפן.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') {
         e.preventDefault();
         if (draft.dirty && !draft.saving) void draft.save();
+        return;
+      }
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement;
+      if (typing) return;
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        draft.undo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        draft.redo();
       }
     };
     window.addEventListener('keydown', handler);
@@ -160,6 +180,24 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
           {draft.dirty && <span className="chip chip-dirty">שינויים לא שמורים</span>}
         </div>
         <div className="topbar-actions">
+          <button
+            className="a-icon-btn"
+            onClick={draft.undo}
+            disabled={!draft.canUndo}
+            aria-label="ביטול הפעולה האחרונה"
+            title={`ביטול (${isMac ? '⌘Z' : 'Ctrl+Z'})`}
+          >
+            <UndoIcon />
+          </button>
+          <button
+            className="a-icon-btn"
+            onClick={draft.redo}
+            disabled={!draft.canRedo}
+            aria-label="ביצוע מחדש"
+            title={`ביצוע מחדש (${isMac ? '⌘⇧Z' : 'Ctrl+Y'})`}
+          >
+            <RedoIcon />
+          </button>
           <button
             className="a-btn secondary"
             onClick={() => void draft.save()}
