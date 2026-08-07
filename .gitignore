@@ -6,5 +6,14 @@ dist/
 .DS_Store
 *.local
 
+# מצב מקומי של כלי Netlify (נוצר ע"י netlify serve / deploy)
+.netlify/
+
+# הגדרות ומיומנויות מקומיות של Claude Code / העורך — לא חלק מהפרויקט
+.claude/
+.vscode/
+.idea/
+
 # מסמכים פנימיים — לא לריפו הציבורי
 *.pdf
+docs/
