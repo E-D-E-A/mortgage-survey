@@ -17,3 +17,6 @@ dist/
 # מסמכים פנימיים — לא לריפו הציבורי
 *.pdf
 docs/
+
+# נוצר ע"י סביבת ה-Edge Functions של Netlify
+deno.lock
