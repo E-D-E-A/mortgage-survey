@@ -148,22 +148,22 @@ function SortableItem({
         {(screen.showIf || gotos.length > 0 || incoming.length > 0 || vars.length > 0) && (
           <span className="screen-badges">
             {screen.showIf && (
-              <span className="badge badge-showif" title="מוצג בתנאי">
+              <span className="badge" title="מוצג בתנאי">
                 <EyeIcon width={12} height={12} /> מותנה
               </span>
             )}
             {gotos.map((g, i) => (
-              <span key={i} className="badge badge-goto" title={`ניתוב אל ${g}`}>
+              <span key={i} className="badge" title={`ניתוב אל ${g}`}>
                 <BranchIcon width={12} height={12} /> <bdi dir="ltr">{g}</bdi>
               </span>
             ))}
             {incoming.length > 0 && (
-              <span className="badge badge-incoming" title={`נכנסים מ: ${incoming.join(', ')}`}>
+              <span className="badge" title={`נכנסים מ: ${incoming.join(', ')}`}>
                 ← {incoming.length} קפיצות
               </span>
             )}
             {vars.map((v) => (
-              <span key={v} className="badge badge-var" title={`מציב את המשתנה ${v}`}>
+              <span key={v} className="badge" title={`מציב את המשתנה ${v}`}>
                 <VarIcon width={12} height={12} /> <bdi dir="ltr">{v}</bdi>
               </span>
             ))}

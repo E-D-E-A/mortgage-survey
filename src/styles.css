@@ -22,6 +22,9 @@
   /* משטחים מוגבהים (קונסולת הניהול) */
   --surface-raised: #ffffff;
   --drag-shadow: 0 8px 24px rgba(16, 24, 40, 0.18);
+  --chip-bg: #eef1f6;
+  --edge: #aab4c4;
+  --grid-dot: #dde3ec;
 
   /* סולם רווחים 4px */
   --space-1: 4px;
@@ -60,6 +63,9 @@
 
     --surface-raised: #212a3d;
     --drag-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    --chip-bg: #262f42;
+    --edge: #4a586f;
+    --grid-dot: #222b3b;
   }
 }
 

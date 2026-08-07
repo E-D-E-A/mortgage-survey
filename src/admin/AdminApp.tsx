@@ -9,6 +9,7 @@ import { useDraft } from './useDraft';
 import { LoginScreen } from './LoginScreen';
 import { ScreenList } from './ScreenList';
 import { ScreenEditor } from './ScreenEditor';
+import { FlowGraph } from './FlowGraph';
 import { ValidationPanel } from './ValidationPanel';
 import { PublishDialog } from './PublishDialog';
 import { ErrorIcon, LogoutIcon, WarningIcon } from './Icons';
@@ -74,7 +75,14 @@ function newScreen(type: Screen['type'], id: string): Screen {
 function Editor({ email, onAuthError }: { email: string; onAuthError: () => void }) {
   const draft = useDraft(onAuthError);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<'flow' | 'edit'>('flow');
   const [publishOpen, setPublishOpen] = useState(false);
+
+  // בחירת מסך מכל מקום (תרשים, רשימה, פאנל ולידציה) פותחת את הגדרותיו
+  const selectScreen = useCallback((id: string) => {
+    setSelectedId(id);
+    setTab('edit');
+  }, []);
 
   const config = draft.config;
   const issues = useMemo(() => (config ? validateConfig(config) : []), [config]);
@@ -200,7 +208,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
               screens={config.screens}
               selectedId={selectedId}
               issues={issues}
-              onSelect={setSelectedId}
+              onSelect={selectScreen}
               onReorder={(from, to) =>
                 draft.update((cfg) => {
                   const screens = [...cfg.screens];
@@ -211,13 +219,39 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
               }
               onAdd={(type, id) => {
                 draft.update((cfg) => ({ ...cfg, screens: [...cfg.screens, newScreen(type, id)] }));
-                setSelectedId(id);
+                selectScreen(id);
               }}
             />
           </aside>
           <main className="admin-main">
-            <ValidationPanel issues={issues} onSelectScreen={setSelectedId} />
-            {selected ? (
+            <ValidationPanel issues={issues} onSelectScreen={selectScreen} />
+            <div className="tabs" role="tablist">
+              <button
+                className="tab"
+                role="tab"
+                aria-selected={tab === 'flow'}
+                onClick={() => setTab('flow')}
+              >
+                תרשים זרימה
+              </button>
+              <button
+                className="tab"
+                role="tab"
+                aria-selected={tab === 'edit'}
+                onClick={() => setTab('edit')}
+              >
+                עריכת מסך
+                {selected && <code className="tab-id" dir="ltr">{selected.id}</code>}
+              </button>
+            </div>
+            {tab === 'flow' ? (
+              <FlowGraph
+                config={config}
+                issues={issues}
+                selectedId={selectedId}
+                onSelect={selectScreen}
+              />
+            ) : selected ? (
               <ScreenEditor
                 key={selected.id}
                 screen={selected}
@@ -231,10 +265,11 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
                     screens: cfg.screens.filter((s) => s.id !== selected.id),
                   }));
                   setSelectedId(null);
+                  setTab('flow');
                 }}
               />
             ) : (
-              <div className="admin-empty subtle">בחרו מסך מהרשימה כדי לערוך אותו</div>
+              <div className="admin-empty subtle">בחרו מסך מהתרשים או מהרשימה כדי לערוך אותו</div>
             )}
           </main>
         </div>
