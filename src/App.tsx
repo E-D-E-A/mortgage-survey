@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { evaluate, interpolate } from './engine/conditions';
+import { findNext } from './engine/navigation';
 import { pickRandom } from './engine/random';
 import type { AnswerValue, Screen, SurveyConfig, SurveyContext, Vars } from './engine/types';
 import { eventsEnabled, logEvent } from './data/events';
@@ -13,7 +14,6 @@ import {
   TextView,
   type SubmitFn,
 } from './components/inputs';
-import { questionnaire } from './questionnaire/placeholder';
 
 interface SurveyState {
   version: string;
@@ -50,6 +50,8 @@ function freshState(config: SurveyConfig): SurveyState {
   };
 }
 
+// הקונפיג נבחר לפי הגרסה השמורה (loadConfig מצמיד גרסה לסשן), ולכן
+// אי-התאמה כאן אפשרית רק בפיתוח או אחרי איפוס — ואז מתחילים מחדש.
 function restoreState(config: SurveyConfig): SurveyState | null {
   try {
     const raw = sessionStorage.getItem(STATE_KEY);
@@ -63,8 +65,7 @@ function restoreState(config: SurveyConfig): SurveyState | null {
   }
 }
 
-export default function App() {
-  const config = questionnaire;
+export default function App({ config }: { config: SurveyConfig }) {
   const [state, setState] = useState<SurveyState>(() => {
     const restored = restoreState(config);
     if (restored) return restored;
@@ -106,20 +107,6 @@ export default function App() {
     }
   }, [config, screen]);
 
-  function findNext(from: Screen, ctx: SurveyContext): Screen | null {
-    for (const rule of from.next ?? []) {
-      if (!rule.if || evaluate(rule.if, ctx)) {
-        return config.screens.find((s) => s.id === rule.goto) ?? null;
-      }
-    }
-    const idx = config.screens.findIndex((s) => s.id === from.id);
-    for (let i = idx + 1; i < config.screens.length; i++) {
-      const candidate = config.screens[i];
-      if (!candidate.showIf || evaluate(candidate.showIf, ctx)) return candidate;
-    }
-    return null;
-  }
-
   const submit: SubmitFn = (value, extra) => {
     const answers =
       value === undefined ? state.answers : { ...state.answers, [screen.id]: value as AnswerValue };
@@ -137,7 +124,7 @@ export default function App() {
       });
     }
 
-    const next = findNext(screen, ctx);
+    const next = findNext(config, screen, ctx);
     let finished = state.finished;
     if (next && next.type === 'end' && !finished) {
       finished = true;
@@ -175,7 +162,7 @@ export default function App() {
   return (
     <div className="app">
       {!eventsEnabled && (
-        <div className="dev-banner">מצב פיתוח — תשובות לא נשלחות לשרת (חסרים משתני סביבה)</div>
+        <div className="dev-banner">מצב פיתוח — תשובות נכתבות לקונסול בלבד ולא נשלחות לשרת</div>
       )}
       {screen.type !== 'end' && (
         <div className="progress">
