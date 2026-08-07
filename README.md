@@ -46,11 +46,13 @@ npm test           # בדיקות מנוע התנאים
 ```bash
 npm install -g netlify-cli
 netlify login
-netlify init       # יצירת אתר חדש
+netlify deploy --build --prod   # בהרצה הראשונה: לבחור "Create & configure a new project"
 netlify env:set VITE_SUPABASE_URL "https://<project>.supabase.co"
 netlify env:set VITE_SUPABASE_ANON_KEY "<anon key>"
-netlify deploy --build --prod
+netlify deploy --build --prod   # שוב, כדי שהבילד ייקלט עם משתני הסביבה
 ```
+
+(אין צורך בריפו GitHub לפריסה ידנית; בהמשך אפשר לחבר ריפו לפריסה אוטומטית בכל push.)
 
 ## שליפת נתונים לניתוח
 

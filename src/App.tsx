@@ -69,6 +69,10 @@ export default function App() {
     const restored = restoreState(config);
     if (restored) return restored;
     const fresh = freshState(config);
+    // sessionStorage guard: StrictMode מריץ את ה-initializer פעמיים בפיתוח,
+    // וכל הרצה מגרילה event_uid חדש — בלי הגנה נרשמות שתי שורות session_start
+    if (sessionStorage.getItem('sq_started_v1')) return fresh;
+    sessionStorage.setItem('sq_started_v1', '1');
     logEvent(config.version, 'session_start', null, {
       vars: fresh.vars,
       userAgent: navigator.userAgent,
