@@ -176,6 +176,40 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     [issues],
   );
 
+  // --- זיהוי "מה השתנה" — הצמתים שהעריכה האחרונה נגעה בהם מקבלים הבהוב ---
+  // הקונפיג אימיוטבילי: מסך שהשתנה מקבל הפניה חדשה, ולכן השוואת הפניות
+  // מזהה בדיוק את המסכים שנערכו/נוספו. שינוי סדר טהור לא מחליף הפניות —
+  // מזוהה בנפרד ע"י מציאת המסך שהוצא מהרצף.
+  const prevConfigRef = useRef(config);
+  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+  const changeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const prev = prevConfigRef.current;
+    prevConfigRef.current = config;
+    if (prev === config) return;
+    const prevById = new Map(prev.screens.map((s) => [s.id, s]));
+    const ids = new Set<string>();
+    for (const s of config.screens) {
+      const p = prevById.get(s.id);
+      if (!p || p !== s) ids.add(s.id);
+    }
+    if (ids.size === 0) {
+      const oldIds = prev.screens.map((s) => s.id);
+      const newIds = config.screens.map((s) => s.id);
+      if (oldIds.join('\n') !== newIds.join('\n')) {
+        const moved = newIds.find(
+          (x) => oldIds.filter((i) => i !== x).join('\n') === newIds.filter((i) => i !== x).join('\n'),
+        );
+        if (moved) ids.add(moved);
+        else newIds.forEach((id, i) => oldIds[i] !== id && ids.add(id));
+      }
+    }
+    if (ids.size === 0) return;
+    setChangedIds(ids);
+    if (changeTimer.current) clearTimeout(changeTimer.current);
+    changeTimer.current = setTimeout(() => setChangedIds(new Set()), 1800);
+  }, [config]);
+
   const layout = useMemo(() => {
     const flow = buildFlow(config);
     const g = new dagre.graphlib.Graph({ multigraph: true });
@@ -225,6 +259,16 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
   }, [config]);
 
   const nodeById = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout]);
+
+  // חתימת גאומטריה: כשהפריסה זזה, שכבת הקשתות מתחלפת בעמעום (הצמתים
+  // גולשים למקומם ב-CSS; קווי SVG לא ניתנים לאנימציה אמינה — מעמעמים במקום)
+  const geomSig = useMemo(
+    () =>
+      layout.nodes.map((n) => `${n.id}:${Math.round(n.x)},${Math.round(n.y)}`).join('|') +
+      '#' +
+      layout.edges.length,
+    [layout],
+  );
 
   const fit = useCallback(() => {
     const el = containerRef.current;
@@ -569,7 +613,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
           className="fg-world"
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, width: layout.width, height: layout.height }}
         >
-          <svg className="fg-edges" width={layout.width} height={layout.height} aria-hidden="true">
+          <svg key={geomSig} className="fg-edges" width={layout.width} height={layout.height} aria-hidden="true">
             <defs>
               {['fg-arrow', 'fg-arrow-active'].map((id) => (
                 <marker key={id} id={id} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -669,6 +713,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   'fg-node-wrap',
                   dragging ? 'dragging' : '',
                   isConnectTarget ? 'connect-target' : '',
+                  changedIds.has(n.id) ? 'changed' : '',
                 ].join(' ')}
                 style={{
                   left: n.x,

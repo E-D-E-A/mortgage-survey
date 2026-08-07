@@ -95,6 +95,8 @@
   display: grid;
   grid-template-columns: minmax(280px, 340px) 1fr 0;
   min-height: 0;
+  /* פתיחת/סגירת המגירה והרשימה — מעבר רך במקום קפיצת פריסה */
+  transition: grid-template-columns 0.25s ease;
 }
 
 .admin-body.drawer-open { grid-template-columns: minmax(280px, 340px) 1fr 440px; }
@@ -246,6 +248,15 @@
   inset: 0;
   overflow: visible;
   pointer-events: none;
+  /* שכבת הקשתות מתחלפת בעמעום כשהגאומטריה משתנה — מסווה את קפיצת
+     המסלולים בזמן שהצמתים גולשים */
+  animation: fg-edges-in 0.42s ease;
+}
+
+@keyframes fg-edges-in {
+  0% { opacity: 0; }
+  45% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 .fg-edge {
@@ -289,6 +300,7 @@
 .fg-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
+  transition: left 0.28s ease, top 0.28s ease;
   font: inherit;
   font-size: 11px;
   line-height: 1.4;
@@ -338,9 +350,22 @@
 
 .fg-node-wrap {
   position: absolute;
+  /* פריסה שהשתנתה — הצמתים גולשים למקומם החדש במקום לקפוץ */
+  transition: left 0.28s ease, top 0.28s ease, width 0.28s ease, height 0.28s ease;
 }
 
-.fg-node-wrap.dragging { z-index: 20; }
+/* הצומת שהעריכה האחרונה נגעה בו — טבעת הבהוב שדועכת */
+.fg-node-wrap.changed .fg-node {
+  animation: fg-changed-pulse 1.6s ease-out;
+}
+
+@keyframes fg-changed-pulse {
+  0% { box-shadow: 0 0 0 3px var(--focus-ring), 0 0 0 8px transparent; border-color: var(--primary); }
+  55% { box-shadow: 0 0 0 3px var(--focus-ring); border-color: var(--primary); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.fg-node-wrap.dragging { z-index: 20; transition: none; }
 .fg-node-wrap.dragging .fg-node {
   box-shadow: var(--drag-shadow);
   border-color: var(--primary);
