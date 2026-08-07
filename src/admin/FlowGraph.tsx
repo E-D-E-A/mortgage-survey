@@ -39,21 +39,61 @@ interface LaidOutEdge {
   kind: 'goto' | 'primary' | 'skip';
 }
 
-/** Catmull-Rom → בזייה קובית: מחליק את נקודות הניתוב של dagre */
-function smoothPath(pts: Point[]): string {
+const EPS = 0.5;
+const CORNER_R = 6;
+
+/**
+ * הופך את נקודות הניתוב של dagre למסלול אורתוגונלי (קווים ישרים בלבד,
+ * פניות בזווית ישרה) בסגנון תרשים זרימה — במקום עקומות בזייה.
+ * בכל שינוי כיוון יורדים אנכית ואז זזים אופקית, כפי שמצופה בפריסה מלמעלה למטה.
+ */
+function orthogonalPath(pts: Point[]): string {
   if (pts.length < 2) return '';
-  if (pts.length === 2) return `M${pts[0].x},${pts[0].y}L${pts[1].x},${pts[1].y}`;
-  let d = `M${pts[0].x},${pts[0].y}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] ?? pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2] ?? p2;
-    d +=
-      `C${p1.x + (p2.x - p0.x) / 6},${p1.y + (p2.y - p0.y) / 6} ` +
-      `${p2.x - (p3.x - p1.x) / 6},${p2.y - (p3.y - p1.y) / 6} ${p2.x},${p2.y}`;
+
+  // 1. מדרגות: אף מקטע לא אלכסוני
+  const steps: Point[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const prev = steps[steps.length - 1];
+    const cur = pts[i];
+    if (Math.abs(cur.x - prev.x) > EPS && Math.abs(cur.y - prev.y) > EPS) {
+      steps.push({ x: prev.x, y: cur.y });
+    }
+    steps.push(cur);
   }
-  return d;
+
+  // 2. ניקוי נקודות כפולות ונקודות על אותו קו
+  const clean: Point[] = [];
+  for (const p of steps) {
+    const last = clean[clean.length - 1];
+    if (last && Math.abs(last.x - p.x) < EPS && Math.abs(last.y - p.y) < EPS) continue;
+    if (clean.length >= 2) {
+      const a = clean[clean.length - 2];
+      const collinear =
+        (Math.abs(a.x - last.x) < EPS && Math.abs(last.x - p.x) < EPS) ||
+        (Math.abs(a.y - last.y) < EPS && Math.abs(last.y - p.y) < EPS);
+      if (collinear) clean.pop();
+    }
+    clean.push(p);
+  }
+  if (clean.length < 2) return '';
+
+  // 3. פינות מעוגלות קלות — נשאר אורתוגונלי, רק פחות חד
+  let d = `M${clean[0].x},${clean[0].y}`;
+  for (let i = 1; i < clean.length - 1; i++) {
+    const prev = clean[i - 1];
+    const cur = clean[i];
+    const next = clean[i + 1];
+    const inLen = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    const outLen = Math.hypot(next.x - cur.x, next.y - cur.y);
+    const r = Math.min(CORNER_R, inLen / 2, outLen / 2);
+    const ix = cur.x - ((cur.x - prev.x) / (inLen || 1)) * r;
+    const iy = cur.y - ((cur.y - prev.y) / (inLen || 1)) * r;
+    const ox = cur.x + ((next.x - cur.x) / (outLen || 1)) * r;
+    const oy = cur.y + ((next.y - cur.y) / (outLen || 1)) * r;
+    d += `L${ix},${iy}Q${cur.x},${cur.y} ${ox},${oy}`;
+  }
+  const end = clean[clean.length - 1];
+  return `${d}L${end.x},${end.y}`;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -77,7 +117,14 @@ export function FlowGraph({ config, issues, selectedId, onSelect }: Props) {
   const layout = useMemo(() => {
     const flow = buildFlow(config);
     const g = new dagre.graphlib.Graph({ multigraph: true });
-    g.setGraph({ rankdir: 'TB', nodesep: 34, ranksep: 62, marginx: 24, marginy: 24 });
+    g.setGraph({
+      rankdir: 'TB',
+      nodesep: 30,
+      ranksep: 54,
+      edgesep: 18,
+      marginx: 28,
+      marginy: 28,
+    });
     g.setDefaultEdgeLabel(() => ({}));
 
     for (const node of flow.nodes) {
@@ -117,7 +164,7 @@ export function FlowGraph({ config, issues, selectedId, onSelect }: Props) {
       return {
         from: e.from,
         to: e.to,
-        path: smoothPath(pts),
+        path: orthogonalPath(pts),
         label: e.label,
         labelX: le.x ?? mid.x,
         labelY: le.y ?? mid.y,
