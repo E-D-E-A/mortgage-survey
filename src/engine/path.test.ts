@@ -80,9 +80,9 @@ describe('visitedPath', () => {
   });
 
   it('stops at a screenout without walking the rest of the survey', () => {
-    const { steps } = run(questionnaire, { ...PASSES_SCREENING, s_role: 'none' });
+    const { steps } = run(questionnaire, { ...PASSES_SCREENING, s_status: 'not_involved' });
     expect(steps[steps.length - 1].id).toBe('end_screenout');
-    expect(steps.map((s) => s.id)).not.toContain('d_gender');
+    expect(steps.map((s) => s.id)).not.toContain('d_household');
   });
 
   it('terminates on a config that contains a routing cycle', () => {
@@ -216,7 +216,7 @@ describe('the flow graph never lies by omission', () => {
     ['B', ROUTE_B],
     ['C', ROUTE_C],
     ['screenout by age', { ...PASSES_SCREENING, s_age: 16 }],
-    ['screenout by role', { ...PASSES_SCREENING, s_role: 'none' }],
+    ['screenout by involvement', { ...PASSES_SCREENING, s_status: 'not_involved' }],
     ['screenout by consent', { ...PASSES_SCREENING, consent: 'declined' }],
   ];
 

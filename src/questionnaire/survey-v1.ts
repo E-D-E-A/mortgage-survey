@@ -1,19 +1,27 @@
 import type { Condition, SurveyConfig } from '../engine/types';
 
-// שאלון אישוש הפרסונות — גרסה 1.
+// שאלון אישוש הפרסונות — גרסה רזה, תקרת 15 שאלות למשיב.
 //
 // נגזר משלד המחקר (קונפלואנס MTG 13729793) בתהליך הזיקוק המתועד ב-docs/:
 //   distillation-plan.md · persona-mapping.md · question-triage.md · wording-v1.md
-// מיפוי מזהה → קוד שלד → קידוד: docs/codebook.md
+// מיפוי מזהה → קוד שלד → קידוד, והרשימה המלאה של מה שהוצא: docs/codebook.md
 //
-// היקף (חלופה ב׳ שאושרה): סינון 5 · A 19 · B 19 · C 12 · דמוגרפיה 7.
+// תקציב קבוע של 15 שאלות לכל משיב, מנוצל שונה לפי מסלול — משיבי A מדלגים על
+// שתי שאלות סינון (צפי, פעולות) ולכן מקבלים שתי שאלות תוכן במקומן:
 //
-// ⚠ אינווריאנטת segment: משתני onSubmit לא מתאפסים בניווט אחורה, ולכן כל מסך שמציב
-//   את segment עושה זאת בזוג כללים משלים (תנאי + not(תנאי)) — s_status מציב A או
-//   'pending', ו-s_actions מציב B או C. כך חזרה אחורה ושינוי תשובה תמיד דורסת את
-//   הערך הישן במקום להשאיר אותו. כל מסך עם showIf על segment יושב אחרי שני המסכים
-//   האלה, ו-showIf של s_timeline/s_actions נשען על *התשובה* ל-s_status ולא על
-//   המשתנה — כך שכל שינוי בתשובה מעביר את המשיב שוב דרך מסך שמחשב את segment מחדש.
+//            סינון   מסלול   דמוגרפיה   מחויבות   סה"כ
+//   מקטע A     2       9         3          1       15
+//   מקטע B     4       7         3          1       15
+//   מקטע C     4       7         3          1       15
+//
+// ⚠ הגרסה המלאה (v1.0, 23–32 שאלות) שמורה בהיסטוריית git. סעיף "שאלות בהמתנה"
+//   בקודבוק מפרט מה הוצא ובאיזה סדר להחזיר אם יתפנה תקציב.
+//
+// ⚠ אינווריאנטת segment: משתני onSubmit לא מתאפסים בניווט אחורה, ולכן כל מסך
+//   שמציב את segment עושה זאת בזוג כללים משלים (תנאי + not(תנאי)) — s_status
+//   מציב A או 'pending', ו-s_actions מציב B או C. כך חזרה אחורה ושינוי תשובה
+//   תמיד דורסת את הערך הישן. showIf של s_timeline/s_actions נשען על *התשובה*
+//   ל-s_status ולא על המשתנה, כך שכל שינוי מעביר שוב דרך מסך שמחשב מחדש.
 
 /** מקטע B = צפי ≤ 12 חודשים וגם פעולה ממשית אחת לפחות ב-90 יום. */
 const segmentBRule: Condition = {
@@ -35,44 +43,15 @@ const inA: Condition = { var: 'segment', op: 'eq', value: 'A' };
 const inB: Condition = { var: 'segment', op: 'eq', value: 'B' };
 const inC: Condition = { var: 'segment', op: 'eq', value: 'C' };
 
-/** אפשרויות סוג העסקה — משותפות למסלול B ולמסך הגשר של A (הכרעה 7.1/7.2). */
-const DEAL_TYPES = [
-  { id: 'first', label: 'דירה ראשונה' },
-  { id: 'upgrade', label: 'שיפור דיור — מכירת הדירה הקיימת ורכישת אחרת' },
-  { id: 'investment', label: 'דירה להשקעה' },
-  { id: 'build', label: 'בנייה עצמית על מגרש' },
-  { id: 'share', label: 'רכישת חלק בנכס — ירושה, גירושים או שותפות' },
-  { id: 'increase', label: 'הגדלת המשכנתה על נכס קיים — שיפוץ או הרחבה' },
-  { id: 'other', label: 'אחר' },
-];
-
 export const questionnaire: SurveyConfig = {
-  version: 'v1.0',
-  randomVars: {
-    // ניסוי המחיר של B39. ⚠ ערכי ברירת מחדל — טרם נגזרו ממודל עסקי.
-    price: [99, 199, 349],
-  },
-  // תצוגה בלבד: הקונסולה מציגה את התוויות האלה במקום segment / A / B / C.
-  // שמות המשתנים והערכים עצמם נשארים קוד האנליזה (docs/codebook.md).
-  varMeta: {
-    segment: {
-      label: 'מסלול המשיב',
-      values: {
-        A: 'A · יש או הייתה משכנתה',
-        B: 'B · לקראת משכנתה בשנה הקרובה',
-        C: 'C · מוקדם מדי או לא רלוונטי',
-        pending: '(טרם נקבע)',
-      },
-    },
-    price: { label: 'מחיר בניסוי התמחור' },
-  },
+  version: 'v1.1',
   screens: [
-    // ─────────────────────────── בלוק 1 · הסכמה וסינון ───────────────────────────
+    // ────────────────────── סינון · A רואה 2, B/C רואים 4 ──────────────────────
     {
       id: 'intro',
       type: 'info',
       title: 'אנחנו חוקרים איך אנשים בישראל מתמודדים עם משכנתה',
-      body: 'מטרת המחקר היא להבין כיצד אנשים בישראל נערכים למשכנתה, מקבלים החלטות ומנהלים משכנתה קיימת.\n\nהמחקר נערך עבור E.D.E.A. הוא אינו מכירה ואינו ייעוץ פיננסי, משפטי או בנקאי, והשתתפותך לא תשפיע על זכאותך לאשראי או על תנאים שתקבל/י מגוף כלשהו.\n\nאין תשובות נכונות או שגויות — אנחנו רוצים להבין מה באמת קרה ומה באמת חשוב לך.\n\nמשך השאלון: כ-10–12 דקות.',
+      body: 'מטרת המחקר היא להבין כיצד אנשים בישראל נערכים למשכנתה, מקבלים החלטות ומנהלים משכנתה קיימת.\n\nהמחקר נערך עבור E.D.E.A. הוא אינו מכירה ואינו ייעוץ פיננסי, משפטי או בנקאי, והשתתפותך לא תשפיע על זכאותך לאשראי או על תנאים שתקבל/י מגוף כלשהו.\n\nאין תשובות נכונות או שגויות — אנחנו רוצים להבין מה באמת קרה ומה באמת חשוב לך.\n\nמשך השאלון: כ-5 דקות.',
       cta: 'להתחיל',
     },
     {
@@ -85,6 +64,7 @@ export const questionnaire: SurveyConfig = {
       next: [{ if: { q: 'consent', op: 'eq', value: 'declined' }, goto: 'end_screenout' }],
     },
     {
+      // 1 — משמש גם כגיל הדמוגרפי; לא נשאל שוב.
       id: 's_age',
       type: 'number',
       prompt: 'מה גילך?',
@@ -94,19 +74,7 @@ export const questionnaire: SurveyConfig = {
       next: [{ if: { q: 's_age', op: 'lt', value: 18 }, goto: 'end_screenout' }],
     },
     {
-      id: 's_role',
-      type: 'single',
-      prompt: 'מה היה, או צפוי להיות, תפקידך בהחלטה על המשכנתה?',
-      options: [
-        { id: 'main', label: 'מקבל/ת ההחלטה העיקרי/ת' },
-        { id: 'shared', label: 'החלטה משותפת עם אדם נוסף' },
-        { id: 'helper', label: 'מסייע/ת לאדם אחר בהחלטה' },
-        { id: 'none', label: 'לא מעורב/ת בהחלטה' },
-      ],
-      next: [{ if: { q: 's_role', op: 'eq', value: 'none' }, goto: 'end_screenout' }],
-    },
-    {
-      // מיזוג S4+S5. מנתב ל-A ומספק את הבחנת תתי-המקטעים A1/A2.
+      // 2 — מיזוג S4+S5; מנתב ל-A.
       id: 's_status',
       type: 'single',
       prompt: 'מה מתאר את מצבך בנוגע למשכנתה?',
@@ -122,17 +90,20 @@ export const questionnaire: SurveyConfig = {
         },
         { id: 'none', label: 'אף אחד מהמצבים האלה' },
         { id: 'dontknow', label: 'לא יודע/ת' },
+        // מחזיר את הסינון של S3 ("לא מעורב/ת בהחלטה") בעלות של אפס שאלות,
+        // אחרי ש-s_role נחתכה מהתקציב.
+        { id: 'not_involved', label: 'איני מעורב/ת בהחלטות משכנתה של משק הבית שלי' },
       ],
-      // זוג משלים ולא כלל יחיד: בלי הענף השני, משיב שחזר אחורה ושינה את
-      // התשובה מ"קיימת משכנתה" ל"אין לי" היה נשאר עם segment='A' עד
-      // ש-s_actions היה מציב מחדש. 'pending' מציין "טרם נקבע" — אף showIf
-      // אינו משווה אליו, ולכן שום מסך מקטע לא נפתח בטעות.
+      // 'pending' = טרם נקבע; אף showIf אינו משווה אליו, ולכן שום מסך מקטע
+      // לא נפתח בטעות אחרי חזרה אחורה ושינוי תשובה.
       onSubmit: [
         { var: 'segment', value: 'A', if: statusIsA },
         { var: 'segment', value: 'pending', if: { not: statusIsA } },
       ],
+      next: [{ if: { q: 's_status', op: 'eq', value: 'not_involved' }, goto: 'end_screenout' }],
     },
     {
+      // 3 — B/C בלבד
       id: 's_timeline',
       type: 'single',
       showIf: { q: 's_status', op: 'in', value: ['none', 'dontknow'] },
@@ -148,6 +119,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
+      // 4 — B/C בלבד
       id: 's_actions',
       type: 'multi',
       showIf: { q: 's_status', op: 'in', value: ['none', 'dontknow'] },
@@ -168,13 +140,14 @@ export const questionnaire: SurveyConfig = {
       ],
     },
 
-    // ───────────────────────────── בלוק 2 · מסלול A ─────────────────────────────
+    // ───────────────────────── מסלול A · 9 שאלות ─────────────────────────
     {
+      // BES-R — העוגן ההתנהגותי. בלעדיו אין הבחנה בין צורך פעיל לסקרנות.
       id: 'a_last_when',
       type: 'single',
       showIf: inA,
       prompt: 'מתי בפעם האחרונה בדקת את המשכנתה, דיברת עליה עם איש מקצוע, או שקלת לשנות אותה?',
-      help: 'השאלות הבאות עוסקות במשכנתה האחרונה שבה היית מעורב/ת. כשנכתוב "המשכנתה", נתייחס למשכנתה זו.',
+      help: 'השאלות הבאות עוסקות במשכנתה האחרונה שבה היית מעורב/ת.',
       options: [
         { id: 'last_month', label: 'בחודש האחרון' },
         { id: 'm1_3', label: 'לפני 1–3 חודשים' },
@@ -184,47 +157,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'a_last_why',
-      type: 'text',
-      showIf: { all: [inA, { q: 'a_last_when', op: 'ne', value: 'never' }] },
-      prompt: 'מה גרם לך לעשות זאת דווקא אז?',
-      multiline: true,
-      optional: true,
-      placeholder: 'לדוגמה: ראיתי שההחזר עלה · שמעתי מחבר · קיבלתי פנייה מהבנק',
-    },
-    {
-      id: 'a_actions',
-      type: 'multi',
-      showIf: { all: [inA, { q: 'a_last_when', op: 'ne', value: 'never' }] },
-      prompt: 'אילו פעולות ביצעת אז?',
-      options: [
-        { id: 'balance', label: 'בדיקת יתרה או מצב ההלוואה' },
-        { id: 'report', label: 'עיון בדוח או במסמכי המשכנתה' },
-        { id: 'calc', label: 'שימוש במחשבון' },
-        { id: 'bank_talk', label: 'שיחה עם הבנק שלי' },
-        { id: 'other_bank', label: 'בדיקה מול בנק אחר' },
-        { id: 'advisor', label: 'פנייה ליועץ משכנתאות' },
-        { id: 'refi', label: 'ביצוע מִחזור' },
-        { id: 'partial', label: 'פירעון חלקי' },
-        { id: 'postpone', label: 'החלטתי לדחות את הטיפול' },
-        { id: 'none', label: 'לא ביצעתי אף פעולה', exclusive: true },
-      ],
-    },
-    {
-      id: 'a_paid',
-      type: 'single',
-      showIf: { all: [inA, { q: 'a_last_when', op: 'ne', value: 'never' }] },
-      prompt: 'באותו אירוע, האם שילמת לגורם כלשהו כדי לקבל עזרה?',
-      options: [
-        { id: 'no', label: 'לא שילמתי' },
-        { id: 'upto500', label: 'כן, עד 500 ש"ח' },
-        { id: 'r500_2000', label: 'כן, 501–2,000 ש"ח' },
-        { id: 'over2000', label: 'כן, מעל 2,000 ש"ח' },
-        { id: 'dontremember', label: 'לא זוכר/ת' },
-        { id: 'prefer', label: 'מעדיף/ה לא להשיב' },
-      ],
-    },
-    {
+      // מדד הכאב — נושא את סף "כאב ראוי ל-MVP" (30% בחומרה 4–5).
       id: 'a_difficulty',
       type: 'matrix',
       showIf: inA,
@@ -234,7 +167,6 @@ export const questionnaire: SurveyConfig = {
         { id: 'total_cost', label: 'להבין את העלות הכוללת' },
         { id: 'compare', label: 'להשוות בין חלופות' },
         { id: 'rate_change', label: 'להעריך כיצד שינוי בריבית או במדד ישפיע עליי' },
-        { id: 'docs', label: 'לרכז את המסמכים הנדרשים' },
       ],
       scaleMin: 1,
       scaleMax: 5,
@@ -244,6 +176,7 @@ export const questionnaire: SurveyConfig = {
       shuffleItems: true,
     },
     {
+      // P4 (עדי וירון) + משתנה התוצאה של H3.
       id: 'a_refi',
       type: 'single',
       showIf: inA,
@@ -256,42 +189,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'a_refi_trigger',
-      type: 'single',
-      showIf: {
-        all: [inA, { q: 'a_refi', op: 'in', value: ['considered_done', 'considered_not'] }],
-      },
-      prompt: 'מה היה הגורם הראשון שגרם לך לשקול מִחזור?',
-      options: [
-        { id: 'rate', label: 'שינוי בריבית במשק' },
-        { id: 'payment_up', label: 'עליית ההחזר החודשי' },
-        { id: 'income_down', label: 'ירידה בהכנסה' },
-        { id: 'family', label: 'שינוי במצב המשפחתי' },
-        { id: 'cash', label: 'סכום כסף פנוי שהתפנה' },
-        { id: 'advisor_pitch', label: 'פנייה מיועץ או מגורם מקצועי' },
-        { id: 'ad', label: 'פרסום או תוכן שראיתי' },
-        { id: 'other', label: 'אחר' },
-      ],
-    },
-    {
-      id: 'a_refi_blocker',
-      type: 'multi',
-      showIf: { all: [inA, { q: 'a_refi', op: 'eq', value: 'considered_not' }] },
-      prompt: 'מה עצר אותך מלבצע מִחזור?',
-      maxSelections: 3,
-      options: [
-        { id: 'unclear_saving', label: 'לא היה ברור לי אם באמת אחסוך' },
-        { id: 'fees', label: 'עמלות או עלויות נלוות' },
-        { id: 'complex', label: 'התהליך נראה מסובך מדי' },
-        { id: 'time', label: 'לא היה לי זמן' },
-        { id: 'trust', label: 'לא סמכתי על מי שהציע' },
-        { id: 'postponed', label: 'דחיתי ולא חזרתי לזה' },
-        { id: 'partner', label: 'בן/בת הזוג לא היה/הייתה בעד' },
-        { id: 'rejected', label: 'הבנק לא אישר' },
-        { id: 'other', label: 'אחר' },
-      ],
-    },
-    {
+      // המנבא ב-H3 (לחץ תזרימי מול מידע כללי) + P10.
       id: 'a_cashflow',
       type: 'single',
       showIf: inA,
@@ -308,6 +206,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
+      // בחירה כפויה — מפרידה שלושה צרכים שנראים זהים: P4 · P6 · P11.
       id: 'a_priority',
       type: 'single',
       showIf: inA,
@@ -321,31 +220,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // מסך גשר — הכרעה 7.1: מזהה פרסונות עם עסקה עתידית שנותבו ל-A.
-      id: 'a_deal_soon',
-      type: 'single',
-      showIf: inA,
-      prompt:
-        'האם צפויה לך עסקת נדל"ן חדשה ב-12 החודשים הקרובים — רכישה, מכירה, בנייה או הגדלת משכנתה?',
-      options: [
-        { id: 'yes', label: 'כן' },
-        { id: 'maybe', label: 'אולי' },
-        { id: 'no', label: 'לא' },
-      ],
-    },
-    {
-      id: 'a_deal_type',
-      type: 'single',
-      showIf: { all: [inA, { q: 'a_deal_soon', op: 'in', value: ['yes', 'maybe'] }] },
-      prompt: 'מהי העסקה?',
-      // כמו B, פרט ל"דירה ראשונה" (לא רלוונטית למי שכבר במסלול A) ובתוספת דירה נוספת למגורים.
-      options: [
-        ...DEAL_TYPES.filter((o) => o.id !== 'first' && o.id !== 'other'),
-        { id: 'additional', label: 'רכישת דירה נוספת למגורים' },
-        { id: 'other', label: 'אחר' },
-      ],
-    },
-    {
+      // H4 + מכסת 40/40 (עם יועץ / בלי).
       id: 'a_advisor',
       type: 'single',
       showIf: inA,
@@ -358,37 +233,26 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'a_advisor_checks',
-      type: 'multi',
-      showIf: { all: [inA, { q: 'a_advisor', op: 'ne', value: 'no' }] },
-      prompt: 'אילו מהדברים הבאים עשית בעצמך — לפני שבחרת ביועץ, או במקביל לעבודה איתו?',
+      // הכרעה 7.1 מקופלת לשאלה אחת: האפשרות "לא צפויה" מחליפה את מסך הגשר הנפרד.
+      // מזהה את P3 (משפרי דיור) · P6 (הגדלה) · P10/P12 (רכישת חלק) · P11 (השקעה).
+      id: 'a_deal_type',
+      type: 'single',
+      showIf: inA,
+      prompt: 'האם צפויה לך עסקת נדל"ן חדשה ב-12 החודשים הקרובים, ואם כן — מהי?',
       options: [
-        { id: 'compared', label: 'השוויתי בין כמה יועצים לפני שבחרתי' },
-        { id: 'credentials', label: 'בדקתי הכשרה, ניסיון או המלצות' },
-        { id: 'conflict', label: 'ביררתי כיצד הוא מתוגמל או אם יש ניגוד עניינים' },
-        { id: 'verified', label: 'אימתתי בעצמי את ההצעות מול הבנקים' },
-        { id: 'own_calc', label: 'עשיתי חישוב עצמאי משלי' },
-        { id: 'read_docs', label: 'קראתי את המסמכים במלואם' },
-        { id: 'none', label: 'לא עשיתי דבר מאלה', exclusive: true },
+        { id: 'none', label: 'לא צפויה לי עסקה חדשה' },
+        { id: 'upgrade', label: 'שיפור דיור — מכירת הדירה הקיימת ורכישת אחרת' },
+        { id: 'investment', label: 'דירה להשקעה' },
+        { id: 'additional', label: 'רכישת דירה נוספת למגורים' },
+        { id: 'build', label: 'בנייה עצמית על מגרש' },
+        { id: 'share', label: 'רכישת חלק בנכס — ירושה, גירושים או שותפות' },
+        { id: 'increase', label: 'הגדלת המשכנתה על הנכס הקיים — שיפוץ או הרחבה' },
+        { id: 'other', label: 'עסקה אחרת' },
       ],
     },
     {
-      id: 'a_no_advisor',
-      type: 'multi',
-      showIf: { all: [inA, { q: 'a_advisor', op: 'eq', value: 'no' }] },
-      prompt: 'מדוע לא נעזרת ביועץ משכנתאות?',
-      options: [
-        { id: 'price', label: 'המחיר' },
-        { id: 'no_need', label: 'לא ראיתי בכך צורך' },
-        { id: 'trust', label: 'לא סמכתי על יועצים' },
-        { id: 'control', label: 'רציתי לשמור על שליטה בתהליך' },
-        { id: 'bank_enough', label: 'הבנק סיפק לי את מה שהייתי צריך' },
-        { id: 'family', label: 'נעזרתי במשפחה או בחבר' },
-        { id: 'unknown', label: 'לא ידעתי שקיימת אפשרות כזו' },
-        { id: 'other', label: 'אחר' },
-      ],
-    },
-    {
+      // צורך לא-מוטה — חייבת להישאר לפני מסך הקונספט.
+      // בגרסה הרזה זו גם מדד התאמת התכונה (סף 40%), במקום שאלת היכולות שאחרי החשיפה.
       id: 'a_easier',
       type: 'multi',
       showIf: inA,
@@ -411,42 +275,12 @@ export const questionnaire: SurveyConfig = {
       id: 'a_concept',
       type: 'info',
       showIf: inA,
-      title: 'לפני שנמשיך — על מה אנחנו עובדים',
+      title: 'לפני שנסיים — על מה אנחנו עובדים',
       body: 'אנחנו בוחנים כלי שמאפשר לראות את המשכנתה הקיימת במקום אחד, להשוות חלופות ולהבין כיצד שינויים עשויים להשפיע עליה — על בסיס נתונים שהמשתמש מזין או מחבר.\n\nהכלי אינו מחליף את ההחלטה שלך, אינו נותן ייעוץ ואינו מבטיח חיסכון.',
       cta: 'הבנתי, נמשיך',
     },
     {
-      id: 'a_capabilities',
-      type: 'multi',
-      showIf: inA,
-      prompt: 'אילו שתי יכולות היו בעלות הערך הגבוה ביותר עבורך?',
-      maxSelections: 2,
-      shuffleOptions: true,
-      options: [
-        { id: 'refi_check', label: 'בדיקה אם כדאי למחזר' },
-        { id: 'monitor', label: 'ניטור שוטף והתראות על שינויים' },
-        { id: 'explain', label: 'הסברים פשוטים על המשכנתה שלי' },
-        { id: 'forecast', label: 'תחזית והשוואת תרחישים' },
-        { id: 'docs', label: 'ניהול המסמכים' },
-        { id: 'compare', label: 'השוואה בין הצעות בנקים' },
-        { id: 'advisor_tools', label: 'עבודה מסודרת מול יועץ' },
-      ],
-    },
-    {
-      id: 'a_data',
-      type: 'multi',
-      showIf: inA,
-      prompt: 'אילו מהנתונים הבאים היית מוכן/ה לשתף כדי לקבל את התוצאה הזו?',
-      options: [
-        { id: 'manual', label: 'נתונים שאזין ידנית' },
-        { id: 'mortgage_report', label: 'דוח משכנתה מהבנק' },
-        { id: 'approval', label: 'אישור עקרוני' },
-        { id: 'account', label: 'נתוני חשבון הבנק' },
-        { id: 'credit', label: 'נתוני אשראי' },
-        { id: 'none', label: 'לא הייתי משתף/ת נתונים', exclusive: true },
-      ],
-    },
-    {
+      // BES-C — משתנה התוצאה של הוולידציה המסחרית.
       id: 'a_commit',
       type: 'single',
       showIf: inA,
@@ -459,58 +293,28 @@ export const questionnaire: SurveyConfig = {
         { id: 'pay', label: 'לשלם עבור בדיקה' },
         { id: 'none', label: 'אף אחת מהפעולות' },
       ],
-      next: [{ goto: 'd_gender' }],
+      next: [{ goto: 'd_household' }],
     },
 
-    // ───────────────────────────── בלוק 3 · מסלול B ─────────────────────────────
+    // ───────────────────────── מסלול B · 7 שאלות ─────────────────────────
     {
+      // הכרעה 7.2 — מפרידה 8 מ-9 פרסונות ה-B. בלעדיה כולן נראות זהות בנתונים.
       id: 'b_deal_type',
       type: 'single',
       showIf: inB,
       prompt: 'מהי העסקה שבגללה את/ה מעריך/ה שתבקש/י משכנתה?',
-      help: 'השאלות הבאות מתייחסות לרכישה או לפרויקט שבגללם את/ה מעריך/ה שתבקש/י משכנתה.',
-      options: DEAL_TYPES,
-    },
-    {
-      id: 'b_stage',
-      type: 'single',
-      showIf: inB,
-      prompt: 'באיזה שלב את/ה כיום?',
       options: [
-        { id: 'budget', label: 'בירור תקציב והון עצמי' },
-        { id: 'search', label: 'חיפוש נכס' },
-        { id: 'found', label: 'נכס נמצא' },
-        { id: 'negotiation', label: 'משא ומתן' },
-        { id: 'contract', label: 'לקראת חוזה או אחריו' },
-        { id: 'approval', label: 'בקשת אישור עקרוני' },
-        { id: 'offers', label: 'השוואת הצעות משכנתה' },
-        { id: 'signing', label: 'לקראת חתימה על המשכנתה' },
+        { id: 'first', label: 'דירה ראשונה' },
+        { id: 'upgrade', label: 'שיפור דיור — מכירת הדירה הקיימת ורכישת אחרת' },
+        { id: 'investment', label: 'דירה להשקעה' },
+        { id: 'build', label: 'בנייה עצמית על מגרש' },
+        { id: 'share', label: 'רכישת חלק בנכס — ירושה, גירושים או שותפות' },
+        { id: 'increase', label: 'הגדלת המשכנתה על נכס קיים — שיפוץ או הרחבה' },
+        { id: 'other', label: 'אחר' },
       ],
     },
     {
-      id: 'b_last_action',
-      type: 'text',
-      showIf: inB,
-      prompt: 'מה הייתה הפעולה האחרונה שביצעת בנושא, מתי היא קרתה, ומה גרם לך לעשות אותה דווקא אז?',
-      multiline: true,
-      optional: true,
-      placeholder: 'לדוגמה: לפני שבועיים נפגשנו עם הבנק, אחרי שמצאנו דירה שאהבנו',
-    },
-    {
-      id: 'b_paid',
-      type: 'single',
-      showIf: inB,
-      prompt: 'האם שילמת כבר עבור עזרה הקשורה לרכישה או למימון?',
-      options: [
-        { id: 'no', label: 'לא שילמתי' },
-        { id: 'upto500', label: 'כן, עד 500 ש"ח' },
-        { id: 'r500_2000', label: 'כן, 501–2,000 ש"ח' },
-        { id: 'over2000', label: 'כן, מעל 2,000 ש"ח' },
-        { id: 'prefer', label: 'מעדיף/ה לא להשיב' },
-      ],
-    },
-    {
-      // מיזוג B9+B10: קיום התקרה ואופן גזירתה במסך אחד.
+      // המבחן החד ביותר של P1: כלל אצבע מול תקציב מסודר. התנהגות, לא דעה.
       id: 'b_ceiling',
       type: 'single',
       showIf: inB,
@@ -525,23 +329,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'b_equity',
-      type: 'multi',
-      showIf: inB,
-      prompt: 'מהו מקור ההון העצמי הצפוי?',
-      options: [
-        { id: 'savings', label: 'חיסכון עצמי' },
-        { id: 'family', label: 'עזרה או מתנה מהמשפחה' },
-        { id: 'family_loan', label: 'הלוואה מהמשפחה' },
-        { id: 'sale', label: 'מכירת נכס קיים' },
-        { id: 'investments', label: 'מימוש השקעות' },
-        { id: 'loan', label: 'הלוואה נוספת' },
-        { id: 'grant', label: 'מענק או זכאות' },
-        { id: 'other', label: 'אחר' },
-        { id: 'unknown', label: 'עדיין לא יודע/ת', exclusive: true },
-      ],
-    },
-    {
+      // מדד הכאב המרכזי של B.
       id: 'b_unclear',
       type: 'multi',
       showIf: inB,
@@ -562,26 +350,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'b_difficulty',
-      type: 'matrix',
-      showIf: inB,
-      prompt: 'עד כמה קשה לך כרגע לבצע כל אחת מהפעולות הבאות?',
-      items: [
-        { id: 'docs', label: 'לרכז את המסמכים הנדרשים' },
-        { id: 'amount', label: 'להחליט על הסכום' },
-        { id: 'risk', label: 'להבין את הסיכון' },
-        { id: 'compare', label: 'להשוות בין הצעות' },
-        { id: 'coordinate', label: 'לתאם עם בן/בת הזוג או עם שותפים להחלטה' },
-      ],
-      scaleMin: 1,
-      scaleMax: 5,
-      minLabel: 'קל מאוד',
-      maxLabel: 'קשה מאוד',
-      naLabel: 'לא רלוונטי',
-      shuffleItems: true,
-    },
-    {
-      // מיזוג B19–B22 (SURE) למסך אחד. כל פריט מסומן = 1; הציון הוא מספר הפריטים.
+      // ארבעת פריטי SURE במסך אחד — קונפליקט החלטתי (0–4) + H7.
       id: 'b_sure',
       type: 'multi',
       showIf: inB,
@@ -595,50 +364,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'b_who',
-      type: 'multi',
-      showIf: inB,
-      prompt: 'מי משתתף בהחלטה?',
-      options: [
-        { id: 'alone', label: 'רק אני', exclusive: true },
-        { id: 'partner', label: 'בן/בת הזוג' },
-        { id: 'family', label: 'הורים או בני משפחה' },
-        { id: 'advisor', label: 'יועץ משכנתאות' },
-        { id: 'bank', label: 'נציג הבנק' },
-        { id: 'lawyer', label: 'עורך דין' },
-        { id: 'agent', label: 'מתווך' },
-        { id: 'other', label: 'אחר' },
-      ],
-    },
-    {
-      id: 'b_advisor',
-      type: 'single',
-      showIf: inB,
-      prompt: 'האם פנית, או בכוונתך לפנות, ליועץ משכנתאות?',
-      options: [
-        { id: 'already', label: 'כבר פניתי' },
-        { id: 'intend', label: 'בכוונתי לפנות' },
-        { id: 'considering', label: 'שוקל/ת' },
-        { id: 'no', label: 'לא מתכוון/ת' },
-      ],
-    },
-    {
-      id: 'b_next_event',
-      type: 'single',
-      showIf: inB,
-      prompt: 'איזה אירוע יגרום לך לעבור מהשלב הנוכחי לשלב הבא?',
-      options: [
-        { id: 'property', label: 'מציאת נכס מתאים' },
-        { id: 'equity', label: 'השלמת ההון העצמי' },
-        { id: 'income', label: 'שינוי בהכנסה או ביציבות התעסוקתית' },
-        { id: 'approval', label: 'קבלת אישור עקרוני' },
-        { id: 'partner', label: 'הסכמה עם בן/בת הזוג' },
-        { id: 'rates', label: 'שינוי בריבית' },
-        { id: 'contract', label: 'מועד בחוזה או בעסקה' },
-        { id: 'unknown', label: 'לא יודע/ת' },
-      ],
-    },
-    {
+      // חסם מרכזי · מארחת את חור 2 (P5 — הכנסה מחו"ל) ואת חור 3 (P2/P10/P12 — גיל).
       id: 'b_delay',
       type: 'single',
       showIf: inB,
@@ -652,13 +378,13 @@ export const questionnaire: SurveyConfig = {
         { id: 'prices', label: 'מחירי הנכסים' },
         { id: 'knowledge', label: 'חוסר ידע או ביטחון בהחלטה' },
         { id: 'partner', label: 'תיאום עם בן/בת הזוג או עם צד שלישי' },
-        // חור 3 במיפוי הפרסונות — P2 (78/79), P10 (44), P12 (48/51)
         { id: 'long_commitment', label: 'חשש מהתחייבות ארוכת טווח בגיל שלי' },
         { id: 'nothing', label: 'שום דבר — התהליך מתקדם' },
         { id: 'other', label: 'אחר' },
       ],
     },
     {
+      // צורך לא-מוטה, לפני החשיפה. משמש גם כמדד התאמת התכונה (סף 40%).
       id: 'b_confident',
       type: 'multi',
       showIf: inB,
@@ -680,42 +406,12 @@ export const questionnaire: SurveyConfig = {
       id: 'b_concept',
       type: 'info',
       showIf: inB,
-      title: 'לפני שנמשיך — על מה אנחנו עובדים',
+      title: 'לפני שנסיים — על מה אנחנו עובדים',
       body: 'אנחנו בוחנים כלי שמלווה את התהליך לקראת משכנתה: מרכז את הנתונים, מציג חלופות ומסביר מה ההבדל ביניהן, ועוזר להתכונן לשיחה מול הבנק.\n\nהכלי אינו מחליף את ההחלטה שלך, אינו נותן ייעוץ ואינו מבטיח תנאים כלשהם.',
       cta: 'הבנתי, נמשיך',
     },
     {
-      id: 'b_capabilities',
-      type: 'multi',
-      showIf: inB,
-      prompt: 'אילו שתי יכולות היית בוחר/ת?',
-      maxSelections: 2,
-      shuffleOptions: true,
-      options: [
-        { id: 'budget_calc', label: 'חישוב כמה נכון לי לקחת' },
-        { id: 'compare', label: 'השוואה בין הצעות בנקים' },
-        { id: 'simulate', label: 'סימולציה של תרחישים' },
-        { id: 'explain', label: 'הסברים פשוטים על המסלולים' },
-        { id: 'docs', label: 'ניהול המסמכים והתהליך' },
-        { id: 'checklist', label: 'רשימת מה צריך לעשות ומתי' },
-        { id: 'advisor_tools', label: 'עבודה מסודרת מול יועץ' },
-      ],
-    },
-    {
-      id: 'b_data',
-      type: 'multi',
-      showIf: inB,
-      prompt: 'אילו מהנתונים הבאים היית מוכן/ה להזין או לשתף?',
-      options: [
-        { id: 'manual', label: 'נתונים שאזין ידנית' },
-        { id: 'payslips', label: 'תלושי שכר או אישורי הכנסה' },
-        { id: 'approval', label: 'אישור עקרוני' },
-        { id: 'account', label: 'נתוני חשבון הבנק' },
-        { id: 'credit', label: 'נתוני אשראי' },
-        { id: 'none', label: 'לא הייתי משתף/ת נתונים', exclusive: true },
-      ],
-    },
-    {
+      // BES-C
       id: 'b_commit',
       type: 'single',
       showIf: inB,
@@ -729,31 +425,10 @@ export const questionnaire: SurveyConfig = {
         { id: 'deposit', label: 'להפקיד פיקדון בר-החזר' },
         { id: 'none', label: 'אף אחת מהפעולות' },
       ],
-    },
-    {
-      id: 'b_price',
-      type: 'single',
-      showIf: inB,
-      prompt: 'אם הכלי היה עולה {price} ש"ח בתשלום חד-פעמי, מה היית עושה?',
-      options: [
-        { id: 'buy', label: 'קונה' },
-        { id: 'check_alt', label: 'בודק/ת חלופה אחרת קודם' },
-        { id: 'advisor', label: 'מעדיף/ה לשלם ליועץ במקום' },
-        { id: 'no', label: 'לא קונה' },
-        { id: 'dontknow', label: 'לא יודע/ת' },
-      ],
-    },
-    {
-      id: 'b_price_why',
-      type: 'text',
-      showIf: inB,
-      prompt: 'מה הסיבה העיקרית לתשובתך?',
-      multiline: true,
-      optional: true,
-      next: [{ goto: 'd_gender' }],
+      next: [{ goto: 'd_household' }],
     },
 
-    // ───────────────────────────── בלוק 4 · מסלול C ─────────────────────────────
+    // ───────────────────────── מסלול C · 7 שאלות ─────────────────────────
     {
       id: 'c_housing',
       type: 'single',
@@ -768,18 +443,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'c_goal',
-      type: 'single',
-      showIf: inC,
-      prompt: 'האם רכישת דירה היא מטרה עבורך?',
-      options: [
-        { id: 'yes_soon', label: 'כן, בשנים הקרובות' },
-        { id: 'maybe', label: 'אולי, אין לי מועד' },
-        { id: 'not_now', label: 'לא כרגע' },
-        { id: 'no', label: 'לא, זו אינה מטרה שלי' },
-      ],
-    },
-    {
+      // התחרות על הקשב — התובנה המרכזית של מקטע C.
       id: 'c_financial_goal',
       type: 'single',
       showIf: inC,
@@ -794,15 +458,6 @@ export const questionnaire: SurveyConfig = {
         { id: 'daily', label: 'פשוט לסגור את החודש' },
         { id: 'none', label: 'אין לי מטרה מוגדרת כרגע' },
       ],
-    },
-    {
-      id: 'c_last_thought',
-      type: 'text',
-      showIf: inC,
-      prompt: 'ספר/י על הפעם האחרונה שבה חשבת ברצינות על רכישת דירה. מה עורר את המחשבה ומה עשית לאחר מכן?',
-      multiline: true,
-      optional: true,
-      placeholder: 'אפשר לדלג אם אין לך דוגמה',
     },
     {
       id: 'c_reason',
@@ -821,6 +476,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
+      // טריגרים — H5.
       id: 'c_conditions',
       type: 'multi',
       showIf: inC,
@@ -839,18 +495,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'c_equity_target',
-      type: 'single',
-      showIf: inC,
-      prompt: 'האם יש לך יעד מוגדר להון עצמי, ואת/ה עוקב/ת אחרי ההתקדמות אליו?',
-      options: [
-        { id: 'target_track', label: 'כן — יש סכום יעד ואני עוקב/ת אחריו באופן קבוע' },
-        { id: 'target_no_track', label: 'כן — יש סכום יעד, אבל איני עוקב/ת' },
-        { id: 'general', label: 'יש לי יעד באופן כללי, בלי סכום מוגדר' },
-        { id: 'none', label: 'אין לי יעד' },
-      ],
-    },
-    {
+      // מקבילת הכאב של C — חסם נתפס.
       id: 'c_barriers',
       type: 'matrix',
       showIf: inC,
@@ -858,10 +503,8 @@ export const questionnaire: SurveyConfig = {
       items: [
         { id: 'equity', label: 'לצבור הון עצמי' },
         { id: 'prices', label: 'מחירי הדירות' },
-        { id: 'income', label: 'ההכנסה הנדרשת' },
         { id: 'mortgage', label: 'תהליך המשכנתה עצמו' },
         { id: 'tracks', label: 'מסלולים וריביות' },
-        { id: 'planning', label: 'תכנון משותף עם בן/בת זוג' },
       ],
       scaleMin: 1,
       scaleMax: 5,
@@ -871,24 +514,7 @@ export const questionnaire: SurveyConfig = {
       shuffleItems: true,
     },
     {
-      // מטריצת נכון/לא נכון עם עמודת "לא יודע" — שומרת שלושה קודים נפרדים,
-      // כפי שכללי הקידוד בשלד דורשים ("אין לאחד לא רלוונטי / לא יודע / לא ענה").
-      id: 'c_literacy',
-      type: 'matrix',
-      showIf: inC,
-      prompt: 'לפי מיטב ידיעתך — האם המשפטים הבאים נכונים?',
-      items: [
-        { id: 'variable', label: 'ההחזר במסלול בריבית משתנה עשוי להשתנות במהלך התקופה' },
-        { id: 'longer', label: 'החזר חודשי נמוך יותר עשוי להגדיל את העלות הכוללת של ההלוואה' },
-        { id: 'one_bank', label: 'הצעה של בנק אחד אינה בהכרח הטובה ביותר שאפשר לקבל' },
-      ],
-      scaleMin: 1,
-      scaleMax: 2,
-      minLabel: 'לא נכון',
-      maxLabel: 'נכון',
-      naLabel: 'לא יודע/ת',
-    },
-    {
+      // H8 — מוצר הכניסה הקטן ביותר. צורך לא-מוטה, לפני החשיפה.
       id: 'c_small_action',
       type: 'multi',
       showIf: inC,
@@ -908,11 +534,13 @@ export const questionnaire: SurveyConfig = {
       id: 'c_concept',
       type: 'info',
       showIf: inC,
-      title: 'לפני שנמשיך — על מה אנחנו עובדים',
+      title: 'לפני שנסיים — על מה אנחנו עובדים',
       body: 'אנחנו בוחנים כלי שעוזר להיערך מוקדם: לקבוע יעד הון עצמי, לראות כמה זמן ייקח להגיע אליו ולהבין מה נדרש — בלי צורך להגיש בקשת משכנתה או לדבר עם בנק.\n\nהכלי אינו נותן ייעוץ ואינו מבטיח תוצאה.',
       cta: 'הבנתי, נמשיך',
     },
     {
+      // BES-C. 'deposit' הוא אות המחויבות החזק ביותר ב-C, ולכן מקופל לכאן
+      // במקום שאלה נפרדת (C22 בשלד).
       id: 'c_commit',
       type: 'single',
       showIf: inC,
@@ -920,38 +548,14 @@ export const questionnaire: SurveyConfig = {
       options: [
         { id: 'read', label: 'לקרוא מידע או מדריך' },
         { id: 'target', label: 'להזין יעד הון עצמי' },
-        { id: 'monthly', label: 'להגדיר סכום חיסכון חודשי' },
         { id: 'reminder', label: 'להירשם לתזכורת' },
         { id: 'call', label: 'לקבוע שיחה של 20 דקות' },
+        { id: 'deposit', label: 'להפעיל הוראת חיסכון חודשית קבועה' },
         { id: 'none', label: 'אף אחת מהפעולות' },
       ],
     },
-    {
-      id: 'c_deposit',
-      type: 'single',
-      showIf: inC,
-      prompt: 'האם תהיה מוכן/ה להפקיד סכום חודשי קבוע או להפעיל הוראת חיסכון למטרה זו?',
-      options: [
-        { id: 'already', label: 'כן — אני כבר עושה זאת' },
-        { id: 'yes', label: 'כן' },
-        { id: 'maybe', label: 'אולי' },
-        { id: 'no', label: 'לא' },
-      ],
-    },
 
-    // ─────────────────────── בלוק 5 · דמוגרפיה (משותפת) ───────────────────────
-    // הגיל כבר נשאל ב-s_age ואינו נשאל שוב.
-    {
-      id: 'd_gender',
-      type: 'single',
-      prompt: 'כיצד את/ה מגדיר/ה את עצמך?',
-      options: [
-        { id: 'female', label: 'אישה' },
-        { id: 'male', label: 'גבר' },
-        { id: 'other', label: 'אחר' },
-        { id: 'prefer', label: 'מעדיף/ה לא להשיב' },
-      ],
-    },
+    // ──────────────────── דמוגרפיה · 3 שאלות (הגיל נלקח מ-s_age) ────────────────────
     {
       id: 'd_household',
       type: 'single',
@@ -967,22 +571,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'd_district',
-      type: 'single',
-      prompt: 'באיזה מחוז את/ה מתגורר/ת?',
-      options: [
-        { id: 'jerusalem', label: 'ירושלים' },
-        { id: 'north', label: 'צפון' },
-        { id: 'haifa', label: 'חיפה' },
-        { id: 'center', label: 'מרכז' },
-        { id: 'tel_aviv', label: 'תל אביב' },
-        { id: 'south', label: 'דרום' },
-        { id: 'judea_samaria', label: 'יהודה ושומרון' },
-        { id: 'abroad', label: 'איני מתגורר/ת בישראל כרגע' },
-      ],
-    },
-    {
-      // רב-ברירה במכוון: מטפל ב"גם שכיר וגם עצמאי", ומארח את S8 בלי מסך נוסף.
+      // רב-ברירה במכוון: מטפל ב"גם שכיר וגם עצמאי" (P8), ומארח את S8 בלי מסך נוסף.
       id: 'd_employment',
       type: 'multi',
       prompt: 'אילו מהמצבים הבאים מתארים אותך?',
@@ -999,18 +588,6 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      id: 'd_income_stability',
-      type: 'single',
-      prompt: 'עד כמה הכנסת משק הבית משתנה מחודש לחודש?',
-      options: [
-        { id: 'stable', label: 'קבועה לחלוטין' },
-        { id: 'mostly_stable', label: 'משתנה מעט' },
-        { id: 'somewhat', label: 'משתנה במידה בינונית' },
-        { id: 'variable', label: 'משתנה הרבה' },
-        { id: 'very_variable', label: 'משתנה מאוד — קשה לחזות' },
-      ],
-    },
-    {
       id: 'd_income',
       type: 'single',
       prompt: 'מהי הכנסת משק הבית נטו בחודש רגיל?',
@@ -1024,29 +601,14 @@ export const questionnaire: SurveyConfig = {
         { id: 'prefer', label: 'מעדיף/ה לא להשיב' },
       ],
     },
-    {
-      id: 'd_assets',
-      type: 'single',
-      prompt: 'כמה דירות נמצאות בבעלותך או בבעלות משק הבית?',
-      options: [
-        { id: 'none', label: 'אף אחת' },
-        { id: 'one', label: 'אחת' },
-        { id: 'two_plus', label: 'שתיים או יותר' },
-        { id: 'prefer', label: 'מעדיף/ה לא להשיב' },
-      ],
-    },
 
-    // ─────────────────────── בלוק 6 · סיום ומחויבות ───────────────────────
+    // ──────────────────────────── סיום ומחויבות ────────────────────────────
     {
-      // עקרון הפרטיות בשלד: "פרטי קשר למחקר המשך יישמרו בנפרד מן התשובות",
-      // ולכן השאלון עצמו לא אוסף אותם.
+      // פרטי הקשר עצמם נאספים בטופס חיצוני נפרד — עקרון הפרטיות בשלד.
       id: 'end_followup',
       type: 'single',
       prompt: 'האם תרצה/י להשתתף בבדיקת המשך קצרה?',
-      // ⚠ הניסוח לא מבטיח טופס שאינו קיים (docs/wording-v1.md, פתוח #5).
-      // כשייווצר טופס פרטי קשר חיצוני — להוסיף קישור אליו ל-end_complete
-      // ולעדכן את הניסוח כאן בהתאם.
-      help: 'לא נבקש כאן פרטי קשר. אם תסמן/י "כן", נפנה אליך דרך אותו ערוץ שבו הגיע אליך השאלון.',
+      help: 'פרטי הקשר ייאספו בטופס נפרד ולא יישמרו יחד עם התשובות שלך.',
       options: [
         { id: 'yes', label: 'כן, אשמח' },
         { id: 'no', label: 'לא, תודה' },
