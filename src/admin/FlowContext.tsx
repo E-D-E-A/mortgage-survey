@@ -15,6 +15,7 @@ import {
   varLabel,
   varValueLabel,
 } from './display';
+import { fallThroughSources, fallThroughTargets } from './reachability';
 import { ArrowIcon, BranchIcon, EyeIcon, VarIcon } from './Icons';
 
 interface Props {
@@ -22,35 +23,6 @@ interface Props {
   screen: Screen;
   naming: Naming;
   onSelect: (id: string) => void;
-}
-
-/** כלל ניתוב בלי תנאי נתפס תמיד — מכאן והלאה שום דבר לא רץ. */
-function hasUnconditionalGoto(screen: Screen): boolean {
-  return (screen.next ?? []).some((r) => !r.if);
-}
-
-/**
- * מי יכול ליפול לכאן ברצף. הולכים אחורה כל עוד המסכים מותנים (כלומר ניתנים
- * לדילוג); המסך הראשון שמוצג תמיד חוסם — נפילה מלפניו נוחתת עליו, לא כאן.
- */
-export function sequentialPredecessors(screens: Screen[], index: number): Screen[] {
-  const out: Screen[] = [];
-  for (let j = index - 1; j >= 0; j--) {
-    const s = screens[j];
-    if (s.type !== 'end' && !hasUnconditionalGoto(s)) out.push(s);
-    if (!s.showIf) break;
-  }
-  return out;
-}
-
-/** לאן נופלים מכאן ברצף — אותה לוגיקה, קדימה. */
-export function sequentialSuccessors(screens: Screen[], index: number): Screen[] {
-  const out: Screen[] = [];
-  for (let j = index + 1; j < screens.length; j++) {
-    out.push(screens[j]);
-    if (!screens[j].showIf) break;
-  }
-  return out;
 }
 
 export function FlowContext({ config, screen, naming, onSelect }: Props) {
@@ -62,8 +34,10 @@ export function FlowContext({ config, screen, naming, onSelect }: Props) {
       .map((rule, i) => ({ from: s, rule, i }))
       .filter(({ rule }) => rule.goto === screen.id),
   );
-  const fallIn = index > 0 ? sequentialPredecessors(screens, index) : [];
-  const fallOut = hasUnconditionalGoto(screen) ? [] : sequentialSuccessors(screens, index);
+  // אותו חישוב שמזין את הקשתות בתרשים — כדי שהפאנל והתרשים לא יוכלו לספר
+  // שני סיפורים שונים, וכדי שלא יימנו כאן מעברים שאינם אפשריים
+  const fallIn = fallThroughSources(screens, index);
+  const fallOut = fallThroughTargets(screens, index);
 
   // הסימונים שתנאי התצוגה של המסך נשען עליהם, ואיפה הם נקבעים בפועל
   const dependsOn = screen.showIf ? [...new Set(conditionVars(screen.showIf))] : [];
@@ -146,7 +120,7 @@ export function FlowContext({ config, screen, naming, onSelect }: Props) {
             <p className="flow-line" key={s.id}>
               <ArrowIcon width={13} height={13} />
               <span>
-                {i === 0 && !s.showIf ? 'אחר כך: ' : 'אחרת: '}
+                {i === 0 ? 'אחר כך: ' : 'אם הוא מדולג: '}
                 <Ref naming={naming} id={s.id} onSelect={onSelect} />
                 {s.showIf && ` — רק אם ${conditionSentence(naming, s.showIf)}`}
               </span>

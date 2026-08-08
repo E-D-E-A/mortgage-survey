@@ -4,6 +4,7 @@ import { findNext } from './navigation';
 import { progressRatio, pruneAnswers, simulatePath, visitedPath } from './path';
 import type { AnswerValue, Answers, Screen, SurveyConfig, SurveyContext, Vars } from './types';
 import { questionnaire } from '../questionnaire/survey-v1';
+import { buildFlow } from '../admin/graph';
 
 /**
  * סימולציה של משיב אמיתי: עונה, מפעיל onSubmit ועובר ל-findNext — בדיוק
@@ -204,5 +205,34 @@ describe('simulatePath', () => {
       ],
     };
     expect(simulatePath(loop, {}).map((s) => s.screen.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('the flow graph never lies by omission', () => {
+  // התרשים גוזם מעברים שאינם אפשריים כדי להיות קריא. כישלון הגיזום המסוכן
+  // אינו עומס אלא הסתרה: מעבר אמיתי שאין לו קשת. זו הבדיקה שחוסמת אותו.
+  const ROUTES: [string, Record<string, AnswerValue>][] = [
+    ['A', ROUTE_A],
+    ['B', ROUTE_B],
+    ['C', ROUTE_C],
+    ['screenout by age', { ...PASSES_SCREENING, s_age: 16 }],
+    ['screenout by role', { ...PASSES_SCREENING, s_role: 'none' }],
+    ['screenout by consent', { ...PASSES_SCREENING, consent: 'declined' }],
+  ];
+
+  const edges = new Set(buildFlow(questionnaire).edges.map((e) => `${e.from}→${e.to}`));
+
+  it.each(ROUTES)('draws every transition a %s respondent actually takes', (_name, route) => {
+    const { steps } = run(questionnaire, route);
+    for (let i = 0; i + 1 < steps.length; i++) {
+      expect(edges, `${steps[i].id} → ${steps[i + 1].id} is walked but not drawn`).toContain(
+        `${steps[i].id}→${steps[i + 1].id}`,
+      );
+    }
+  });
+
+  it('stays far below the quadratic blow-up it replaced', () => {
+    // 70 מסכים שרובם מותנים ייצרו 1,565 קשתות בגזירה הנאיבית
+    expect(buildFlow(questionnaire).edges.length).toBeLessThan(150);
   });
 });

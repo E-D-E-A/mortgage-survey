@@ -4,6 +4,7 @@
 // עם תרגום מזהי אפשרויות לנוסח שהמשיב רואה.
 
 import type { Condition, Screen, SurveyConfig, VarMeta } from '../engine/types';
+import { fallThroughTargets } from './reachability';
 
 type VarMetaMap = Record<string, VarMeta>;
 
@@ -172,11 +173,10 @@ export function buildFlow(config: SurveyConfig): Flow {
     if (unconditional) return;
 
     // נפילה קדימה: המנוע סורק את המסכים הבאים ועוצר בראשון שעובר showIf.
-    // לכן היעד עשוי להיות לא רק המסך הבא אלא כל מסך עד הראשון ללא showIf.
-    // הקשת למסך הבא היא הראשית; הרחוקות יותר (דילוג) מוצגות מעומעמות
-    // כדי לשמור על קריאות בלי להסתיר מסלולים אמיתיים.
-    for (let j = i + 1; j < screens.length; j++) {
-      const target = screens[j];
+    // fallThroughTargets מחזיר בדיוק את הנחיתות האפשריות — בלי ענפים שסותרים
+    // את תנאי המקור ובלי כפילויות בתוך ענף. הראשונה היא ההמשך הרגיל; היתר
+    // מוצגות מעומעמות כדי לשמור על קריאות בלי להסתיר מסלולים אמיתיים.
+    fallThroughTargets(screens, i).forEach((target, k) => {
       edges.push({
         from: screen.id,
         to: target.id,
@@ -186,10 +186,9 @@ export function buildFlow(config: SurveyConfig): Flow {
             ? 'אחרת'
             : '',
         conditional: Boolean(target.showIf) || rules.length > 0,
-        kind: j === i + 1 ? 'primary' : 'skip',
+        kind: k === 0 ? 'primary' : 'skip',
       });
-      if (!target.showIf) break;
-    }
+    });
   });
 
   return { nodes, edges };
