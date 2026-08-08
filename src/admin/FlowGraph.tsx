@@ -10,7 +10,7 @@
 //   ריחוף על צומת          → סרגל פעולות קטן: שכפול, מחיקה
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Screen, SurveyConfig } from '../engine/types';
+import type { Condition, Screen, SurveyConfig } from '../engine/types';
 import type { ValidationIssue } from '../engine/validate';
 import { buildFlow } from './graph';
 import { OptionalCondition } from './ConditionBuilder';
@@ -100,6 +100,13 @@ function orthogonalPath(pts: Point[]): string {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** כל המזהים (שאלות ומשתנים) שתנאי מסתמך עליהם */
+const condRefs = (c: Condition): string[] =>
+  'all' in c ? c.all.flatMap(condRefs)
+  : 'any' in c ? c.any.flatMap(condRefs)
+  : 'not' in c ? condRefs(c.not)
+  : ['q' in c ? c.q : c.var];
 
 function uniqueId(base: string, screens: Screen[]): string {
   const taken = new Set(screens.map((s) => s.id));
@@ -240,15 +247,26 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
         i++;
         continue;
       }
-      const branches: number[][] = [];
+      let branches: number[][] = [];
       let key: string | null = null;
+      // מה כבר "נוצר" בשורה הנוכחית (מסכים ומשתני onSubmit) — ענף שתנאו
+      // תלוי בזה חייב לרדת שורה: הזרימה עוברת דרך מה שמעליו
+      const produced = new Set<string>();
       while (i < screens.length && screens[i].showIf) {
-        const k = JSON.stringify(screens[i].showIf);
+        const s = screens[i];
+        const k = JSON.stringify(s.showIf);
         if (k !== key) {
+          if (branches.length > 0 && condRefs(s.showIf!).some((r) => produced.has(r))) {
+            rows.push({ branches, top: 0, bottom: 0 });
+            branches = [];
+            produced.clear();
+          }
           branches.push([]);
           key = k;
         }
         branches[branches.length - 1].push(i);
+        produced.add(s.id);
+        for (const rule of s.onSubmit ?? []) produced.add(rule.var);
         i++;
       }
       rows.push({ branches, top: 0, bottom: 0 });
