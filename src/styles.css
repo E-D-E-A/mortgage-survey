@@ -1,12 +1,15 @@
 :root {
-  --bg: #f2f4f8;
+  /* פלטת "שאלון/טפסים" — teal מוסדי (ui-ux-pro-max: Survey / Form Builder).
+     primary כהה בדרגה מ-#0D9488 כדי לעמוד ב-4.5:1 עם טקסט לבן. */
+  --bg: #f0fdfa;
   --card: #ffffff;
-  --text: #1a2233;
-  --muted: #5b6779;
-  --primary: #1d4ed8;
-  --primary-press: #1e40af;
-  --border: #d7dce5;
-  --selected-bg: #eaf0fe;
+  --text: #134e4a;
+  --muted: #64748b;
+  --primary: #0f766e;
+  --on-primary: #ffffff;
+  --primary-press: #115e59;
+  --border: #c6ded9;
+  --selected-bg: #ccfbf1;
   --radius: 14px;
   --radius-sm: 8px;
 
@@ -17,14 +20,14 @@
   --warning-bg: #fef3c7;
   --success: #047857;
   --success-bg: #d1fae5;
-  --focus-ring: rgba(29, 78, 216, 0.35);
+  --focus-ring: rgba(13, 148, 136, 0.35);
 
   /* משטחים מוגבהים (קונסולת הניהול) */
   --surface-raised: #ffffff;
-  --drag-shadow: 0 8px 24px rgba(16, 24, 40, 0.18);
-  --chip-bg: #eef1f6;
-  --edge: #aab4c4;
-  --grid-dot: #dde3ec;
+  --drag-shadow: 0 8px 24px rgba(19, 78, 74, 0.18);
+  --chip-bg: #e8f1f4;
+  --edge: #8fb5af;
+  --grid-dot: #ddebe7;
 
   /* סולם רווחים 4px */
   --space-1: 4px;
@@ -44,14 +47,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #10141c;
-    --card: #1a2130;
-    --text: #edf1f7;
-    --muted: #9aa6b8;
-    --primary: #4f7df9;
-    --primary-press: #3b63d4;
-    --border: #313c50;
-    --selected-bg: #24304a;
+    --bg: #0b1614;
+    --card: #132220;
+    --text: #e7f2ef;
+    --muted: #97ada9;
+    /* teal בהיר על רקע כהה — לכן הטקסט שעל primary כהה, לא לבן */
+    --primary: #2dd4bf;
+    --on-primary: #042f2e;
+    --primary-press: #14b8a6;
+    --border: #2c4642;
+    --selected-bg: #163831;
 
     --danger: #f87171;
     --danger-bg: #431a1a;
@@ -59,13 +64,13 @@
     --warning-bg: #3a2c10;
     --success: #34d399;
     --success-bg: #123a2c;
-    --focus-ring: rgba(79, 125, 249, 0.45);
+    --focus-ring: rgba(45, 212, 191, 0.45);
 
-    --surface-raised: #212a3d;
+    --surface-raised: #182b28;
     --drag-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-    --chip-bg: #262f42;
-    --edge: #4a586f;
-    --grid-dot: #222b3b;
+    --chip-bg: #1e3330;
+    --edge: #46655f;
+    --grid-dot: #172724;
   }
 }
 
@@ -199,7 +204,7 @@ h1 {
 
 .btn.primary {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   font-weight: 600;
 }
 
@@ -295,7 +300,7 @@ h1 {
 .scale-btn.selected {
   border-color: var(--primary);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   font-weight: 600;
 }
 

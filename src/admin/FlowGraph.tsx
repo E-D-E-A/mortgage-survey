@@ -10,7 +10,6 @@
 //   ריחוף על צומת          → סרגל פעולות קטן: שכפול, מחיקה
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import dagre from '@dagrejs/dagre';
 import type { Screen, SurveyConfig } from '../engine/types';
 import type { ValidationIssue } from '../engine/validate';
 import { buildFlow } from './graph';
@@ -210,52 +209,153 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     changeTimer.current = setTimeout(() => setChangedIds(new Set()), 1800);
   }, [config]);
 
+  // פריסה יציבה במקום dagre: עמוד-שדרה אחד בסדר המערך, וקשתות צד בנתיבים
+  // (lanes) מימין. מיקום צומת תלוי אך ורק בסדר וברוחב/גובה הצמתים —
+  // ולכן חיבור בין צמתים לא מזיז שום צומת, והוספה/מחיקה מזיזה רק את מה
+  // שמתחתיה. שינוי ויזואלי מינימלי לכל עריכה.
   const layout = useMemo(() => {
-    const flow = buildFlow(config);
-    const g = new dagre.graphlib.Graph({ multigraph: true });
-    g.setGraph({ rankdir: 'TB', nodesep: 30, ranksep: 54, edgesep: 18, marginx: 28, marginy: 28 });
-    g.setDefaultEdgeLabel(() => ({}));
-    for (const node of flow.nodes) {
-      g.setNode(node.id, { width: NODE_W, height: node.screen.type === 'end' ? END_H : NODE_H });
-    }
-    flow.edges.forEach((e, i) => {
-      const showLabel = e.label && e.kind !== 'skip';
-      const labelW = showLabel ? clamp(e.label.length * 6.4 + 14, 30, 150) : 0;
-      g.setEdge(e.from, e.to, { width: labelW, height: showLabel ? 18 : 0, labelpos: 'c' }, String(i));
-    });
-    dagre.layout(g);
+    const MARGIN = 28;
+    const V_GAP = 48;
+    const LANE_GAP = 26; // מרחק הנתיב הראשון מעמוד הצמתים
+    const LANE_W = 26; // מרווח בין נתיבים
+    const STUB = 12; // הזחת יציאות/כניסות מרובות באותו צומת
 
-    const nodes: LaidOutNode[] = flow.nodes.map((n) => {
-      const pos = g.node(n.id);
-      return {
+    const flow = buildFlow(config);
+
+    const colX = MARGIN;
+    let y = MARGIN;
+    const nodes: LaidOutNode[] = flow.nodes.map((n, i) => {
+      const h = n.screen.type === 'end' ? END_H : NODE_H;
+      const node: LaidOutNode = {
         id: n.id,
-        arrayIndex: config.screens.findIndex((s) => s.id === n.id),
-        x: pos.x - pos.width / 2,
-        y: pos.y - pos.height / 2,
-        w: pos.width,
-        h: pos.height,
+        arrayIndex: i,
+        x: colX,
+        y,
+        w: NODE_W,
+        h,
         text: n.text,
         type: n.screen.type,
       };
+      y += h + V_GAP;
+      return node;
     });
-    const edges: LaidOutEdge[] = flow.edges.map((e, i) => {
-      const le = g.edge({ v: e.from, w: e.to, name: String(i) });
-      const pts = le.points as Point[];
-      const mid = pts[Math.floor(pts.length / 2)] ?? { x: 0, y: 0 };
-      return {
-        from: e.from,
-        to: e.to,
-        path: orthogonalPath(pts),
-        label: e.label,
-        labelX: le.x ?? mid.x,
-        labelY: le.y ?? mid.y,
-        conditional: e.conditional,
-        kind: e.kind,
-        ruleIndex: e.ruleIndex,
-      };
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+
+    // קשתות צד (goto/skip): הקצאת נתיב לפי צביעת מרווחים — קשתות שחופפות
+    // אנכית מקבלות נתיבים שונים
+    interface SideEdge {
+      e: (typeof flow.edges)[number];
+      i: number;
+      exitY: number;
+      entryY: number;
+      minY: number;
+      maxY: number;
+      lane: number;
+    }
+    // בעמוד נשאר רק ההמשך הרגיל; כל כלל מפורש (goto) ודילוג מצוירים כקשת צד —
+    // כך לכל עריכת ניתוב יש ייצוג עקבי אחד ואף פעם לא זזים צמתים
+    const isPrimary = (e: (typeof flow.edges)[number]) => e.kind === 'primary';
+
+    const exitCount = new Map<string, number>();
+    const entryCount = new Map<string, number>();
+    const side: SideEdge[] = [];
+    flow.edges.forEach((e, i) => {
+      if (isPrimary(e)) return;
+      const s = byId.get(e.from);
+      const t = byId.get(e.to);
+      if (!s || !t) return;
+      const k = exitCount.get(e.from) ?? 0;
+      exitCount.set(e.from, k + 1);
+      const m = entryCount.get(e.to) ?? 0;
+      entryCount.set(e.to, m + 1);
+      const exitY = Math.min(s.y + s.h / 2 + k * STUB, s.y + s.h - 8);
+      const entryY = Math.min(t.y + t.h / 2 + m * STUB, t.y + t.h - 8);
+      side.push({
+        e,
+        i,
+        exitY,
+        entryY,
+        minY: Math.min(exitY, entryY),
+        maxY: Math.max(exitY, entryY),
+        lane: 0,
+      });
     });
-    const graph = g.graph();
-    return { nodes, edges, width: graph.width ?? 0, height: graph.height ?? 0 };
+    // כללי goto לפני קשתות דילוג (המעומעמות) — כך הכללים המשמעותיים
+    // והתוויות שלהם צמודים לעמוד; בתוך כל קבוצה קצר לפני ארוך
+    side.sort((a, b) => {
+      const ga = a.e.kind === 'skip' ? 1 : 0;
+      const gb = b.e.kind === 'skip' ? 1 : 0;
+      if (ga !== gb) return ga - gb;
+      return a.maxY - a.minY - (b.maxY - b.minY);
+    });
+    const laneEnds: { minY: number; maxY: number }[][] = [];
+    let firstSkipLane = 0;
+    for (const se of side) {
+      // קשתות דילוג לא חולקות נתיב עם כללי goto — מתחילות מנתיב נפרד והלאה
+      let lane = se.e.kind === 'skip' ? firstSkipLane : 0;
+      for (; lane < laneEnds.length; lane++) {
+        if (laneEnds[lane].every((iv) => se.maxY < iv.minY - 6 || se.minY > iv.maxY + 6)) break;
+      }
+      (laneEnds[lane] ??= []).push({ minY: se.minY, maxY: se.maxY });
+      se.lane = lane;
+      if (se.e.kind !== 'skip') firstSkipLane = Math.max(firstSkipLane, lane + 1);
+    }
+
+    const colRight = colX + NODE_W;
+    const laneX = (lane: number) => colRight + LANE_GAP + lane * LANE_W;
+
+    const edges: LaidOutEdge[] = [];
+    flow.edges.forEach((e, i) => {
+      const s = byId.get(e.from);
+      const t = byId.get(e.to);
+      if (!s || !t) return;
+      if (isPrimary(e)) {
+        const cx = colX + NODE_W / 2;
+        const pts: Point[] = [
+          { x: cx, y: s.y + s.h },
+          { x: cx, y: t.y },
+        ];
+        edges.push({
+          from: e.from,
+          to: e.to,
+          path: orthogonalPath(pts),
+          label: e.label,
+          labelX: cx,
+          labelY: (s.y + s.h + t.y) / 2,
+          conditional: e.conditional,
+          kind: e.kind,
+          ruleIndex: e.ruleIndex,
+        });
+      } else {
+        const se = side.find((x) => x.i === i)!;
+        const lx = laneX(se.lane);
+        const pts: Point[] = [
+          { x: colRight, y: se.exitY },
+          { x: lx, y: se.exitY },
+          { x: lx, y: se.entryY },
+          { x: colRight, y: se.entryY },
+        ];
+        edges.push({
+          from: e.from,
+          to: e.to,
+          path: orthogonalPath(pts),
+          label: e.label,
+          labelX: lx,
+          labelY: (se.exitY + se.entryY) / 2,
+          conditional: e.conditional,
+          kind: e.kind,
+          ruleIndex: e.ruleIndex,
+        });
+      }
+    });
+
+    const maxLane = side.reduce((m, se) => Math.max(m, se.lane), -1);
+    return {
+      nodes,
+      edges,
+      width: colRight + LANE_GAP + (maxLane + 1) * LANE_W + MARGIN + 60,
+      height: y - V_GAP + MARGIN,
+    };
   }, [config]);
 
   const nodeById = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout]);

@@ -96,7 +96,7 @@
   grid-template-columns: minmax(280px, 340px) 1fr 0;
   min-height: 0;
   /* פתיחת/סגירת המגירה והרשימה — מעבר רך במקום קפיצת פריסה */
-  transition: grid-template-columns 0.25s ease;
+  transition: grid-template-columns 0.32s ease;
 }
 
 .admin-body.drawer-open { grid-template-columns: minmax(280px, 340px) 1fr 440px; }
@@ -250,12 +250,12 @@
   pointer-events: none;
   /* שכבת הקשתות מתחלפת בעמעום כשהגאומטריה משתנה — מסווה את קפיצת
      המסלולים בזמן שהצמתים גולשים */
-  animation: fg-edges-in 0.42s ease;
+  animation: fg-edges-in 0.75s ease;
 }
 
 @keyframes fg-edges-in {
   0% { opacity: 0; }
-  45% { opacity: 0; }
+  55% { opacity: 0; }
   100% { opacity: 1; }
 }
 
@@ -300,7 +300,7 @@
 .fg-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  transition: left 0.28s ease, top 0.28s ease;
+  transition: left 0.5s cubic-bezier(0.3, 0, 0.15, 1), top 0.5s cubic-bezier(0.3, 0, 0.15, 1);
   font: inherit;
   font-size: 11px;
   line-height: 1.4;
@@ -351,7 +351,11 @@
 .fg-node-wrap {
   position: absolute;
   /* פריסה שהשתנתה — הצמתים גולשים למקומם החדש במקום לקפוץ */
-  transition: left 0.28s ease, top 0.28s ease, width 0.28s ease, height 0.28s ease;
+  transition:
+    left 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    top 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    width 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    height 0.5s cubic-bezier(0.3, 0, 0.15, 1);
 }
 
 /* הצומת שהעריכה האחרונה נגעה בו — טבעת הבהוב שדועכת */
@@ -804,7 +808,7 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
 
 .a-btn:disabled { opacity: 0.45; cursor: default; }
 
-.a-btn.primary { background: var(--primary); color: #fff; }
+.a-btn.primary { background: var(--primary); color: var(--on-primary); }
 .a-btn.primary:not(:disabled):hover { background: var(--primary-press); }
 
 .a-btn.secondary {
