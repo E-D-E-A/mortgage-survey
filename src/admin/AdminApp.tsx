@@ -542,6 +542,15 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
                 onDefineVar={defineVar}
                 onDefineVarValue={defineVarValue}
                 onChange={(next) => updateScreen(selected.id, next)}
+                onLaneShowIf={(ids, cond) => {
+                  const targets = new Set(ids);
+                  guardedUpdate((cfg) => ({
+                    ...cfg,
+                    screens: cfg.screens.map((s) =>
+                      targets.has(s.id) ? ({ ...s, showIf: cond } as Screen) : s,
+                    ),
+                  }));
+                }}
                 onDelete={() => {
                   if (!window.confirm(`למחוק את המסך "${selected.id}"?`)) return;
                   guardedUpdate((cfg) => ({

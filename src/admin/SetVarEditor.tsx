@@ -10,7 +10,7 @@ import type { SetVarRule } from '../engine/types';
 import type { Naming } from './display';
 import { varLabel, varValueLabel } from './display';
 import { OptionalCondition } from './ConditionBuilder';
-import { PlusIcon, TrashIcon } from './Icons';
+import { PencilIcon, PlusIcon, TrashIcon } from './Icons';
 
 interface Props {
   rules: SetVarRule[];
@@ -25,7 +25,9 @@ const NEW = '__new__';
 
 export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVarValue }: Props) {
   const emit = (next: SetVarRule[]) => onChange(next.length > 0 ? next : undefined);
-  const [creating, setCreating] = useState<{ index: number; field: 'var' | 'value' } | null>(null);
+  const [creating, setCreating] = useState<
+    { index: number; field: 'var' | 'value'; renaming?: string } | null
+  >(null);
 
   function patch(i: number, rule: SetVarRule) {
     emit(rules.map((r, j) => (j === i ? rule : r)));
@@ -74,6 +76,15 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                 ))}
                 <option value={NEW}>+ סימון חדש…</option>
               </select>
+              <button
+                className="a-icon-btn"
+                onClick={() => setCreating({ index: i, field: 'var', renaming: rule.var })}
+                title="שינוי השם המוצג של הסימון"
+                aria-label="שינוי השם המוצג של הסימון"
+                disabled={!rule.var}
+              >
+                <PencilIcon />
+              </button>
               <span className="a-label">=</span>
               <select
                 className="a-select"
@@ -96,6 +107,15 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                 <option value={NEW}>+ ערך חדש…</option>
               </select>
               <button
+                className="a-icon-btn"
+                onClick={() => setCreating({ index: i, field: 'value', renaming: current })}
+                title="שינוי השם המוצג של הערך"
+                aria-label="שינוי השם המוצג של הערך"
+                disabled={!current}
+              >
+                <PencilIcon />
+              </button>
+              <button
                 className="a-icon-btn danger"
                 onClick={() => emit(rules.filter((_, j) => j !== i))}
                 aria-label="מחיקת סימון"
@@ -106,11 +126,23 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
 
             {creating?.index === i && (
               <DefineForm
+                // מפתח לפי מה שנערך: הטופס מאותחל מהערכים הקיימים, ולכן הוא
+                // חייב להיבנות מחדש כשעוברים לשדה או לסימון אחר
+                key={`${creating.field}-${creating.renaming ?? 'new'}`}
                 kind={creating.field}
+                renaming={Boolean(creating.renaming)}
                 suggestedCode={
-                  creating.field === 'var'
+                  creating.renaming ??
+                  (creating.field === 'var'
                     ? nextCode('mark', naming.vars)
-                    : nextCode('v', values.map(([id]) => id))
+                    : nextCode('v', values.map(([id]) => id)))
+                }
+                suggestedLabel={
+                  creating.renaming
+                    ? creating.field === 'var'
+                      ? naming.varMeta[creating.renaming]?.label ?? ''
+                      : naming.varMeta[rule.var]?.values?.[creating.renaming] ?? ''
+                    : ''
                 }
                 onCancel={() => setCreating(null)}
                 onCreate={(code, label) => {
@@ -156,16 +188,21 @@ function nextCode(prefix: string, taken: string[]): string {
  */
 function DefineForm({
   kind,
+  renaming,
   suggestedCode,
+  suggestedLabel,
   onCreate,
   onCancel,
 }: {
   kind: 'var' | 'value';
+  /** שינוי שם לסימון קיים — הקוד כבר קבוע ולא נערך, רק התווית */
+  renaming: boolean;
   suggestedCode: string;
+  suggestedLabel: string;
   onCreate: (code: string, label: string) => void;
   onCancel: () => void;
 }) {
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState(suggestedLabel);
   const [code, setCode] = useState(suggestedCode);
   const codeValid = /^[a-zA-Z][a-zA-Z0-9_]*$/.test(code.trim());
   const ready = label.trim().length > 0 && codeValid;
@@ -196,11 +233,13 @@ function DefineForm({
           onChange={(e) => setCode(e.target.value)}
           dir="ltr"
           aria-invalid={!codeValid}
+          disabled={renaming}
+          title={renaming ? 'הקוד קבוע — שינוי שלו היה מנתק את הנתונים שכבר נאספו' : undefined}
         />
       </label>
       <div className="define-actions">
         <button className="a-btn primary small" type="submit" disabled={!ready}>
-          יצירה
+          {renaming ? 'שמירת השם' : 'יצירה'}
         </button>
         <button className="a-btn ghost small" type="button" onClick={onCancel}>
           ביטול

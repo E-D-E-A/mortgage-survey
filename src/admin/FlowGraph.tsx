@@ -14,6 +14,7 @@ import type { Condition, Screen, SurveyConfig } from '../engine/types';
 import { validateConfig, type ValidationIssue } from '../engine/validate';
 import { buildFlow } from './graph';
 import { duplicateScreen, uniqueId } from './edits';
+import { laneMembers } from './lanes';
 import { OptionalCondition } from './ConditionBuilder';
 import type { Naming } from './display';
 import { optionalConditionSentence, screenRef } from './display';
@@ -643,11 +644,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   const nodeById = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout]);
 
   /** מזהה מסך → כל המסכים שחולקים איתו את אותו תנאי תצוגה ברצף. */
-  const laneOf = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const lane of layout.lanes) for (const id of lane.ids) m.set(id, lane.ids);
-    return m;
-  }, [layout]);
+  const laneOf = useCallback((id: string) => laneMembers(config.screens, id), [config.screens]);
 
   // מיקוד: בחירת מסך מדגישה אותו ואת שכניו הישירים ומעמעמת את השאר —
   // קוראים סיפור אחד בכל פעם במקום את כל המפה בבת אחת.
@@ -1444,9 +1441,9 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
 
               {popover.kind === 'showIf' && popScreen && (
                 <>
-                  {(laneOf.get(popover.screenId)?.length ?? 1) > 1 && (
+                  {laneOf(popover.screenId).length > 1 && (
                     <p className="a-hint">
-                      התנאי הזה משותף ל-{laneOf.get(popover.screenId)!.length} מסכים בענף. שינוי כאן
+                      התנאי הזה משותף ל-{laneOf(popover.screenId).length} מסכים ברצף. שינוי כאן
                       מחיל אותו על כולם.
                     </p>
                   )}
@@ -1456,7 +1453,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                     onChange={(cond) => {
                       // כל הענף יחד: המסכים האלה מוגדרים ככאלה שחולקים תנאי,
                       // ועריכה שמפצלת אותם היא כמעט תמיד תקלה ולא כוונה
-                      const targets = new Set(laneOf.get(popover.screenId) ?? [popover.screenId]);
+                      const targets = new Set(laneOf(popover.screenId));
                       onUpdate((cfg) => ({
                         ...cfg,
                         screens: cfg.screens.map((s) =>

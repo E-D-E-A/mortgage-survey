@@ -4,11 +4,12 @@
 // הסדר הזה מכוון: מי שפותח מסך רוצה קודם לדעת איפה הוא עומד בזרימה.
 
 import { TEXT_MAX_LENGTH } from '../engine/input-rules';
-import type { Option, Screen, SurveyConfig } from '../engine/types';
+import type { Condition, Option, Screen, SurveyConfig } from '../engine/types';
 import type { Naming } from './display';
 import { screenKindLabel, screenLabel } from './display';
 import { OptionalCondition } from './ConditionBuilder';
 import { FlowContext } from './FlowContext';
+import { laneMembers } from './lanes';
 import { NextRulesEditor } from './NextRulesEditor';
 import { SetVarEditor } from './SetVarEditor';
 import { PlusIcon, TrashIcon, TypeIcon } from './Icons';
@@ -18,6 +19,8 @@ interface Props {
   screen: Screen;
   naming: Naming;
   onChange: (screen: Screen) => void;
+  /** עריכת תנאי התצוגה של ענף שלם — אותה סמנטיקה כמו לחיצה על הענף בתרשים */
+  onLaneShowIf: (ids: string[], cond: Condition | undefined) => void;
   onDelete: () => void;
   onSelect: (id: string) => void;
   onDefineVar: (name: string, label: string) => void;
@@ -29,12 +32,16 @@ export function ScreenEditor({
   screen,
   naming,
   onChange,
+  onLaneShowIf,
   onDelete,
   onSelect,
   onDefineVar,
   onDefineVarValue,
 }: Props) {
   const patch = (p: Partial<Screen>) => onChange({ ...screen, ...p } as Screen);
+  // המגירה היא המקום הגלוי יותר לעריכת תנאי — ולכן היא חייבת להתנהג בדיוק
+  // כמו התרשים. עריכה שמפצלת ענף בשקט היא בדיוק הבלבול שהעורך הזה נועד למנוע.
+  const lane = laneMembers(config.screens, screen.id);
 
   return (
     <div className="editor">
@@ -61,10 +68,15 @@ export function ScreenEditor({
 
       <hr className="a-sep" />
 
+      {lane.length > 1 && (
+        <p className="a-hint">
+          תנאי התצוגה משותף ל-{lane.length} מסכים ברצף. שינוי כאן מחיל אותו על כולם.
+        </p>
+      )}
       <OptionalCondition
         label="מוצג רק כאשר"
         value={screen.showIf}
-        onChange={(cond) => patch({ showIf: cond })}
+        onChange={(cond) => (lane.length > 1 ? onLaneShowIf(lane, cond) : patch({ showIf: cond }))}
         naming={naming}
       />
 
