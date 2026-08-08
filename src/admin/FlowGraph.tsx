@@ -48,6 +48,8 @@ interface LaidOutEdge {
   conditional: boolean;
   kind: 'goto' | 'primary' | 'skip';
   ruleIndex?: number;
+  /** קשת מבנית: כניסה לענף / התכנסות בין שורות סמוכות — התווית תמיד מוצגת */
+  structural?: boolean;
 }
 
 const EPS = 0.5;
@@ -209,80 +211,207 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     changeTimer.current = setTimeout(() => setChangedIds(new Set()), 1800);
   }, [config]);
 
-  // פריסה יציבה במקום dagre: עמוד-שדרה אחד בסדר המערך, וקשתות צד בנתיבים
-  // (lanes) מימין. מיקום צומת תלוי אך ורק בסדר וברוחב/גובה הצמתים —
-  // ולכן חיבור בין צמתים לא מזיז שום צומת, והוספה/מחיקה מזיזה רק את מה
-  // שמתחתיה. שינוי ויזואלי מינימלי לכל עריכה.
+  // פריסה דטרמיניסטית "עץ מסלולים": רצף מסכים עם אותו showIf יוצר עמודת ענף,
+  // ותנאים שונים ברצף אחד יושבים זה לצד זה — כמו מפת המסע ב-FigJam. המיקום
+  // תלוי אך ורק בסדר המערך ובקיבוץ תנאי showIf (לא בקשתות!) — ולכן חיבור בין
+  // צמתים לא מזיז שום צומת, ועריכה מזיזה רק את השורות שמתחתיה.
   const layout = useMemo(() => {
-    const MARGIN = 28;
-    const V_GAP = 48;
-    const LANE_GAP = 26; // מרחק הנתיב הראשון מעמוד הצמתים
+    const MARGIN = 40;
+    const V_GAP = 56; // בין שורות — משמש גם כמסדרון לקווים האופקיים
+    const INNER_GAP = 24; // בין מסכים באותו ענף
+    const COL_W = NODE_W + 40; // רוחב עמודה כולל המרווח בין ענפים
+    const LANE_GAP = 26; // מרחק הנתיב הראשון מהעמודות
     const LANE_W = 26; // מרווח בין נתיבים
-    const STUB = 12; // הזחת יציאות/כניסות מרובות באותו צומת
 
     const flow = buildFlow(config);
+    const screens = config.screens;
 
-    const colX = MARGIN;
+    // שורות: מסך ללא showIf = שורה מרכזית; רצף מסכי showIf = שורת ענפים.
+    // ענף = מסכים עוקבים עם אותו תנאי (השוואת JSON), מוערמים אנכית.
+    interface Row {
+      branches: number[][];
+      top: number;
+      bottom: number;
+    }
+    const rows: Row[] = [];
+    for (let i = 0; i < screens.length; ) {
+      if (!screens[i].showIf) {
+        rows.push({ branches: [[i]], top: 0, bottom: 0 });
+        i++;
+        continue;
+      }
+      const branches: number[][] = [];
+      let key: string | null = null;
+      while (i < screens.length && screens[i].showIf) {
+        const k = JSON.stringify(screens[i].showIf);
+        if (k !== key) {
+          branches.push([]);
+          key = k;
+        }
+        branches[branches.length - 1].push(i);
+        i++;
+      }
+      rows.push({ branches, top: 0, bottom: 0 });
+    }
+
+    // עמוד השדרה במרכז; שורת ענפים נפרסת סימטרית סביבו, הענף הראשון מימין
+    const maxHalf = rows.reduce((m, r) => Math.max(m, ((r.branches.length - 1) / 2) * COL_W), 0);
+    const spineX = MARGIN + maxHalf;
+
+    const nodes: LaidOutNode[] = new Array(screens.length);
+    const rowOf = new Map<string, number>();
+    const headIds = new Set<string>(); // ראש עמודה — הכניסה מלמעלה פנויה
+    const tailIds = new Set<string>(); // זנב עמודה — היציאה מלמטה פנויה
     let y = MARGIN;
-    const nodes: LaidOutNode[] = flow.nodes.map((n, i) => {
-      const h = n.screen.type === 'end' ? END_H : NODE_H;
-      const node: LaidOutNode = {
-        id: n.id,
-        arrayIndex: i,
-        x: colX,
-        y,
-        w: NODE_W,
-        h,
-        text: n.text,
-        type: n.screen.type,
-      };
-      y += h + V_GAP;
-      return node;
+    rows.forEach((row, ri) => {
+      row.top = y;
+      const n = row.branches.length;
+      let rowBottom = y;
+      row.branches.forEach((br, bi) => {
+        const x = spineX + ((n - 1) / 2 - bi) * COL_W;
+        let by = y;
+        br.forEach((idx, j) => {
+          const s = screens[idx];
+          const h = s.type === 'end' ? END_H : NODE_H;
+          nodes[idx] = { id: s.id, arrayIndex: idx, x, y: by, w: NODE_W, h, text: flow.nodes[idx].text, type: s.type };
+          rowOf.set(s.id, ri);
+          if (j === 0) headIds.add(s.id);
+          if (j === br.length - 1) tailIds.add(s.id);
+          by += h + INNER_GAP;
+        });
+        rowBottom = Math.max(rowBottom, by - INNER_GAP);
+      });
+      row.bottom = rowBottom;
+      y = rowBottom + V_GAP;
     });
-    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const byId = new Map(nodes.map((nd) => [nd.id, nd]));
 
-    // קשתות צד (goto/skip): הקצאת נתיב לפי צביעת מרווחים — קשתות שחופפות
-    // אנכית מקבלות נתיבים שונים
-    interface SideEdge {
+    // מפרץ g = הרווח האופקי שמעל שורה g (g === rows.length: מתחת לאחרונה).
+    // כל מקור מקבל בו גובה משלו — קווים אופקיים שונים לא מתלכדים; אותו מקור
+    // חולק גובה אחד, כך שמזלג נראה כגזע יחיד שמתפצל.
+    const gapSlots = new Map<number, Map<string, number>>();
+    const gapBase = (g: number) =>
+      g < rows.length ? rows[g].top - V_GAP / 2 : rows[rows.length - 1].bottom + V_GAP / 2;
+    const gapY = (g: number, key: string) => {
+      let m = gapSlots.get(g);
+      if (!m) gapSlots.set(g, (m = new Map()));
+      if (!m.has(key)) m.set(key, m.size);
+      const slot = m.get(key)!;
+      const off = (slot % 2 === 0 ? 1 : -1) * Math.ceil(slot / 2) * 9;
+      return clamp(gapBase(g) + off, gapBase(g) - V_GAP / 2 + 8, gapBase(g) + V_GAP / 2 - 8);
+    };
+
+    const mkEdge = (
+      e: (typeof flow.edges)[number],
+      pts: Point[],
+      labelX: number,
+      labelY: number,
+      label: string,
+      structural = false,
+    ): LaidOutEdge => ({
+      from: e.from,
+      to: e.to,
+      path: orthogonalPath(pts),
+      label,
+      labelX,
+      labelY,
+      conditional: e.conditional,
+      kind: e.kind,
+      ruleIndex: e.ruleIndex,
+      structural,
+    });
+
+    // קשתות שלא מסתדרות דרך המפרצים הסמוכים עוקפות בנתיב אנכי מימין לעמודות
+    interface LaneEdge {
       e: (typeof flow.edges)[number];
-      i: number;
+      exitPts: Point[];
       exitY: number;
+      entryPts: Point[];
       entryY: number;
       minY: number;
       maxY: number;
       lane: number;
     }
-    // בעמוד נשאר רק ההמשך הרגיל; כל כלל מפורש (goto) ודילוג מצוירים כקשת צד —
-    // כך לכל עריכת ניתוב יש ייצוג עקבי אחד ואף פעם לא זזים צמתים
-    const isPrimary = (e: (typeof flow.edges)[number]) => e.kind === 'primary';
+    const edges: LaidOutEdge[] = [];
+    const laneEdges: LaneEdge[] = [];
 
-    const exitCount = new Map<string, number>();
-    const entryCount = new Map<string, number>();
-    const side: SideEdge[] = [];
     flow.edges.forEach((e, i) => {
-      if (isPrimary(e)) return;
       const s = byId.get(e.from);
       const t = byId.get(e.to);
       if (!s || !t) return;
-      const k = exitCount.get(e.from) ?? 0;
-      exitCount.set(e.from, k + 1);
-      const m = entryCount.get(e.to) ?? 0;
-      entryCount.set(e.to, m + 1);
-      const exitY = Math.min(s.y + s.h / 2 + k * STUB, s.y + s.h - 8);
-      const entryY = Math.min(t.y + t.h / 2 + m * STUB, t.y + t.h - 8);
-      side.push({
+      const rs = rowOf.get(e.from)!;
+      const rt = rowOf.get(e.to)!;
+      const scx = s.x + s.w / 2;
+      const tcx = t.x + t.w / 2;
+
+      // המשך ישיר בתוך ענף — בלי תווית (התנאי כבר כתוב על הכניסה לענף)
+      if (rs === rt && s.x === t.x && Math.abs(t.y - (s.y + s.h + INNER_GAP)) < 1) {
+        edges.push(mkEdge(e, [{ x: scx, y: s.y + s.h }, { x: tcx, y: t.y }], scx, (s.y + s.h + t.y) / 2, ''));
+        return;
+      }
+
+      // מזלג/התכנסות בין שורות סמוכות — דרך המפרץ שמעל שורת היעד
+      if (rt === rs + 1 && tailIds.has(s.id) && headIds.has(t.id)) {
+        const yMid = gapY(rt, 'out:' + e.from);
+        const straight = Math.abs(scx - tcx) < 1;
+        edges.push(
+          mkEdge(
+            e,
+            [{ x: scx, y: s.y + s.h }, { x: scx, y: yMid }, { x: tcx, y: yMid }, { x: tcx, y: t.y }],
+            straight ? scx : (scx + tcx) / 2,
+            straight ? (s.y + s.h + t.y) / 2 : yMid,
+            e.label,
+            true,
+          ),
+        );
+        return;
+      }
+
+      // בין ענפים שכנים באותה שורה — מעל השורה, כששני הראשים פנויים
+      if (rs === rt && s.x !== t.x && headIds.has(s.id) && headIds.has(t.id)) {
+        const yMid = gapY(rs, 'top:' + e.from);
+        edges.push(
+          mkEdge(
+            e,
+            [{ x: scx, y: s.y }, { x: scx, y: yMid }, { x: tcx, y: yMid }, { x: tcx, y: t.y }],
+            (scx + tcx) / 2,
+            yMid,
+            e.label,
+            true,
+          ),
+        );
+        return;
+      }
+
+      // נתיב צד: יציאה מלמטה (זנב) או מצד הצומת (אמצע ענף), כניסה מלמעלה
+      // (ראש) או מהצד — תמיד דרך המפרצים, כך שהקו לא חוצה אף צומת
+      const exit = tailIds.has(s.id)
+        ? (() => {
+            const yOut = gapY(rs + 1, 'out:' + e.from);
+            return { pts: [{ x: scx, y: s.y + s.h }, { x: scx, y: yOut }], y: yOut };
+          })()
+        : { pts: [{ x: s.x + s.w, y: s.y + s.h / 2 }], y: s.y + s.h / 2 };
+      const entry = headIds.has(t.id)
+        ? (() => {
+            const yIn = gapY(rt, 'in:' + i);
+            return { pts: [{ x: tcx, y: yIn }, { x: tcx, y: t.y }], y: yIn };
+          })()
+        : { pts: [{ x: t.x + t.w, y: t.y + t.h / 2 }], y: t.y + t.h / 2 };
+      laneEdges.push({
         e,
-        i,
-        exitY,
-        entryY,
-        minY: Math.min(exitY, entryY),
-        maxY: Math.max(exitY, entryY),
+        exitPts: exit.pts,
+        exitY: exit.y,
+        entryPts: entry.pts,
+        entryY: entry.y,
+        minY: Math.min(exit.y, entry.y),
+        maxY: Math.max(exit.y, entry.y),
         lane: 0,
       });
     });
-    // כללי goto לפני קשתות דילוג (המעומעמות) — כך הכללים המשמעותיים
-    // והתוויות שלהם צמודים לעמוד; בתוך כל קבוצה קצר לפני ארוך
-    side.sort((a, b) => {
+
+    // הקצאת נתיבים בצביעת מרווחים; כללי goto לפני קשתות דילוג — הכללים
+    // המשמעותיים ותוויותיהם צמודים לעמודות, בתוך כל קבוצה קצר לפני ארוך
+    laneEdges.sort((a, b) => {
       const ga = a.e.kind === 'skip' ? 1 : 0;
       const gb = b.e.kind === 'skip' ? 1 : 0;
       if (ga !== gb) return ga - gb;
@@ -290,8 +419,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     });
     const laneEnds: { minY: number; maxY: number }[][] = [];
     let firstSkipLane = 0;
-    for (const se of side) {
-      // קשתות דילוג לא חולקות נתיב עם כללי goto — מתחילות מנתיב נפרד והלאה
+    for (const se of laneEdges) {
       let lane = se.e.kind === 'skip' ? firstSkipLane : 0;
       for (; lane < laneEnds.length; lane++) {
         if (laneEnds[lane].every((iv) => se.maxY < iv.minY - 6 || se.minY > iv.maxY + 6)) break;
@@ -301,59 +429,25 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       if (se.e.kind !== 'skip') firstSkipLane = Math.max(firstSkipLane, lane + 1);
     }
 
-    const colRight = colX + NODE_W;
-    const laneX = (lane: number) => colRight + LANE_GAP + lane * LANE_W;
+    const colsRight = spineX + NODE_W + maxHalf;
+    for (const se of laneEdges) {
+      const lx = colsRight + LANE_GAP + se.lane * LANE_W;
+      edges.push(
+        mkEdge(
+          se.e,
+          [...se.exitPts, { x: lx, y: se.exitY }, { x: lx, y: se.entryY }, ...se.entryPts],
+          lx,
+          (se.exitY + se.entryY) / 2,
+          se.e.label,
+        ),
+      );
+    }
 
-    const edges: LaidOutEdge[] = [];
-    flow.edges.forEach((e, i) => {
-      const s = byId.get(e.from);
-      const t = byId.get(e.to);
-      if (!s || !t) return;
-      if (isPrimary(e)) {
-        const cx = colX + NODE_W / 2;
-        const pts: Point[] = [
-          { x: cx, y: s.y + s.h },
-          { x: cx, y: t.y },
-        ];
-        edges.push({
-          from: e.from,
-          to: e.to,
-          path: orthogonalPath(pts),
-          label: e.label,
-          labelX: cx,
-          labelY: (s.y + s.h + t.y) / 2,
-          conditional: e.conditional,
-          kind: e.kind,
-          ruleIndex: e.ruleIndex,
-        });
-      } else {
-        const se = side.find((x) => x.i === i)!;
-        const lx = laneX(se.lane);
-        const pts: Point[] = [
-          { x: colRight, y: se.exitY },
-          { x: lx, y: se.exitY },
-          { x: lx, y: se.entryY },
-          { x: colRight, y: se.entryY },
-        ];
-        edges.push({
-          from: e.from,
-          to: e.to,
-          path: orthogonalPath(pts),
-          label: e.label,
-          labelX: lx,
-          labelY: (se.exitY + se.entryY) / 2,
-          conditional: e.conditional,
-          kind: e.kind,
-          ruleIndex: e.ruleIndex,
-        });
-      }
-    });
-
-    const maxLane = side.reduce((m, se) => Math.max(m, se.lane), -1);
+    const maxLane = laneEdges.reduce((m, se) => Math.max(m, se.lane), -1);
     return {
       nodes,
       edges,
-      width: colRight + LANE_GAP + (maxLane + 1) * LANE_W + MARGIN + 60,
+      width: colsRight + LANE_GAP + (maxLane + 1) * LANE_W + MARGIN + 60,
       height: y - V_GAP + MARGIN,
     };
   }, [config]);
@@ -727,7 +821,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                 <g key={i}>
                   <path
                     d={e.path}
-                    className={['fg-edge', e.conditional ? 'conditional' : '', e.kind === 'skip' ? 'skip' : '', active ? 'active' : ''].join(' ')}
+                    className={['fg-edge', e.conditional ? 'conditional' : '', e.kind === 'skip' ? (e.structural ? 'skip branch' : 'skip') : '', active ? 'active' : ''].join(' ')}
                     markerEnd={`url(#${active ? 'fg-arrow-active' : 'fg-arrow'})`}
                   />
                   {e.kind !== 'skip' && (
@@ -754,7 +848,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
 
           {layout.edges
             .map((e, i) => ({ ...e, i }))
-            .filter((e) => e.label && (e.kind !== 'skip' || selectedId === e.from || selectedId === e.to))
+            .filter((e) => e.label && (e.kind !== 'skip' || e.structural || selectedId === e.from || selectedId === e.to))
             .map((e) => (
               <button
                 key={`l${e.i}`}
