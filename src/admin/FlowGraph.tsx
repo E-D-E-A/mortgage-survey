@@ -565,6 +565,9 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
   const panRef = useRef<{ px: number; py: number; vx: number; vy: number } | null>(null);
 
   function startPan(e: React.PointerEvent) {
+    // פאן בלחצן שמאלי בלבד — לכידת מצביע בקליק ימני מסיטה את אירוע
+    // ה-contextmenu מהקשת אל הקנבס ותפריט הקשת לא נפתח
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('.fg-node-wrap, .fg-popover, .fg-toolbar, .fg-edge-label, .fg-insert-btn')) return;
     setPopover(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
