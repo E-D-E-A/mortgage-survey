@@ -1,8 +1,8 @@
 // קונסולת הניהול (/admin): שער כניסה (Google, first-edea.com בלבד) ואז עורך
 // הטיוטה — רשימת מסכים עם גרירה, עורך מסך, ולידציה חיה, שמירה ופרסום.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Screen } from '../engine/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Screen, SurveyConfig } from '../engine/types';
 import { validateConfig } from '../engine/validate';
 import { getSession, logout } from './api';
 import { useDraft } from './useDraft';
@@ -130,14 +130,41 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
     return () => window.removeEventListener('keydown', handler);
   }, [draft]);
 
+  // עצירת מעגלים לפני שהם קורים: כל עריכה (חיבור, שינוי יעד, סידור מחדש,
+  // מחיקה) נבחנת קודם על עותק — אם נוצר מעגל ניתוב חדש, העריכה לא מוחלת
+  // כלל ובמקומה מוצג הסבר עם מסלול המעגל.
+  const [cycleBlock, setCycleBlock] = useState<string | null>(null);
+  const cycleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guardedUpdate = useCallback(
+    (fn: (cfg: SurveyConfig) => SurveyConfig) => {
+      const cur = draft.config;
+      if (cur) {
+        const existing = new Set(
+          validateConfig(cur).filter((i) => i.code === 'cycle').map((i) => i.message),
+        );
+        const created = validateConfig(fn(cur)).find(
+          (i) => i.code === 'cycle' && !existing.has(i.message),
+        );
+        if (created) {
+          setCycleBlock(created.message);
+          if (cycleTimer.current) clearTimeout(cycleTimer.current);
+          cycleTimer.current = setTimeout(() => setCycleBlock(null), 7000);
+          return;
+        }
+      }
+      draft.update(fn);
+    },
+    [draft],
+  );
+
   const updateScreen = useCallback(
     (id: string, next: Screen) => {
-      draft.update((cfg) => ({
+      guardedUpdate((cfg) => ({
         ...cfg,
         screens: cfg.screens.map((s) => (s.id === id ? next : s)),
       }));
     },
-    [draft],
+    [guardedUpdate],
   );
 
   const knownVars = useMemo(() => {
@@ -255,7 +282,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
               issues={issues}
               onSelect={selectScreen}
               onReorder={(from, to) =>
-                draft.update((cfg) => {
+                guardedUpdate((cfg) => {
                   const screens = [...cfg.screens];
                   const [moved] = screens.splice(from, 1);
                   screens.splice(to, 0, moved);
@@ -276,7 +303,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
               selectedId={selectedId}
               vars={knownVars}
               onSelect={selectScreen}
-              onUpdate={draft.update}
+              onUpdate={guardedUpdate}
             />
           </main>
           {selected && (
@@ -295,7 +322,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
                 onChange={(next) => updateScreen(selected.id, next)}
                 onDelete={() => {
                   if (!window.confirm(`למחוק את המסך "${selected.id}"?`)) return;
-                  draft.update((cfg) => ({
+                  guardedUpdate((cfg) => ({
                     ...cfg,
                     screens: cfg.screens.filter((s) => s.id !== selected.id),
                   }));
@@ -309,6 +336,19 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
 
       {publishOpen && (
         <PublishDialog issues={issues} dirty={draft.dirty} onClose={() => setPublishOpen(false)} />
+      )}
+
+      {cycleBlock && (
+        <div className="cycle-toast" role="alert">
+          <ErrorIcon width={16} height={16} />
+          <div>
+            <strong>הפעולה נחסמה — היא הייתה יוצרת לולאה אינסופית</strong>
+            <p>{cycleBlock}</p>
+          </div>
+          <button className="a-icon-btn" onClick={() => setCycleBlock(null)} aria-label="סגירת ההודעה">
+            <CloseIcon />
+          </button>
+        </div>
       )}
 
       {draft.conflict && (

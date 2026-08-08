@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Condition, Screen, SurveyConfig } from '../engine/types';
-import type { ValidationIssue } from '../engine/validate';
+import { validateConfig, type ValidationIssue } from '../engine/validate';
 import { buildFlow } from './graph';
 import { OptionalCondition } from './ConditionBuilder';
 import { TYPE_LABELS } from './labels';
@@ -153,13 +153,34 @@ function newScreenOfType(type: Screen['type'], id: string): Screen {
 type DragState =
   | { mode: 'maybe'; kind: 'reorder' | 'connect'; id: string; startX: number; startY: number }
   | { mode: 'reorder'; id: string; dx: number; dy: number; insertAt: number | null; indicatorY: number; indicatorX: number; indicatorW: number }
-  | { mode: 'connect'; id: string; toX: number; toY: number; targetId: string | null };
+  | { mode: 'connect'; id: string; toX: number; toY: number; targetId: string | null; targetBlocked: boolean };
 
 type Popover =
   | { kind: 'rule'; screenId: string; ruleIndex: number }
   | { kind: 'showIf'; screenId: string }
   | { kind: 'insert'; fromId: string; toId: string; edgeKind: 'goto' | 'primary'; ruleIndex?: number; x: number; y: number }
-  | { kind: 'append'; x: number; y: number };
+  | { kind: 'append'; x: number; y: number }
+  | { kind: 'edgeMenu'; edgeIndex: number; x: number; y: number };
+
+/** הוספת כלל goto ממסך אל יעד — לפני הכלל הבלתי-מותנה אם קיים (שלא יהיה קוד מת) */
+function withConnection(cfg: SurveyConfig, sourceId: string, targetId: string): { cfg: SurveyConfig; at: number } | null {
+  const source = cfg.screens.find((s) => s.id === sourceId);
+  if (!source || source.type === 'end') return null;
+  const rules = source.next ?? [];
+  const uncondIdx = rules.findIndex((r) => !r.if);
+  const at = uncondIdx === -1 ? rules.length : uncondIdx;
+  return {
+    cfg: {
+      ...cfg,
+      screens: cfg.screens.map((s) =>
+        s.id === sourceId
+          ? ({ ...s, next: [...rules.slice(0, at), { goto: targetId }, ...rules.slice(at)] } as Screen)
+          : s,
+      ),
+    },
+    at,
+  };
+}
 
 interface Props {
   config: SurveyConfig;
@@ -607,7 +628,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < DRAG_THRESHOLD) return;
       if (drag.kind === 'connect') {
         const w = toWorld(e);
-        setDrag({ mode: 'connect', id: drag.id, toX: w.x, toY: w.y, targetId: null });
+        setDrag({ mode: 'connect', id: drag.id, toX: w.x, toY: w.y, targetId: null, targetBlocked: false });
       } else {
         setDrag({ mode: 'reorder', id: drag.id, dx: 0, dy: 0, insertAt: null, indicatorY: 0, indicatorX: 0, indicatorW: 0 });
       }
@@ -632,8 +653,23 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       const target = layout.nodes.find(
         (n) => n.id !== drag.id && world.x >= n.x && world.x <= n.x + n.w && world.y >= n.y && world.y <= n.y + n.h,
       );
-      setDrag({ mode: 'connect', id: drag.id, toX: world.x, toY: world.y, targetId: target?.id ?? null });
+      // בדיקת מעגל חיה — רק כשהיעד מתחלף, לא בכל תזוזת עכבר
+      const targetBlocked =
+        target == null
+          ? false
+          : target.id === drag.targetId
+            ? drag.targetBlocked
+            : wouldCreateCycle(drag.id, target.id);
+      setDrag({ mode: 'connect', id: drag.id, toX: world.x, toY: world.y, targetId: target?.id ?? null, targetBlocked });
     }
+  }
+
+  /** האם חיבור מקור→יעד היה יוצר מעגל ניתוב חדש? */
+  function wouldCreateCycle(sourceId: string, targetId: string): boolean {
+    const candidate = withConnection(config, sourceId, targetId);
+    if (!candidate) return false;
+    const existing = new Set(issues.filter((i) => i.code === 'cycle').map((i) => i.message));
+    return validateConfig(candidate.cfg).some((i) => i.code === 'cycle' && !existing.has(i.message));
   }
 
   function nodePointerUp(e: React.PointerEvent, id: string) {
@@ -661,22 +697,14 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     // connect
     const targetId = drag.targetId;
     const sourceId = drag.id;
+    const blocked = drag.targetBlocked;
     setDrag(null);
     if (!targetId || targetId === sourceId) return;
-    const source = config.screens.find((s) => s.id === sourceId);
-    if (!source || source.type === 'end') return;
-    const rules = source.next ?? [];
-    const uncondIdx = rules.findIndex((r) => !r.if);
-    const at = uncondIdx === -1 ? rules.length : uncondIdx;
-    onUpdate((cfg) => ({
-      ...cfg,
-      screens: cfg.screens.map((s) =>
-        s.id === sourceId
-          ? ({ ...s, next: [...rules.slice(0, at), { goto: targetId }, ...rules.slice(at)] } as Screen)
-          : s,
-      ),
-    }));
-    setPopover({ kind: 'rule', screenId: sourceId, ruleIndex: at });
+    const planned = withConnection(config, sourceId, targetId);
+    if (!planned) return;
+    // מעגל? מעבירים בכל זאת לשומר שב-AdminApp — הוא יחסום ויציג את ההסבר
+    onUpdate((cfg) => withConnection(cfg, sourceId, targetId)?.cfg ?? cfg);
+    if (!blocked) setPopover({ kind: 'rule', screenId: sourceId, ruleIndex: planned.at });
   }
 
   /* ---------- עריכת טקסט במקום ---------- */
@@ -714,6 +742,27 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
   }
 
   /* ---------- קשתות: ריחוף, + ותוויות ---------- */
+
+  /** מחיקת כלל ניתוב — מהחלונית או מתפריט הקליק-הימני על הקשת */
+  function removeRule(screenId: string, ruleIndex: number) {
+    onUpdate((cfg) => ({
+      ...cfg,
+      screens: cfg.screens.map((s) => {
+        if (s.id !== screenId) return s;
+        const rules = (s.next ?? []).filter((_, i) => i !== ruleIndex);
+        return { ...s, next: rules.length > 0 ? rules : undefined } as Screen;
+      }),
+    }));
+    setPopover(null);
+  }
+
+  /** קליק ימני על קשת/תווית — תפריט פעולות (עריכת תנאי, מחיקת החיבור) */
+  function openEdgeMenu(ev: React.MouseEvent, edgeIndex: number) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const w = toWorld(ev);
+    setPopover({ kind: 'edgeMenu', edgeIndex, x: w.x, y: w.y });
+  }
 
   function edgeEnter(i: number) {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
@@ -770,7 +819,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
 
   // עוגן חי לחלונית תנאי — נצמד לקשת גם אחרי פריסה מחדש
   function popoverAnchor(pop: Popover): Point {
-    if (pop.kind === 'insert' || pop.kind === 'append') return { x: pop.x, y: pop.y };
+    if (pop.kind === 'insert' || pop.kind === 'append' || pop.kind === 'edgeMenu') return { x: pop.x, y: pop.y };
     if (pop.kind === 'rule') {
       const e = layout.edges.find((ed) => ed.from === pop.screenId && ed.ruleIndex === pop.ruleIndex);
       if (e) return { x: e.labelX, y: e.labelY };
@@ -848,6 +897,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                       className="fg-edge-hit"
                       onPointerEnter={() => edgeEnter(i)}
                       onPointerLeave={edgeLeave}
+                      onContextMenu={(ev) => openEdgeMenu(ev, i)}
                     />
                   )}
                 </g>
@@ -855,7 +905,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
             })}
             {connectSource && drag?.mode === 'connect' && (
               <line
-                className="fg-connect-line"
+                className={`fg-connect-line${drag.targetBlocked ? ' blocked' : ''}`}
                 x1={connectSource.x + connectSource.w / 2}
                 y1={connectSource.y + connectSource.h}
                 x2={drag.toX}
@@ -873,6 +923,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                 className={`fg-edge-label${selectedId === e.from || selectedId === e.to ? ' active' : ''}`}
                 style={{ left: e.labelX, top: e.labelY }}
                 title={`${e.label} — לחיצה לעריכת התנאי`}
+                onContextMenu={(ev) => openEdgeMenu(ev, e.i)}
                 onClick={() =>
                   setPopover(
                     e.kind === 'goto' && e.ruleIndex !== undefined
@@ -925,6 +976,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   'fg-node-wrap',
                   dragging ? 'dragging' : '',
                   isConnectTarget ? 'connect-target' : '',
+                  isConnectTarget && drag?.mode === 'connect' && drag.targetBlocked ? 'blocked' : '',
                   changedIds.has(n.id) ? 'changed' : '',
                 ].join(' ')}
                 style={{
@@ -1031,6 +1083,10 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   {popover.kind === 'rule' && popScreen && `כלל ניתוב: ${popover.screenId} ← ${(popScreen.next ?? [])[popover.ruleIndex]?.goto ?? ''}`}
                   {popover.kind === 'showIf' && `תנאי תצוגה: ${popover.screenId}`}
                   {(popover.kind === 'insert' || popover.kind === 'append') && 'מסך חדש'}
+                  {popover.kind === 'edgeMenu' &&
+                    (layout.edges[popover.edgeIndex]
+                      ? `${layout.edges[popover.edgeIndex].from} ← ${layout.edges[popover.edgeIndex].to}`
+                      : '')}
                 </strong>
                 <button className="a-icon-btn" onClick={() => setPopover(null)} aria-label="סגירה">
                   <CloseIcon />
@@ -1059,17 +1115,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   />
                   <button
                     className="a-btn danger-ghost small"
-                    onClick={() => {
-                      onUpdate((cfg) => ({
-                        ...cfg,
-                        screens: cfg.screens.map((s) => {
-                          if (s.id !== popover.screenId) return s;
-                          const rules = (s.next ?? []).filter((_, i) => i !== popover.ruleIndex);
-                          return { ...s, next: rules.length > 0 ? rules : undefined } as Screen;
-                        }),
-                      }));
-                      setPopover(null);
-                    }}
+                    onClick={() => removeRule(popover.screenId, popover.ruleIndex)}
                   >
                     <TrashIcon /> מחיקת הכלל
                   </button>
@@ -1099,6 +1145,45 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   onSubmit={(type, id) => insertScreen(popover, type, id)}
                 />
               )}
+
+              {popover.kind === 'edgeMenu' &&
+                (() => {
+                  const e = layout.edges[popover.edgeIndex];
+                  if (!e) return null;
+                  if (e.kind === 'goto' && e.ruleIndex !== undefined) {
+                    const ruleIndex = e.ruleIndex;
+                    return (
+                      <div className="fg-edge-menu">
+                        <button
+                          className="a-btn ghost small"
+                          onClick={() => setPopover({ kind: 'rule', screenId: e.from, ruleIndex })}
+                        >
+                          עריכת התנאי
+                        </button>
+                        <button className="a-btn danger-ghost small" onClick={() => removeRule(e.from, ruleIndex)}>
+                          <TrashIcon /> מחיקת החיבור
+                        </button>
+                      </div>
+                    );
+                  }
+                  const targetShowIf = config.screens.find((s) => s.id === e.to)?.showIf;
+                  return (
+                    <div className="fg-edge-menu">
+                      {targetShowIf && (
+                        <button
+                          className="a-btn ghost small"
+                          onClick={() => setPopover({ kind: 'showIf', screenId: e.to })}
+                        >
+                          עריכת תנאי התצוגה
+                        </button>
+                      )}
+                      <p className="a-hint">
+                        זהו המשך רגיל לפי סדר המסכים — אין כלל למחוק. כדי לשנות את הזרימה גררו את
+                        המסך למקום אחר ברצף או צרו כלל ניתוב מנקודת החיבור.
+                      </p>
+                    </div>
+                  );
+                })()}
             </div>
           )}
         </div>
