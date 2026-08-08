@@ -1,0 +1,483 @@
+// מסך הבית של הקונסולה: כל השאלונים, הקישור הציבורי של כל אחד, ופעולות
+// הניהול. זה המסך שממנו נכנסים לעורך של שאלון מסוים.
+//
+// שתי הבחנות שהמסך מקפיד עליהן, כי טעות בהן עולה בנתונים:
+//   • טיוטה ≠ מה שמשיבים רואים. שאלון בלי גרסה שפורסמה — הקישור שלו לא
+//     יעבוד, ולכן נאמר כך במפורש ולא מוצג קישור לחיצה.
+//   • ארכוב ≠ מחיקה. ארכוב מפסיק לקבל משיבים חדשים ושומר הכל; מחיקה
+//     אפשרית רק לשאלון שלא פורסם מעולם ולכן אין לו נתונים.
+
+import { useMemo, useState, type ReactNode } from 'react';
+import { SURVEY_SLUG_MAX, SURVEY_SLUG_RE, slugify, surveyPath } from '../data/surveys';
+import type { SurveySummary } from './api';
+import type { Surveys } from './useSurveys';
+import { CloseIcon, CopyIcon, ErrorIcon, PlusIcon, TrashIcon } from './Icons';
+
+const dateFmt = new Intl.DateTimeFormat('he-IL', { dateStyle: 'short', timeStyle: 'short' });
+
+function when(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : dateFmt.format(d);
+}
+
+function publicUrl(slug: string): string {
+  return `${window.location.origin}${surveyPath(slug)}`;
+}
+
+interface Props {
+  surveys: Surveys;
+  onOpen: (slug: string) => void;
+}
+
+export function SurveyList({ surveys, onOpen }: Props) {
+  const [creating, setCreating] = useState(false);
+  const [renaming, setRenaming] = useState<SurveySummary | null>(null);
+  const [deleting, setDeleting] = useState<SurveySummary | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+
+  const { active, archived } = useMemo(() => {
+    return {
+      active: surveys.items.filter((s) => !s.archived_at),
+      archived: surveys.items.filter((s) => s.archived_at),
+    };
+  }, [surveys.items]);
+
+  return (
+    <div className="survey-list">
+      <div className="survey-list-head">
+        <div>
+          <h2>השאלונים</h2>
+          <p className="a-hint">
+            לכל שאלון טיוטה משלו וקישור משלו. הקישור מתחיל לעבוד רק אחרי פרסום גרסה ראשונה.
+          </p>
+        </div>
+        <button className="a-btn primary" onClick={() => setCreating(true)}>
+          <PlusIcon /> שאלון חדש
+        </button>
+      </div>
+
+      {surveys.phase === 'loading' && <p className="a-hint">טוען שאלונים…</p>}
+
+      {surveys.phase === 'error' && (
+        <div className="admin-empty subtle">
+          <p>טעינת רשימת השאלונים נכשלה.</p>
+          <button className="a-btn primary" onClick={() => void surveys.reload()}>
+            ניסיון נוסף
+          </button>
+        </div>
+      )}
+
+      {surveys.phase === 'ready' && active.length === 0 && archived.length === 0 && (
+        <div className="admin-empty subtle">
+          <p>עדיין אין שאלונים. אפשר ליצור את הראשון עכשיו.</p>
+          <button className="a-btn primary" onClick={() => setCreating(true)}>
+            <PlusIcon /> שאלון חדש
+          </button>
+        </div>
+      )}
+
+      {active.map((s) => (
+        <SurveyCard
+          key={s.slug}
+          survey={s}
+          surveys={surveys}
+          onOpen={onOpen}
+          onRename={() => setRenaming(s)}
+          onDelete={() => setDeleting(s)}
+        />
+      ))}
+
+      {archived.length > 0 && (
+        <section className="survey-archive">
+          <button className="a-btn ghost small" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived ? 'הסתרת הארכיון' : `ארכיון (${archived.length})`}
+          </button>
+          {showArchived && (
+            <>
+              <p className="a-hint">
+                שאלונים מאורכבים לא מקבלים משיבים חדשים. הנתונים והגרסאות שפורסמו נשמרים, ומשיב
+                שכבר התחיל לענות יכול לסיים.
+              </p>
+              {archived.map((s) => (
+                <SurveyCard
+                  key={s.slug}
+                  survey={s}
+                  surveys={surveys}
+                  onOpen={onOpen}
+                  onRename={() => setRenaming(s)}
+                  onDelete={() => setDeleting(s)}
+                />
+              ))}
+            </>
+          )}
+        </section>
+      )}
+
+      {creating && (
+        <CreateDialog
+          surveys={surveys}
+          taken={new Set(surveys.items.map((s) => s.slug))}
+          onClose={() => setCreating(false)}
+          onCreated={(slug) => {
+            setCreating(false);
+            onOpen(slug);
+          }}
+        />
+      )}
+
+      {renaming && (
+        <RenameDialog surveys={surveys} survey={renaming} onClose={() => setRenaming(null)} />
+      )}
+
+      {deleting && (
+        <DeleteDialog surveys={surveys} survey={deleting} onClose={() => setDeleting(null)} />
+      )}
+
+      {surveys.error && (
+        <div className="toast-stack">
+          <div className="cycle-toast" role="alert">
+            <ErrorIcon width={16} height={16} />
+            <div>
+              <strong>הפעולה נכשלה</strong>
+              <p>{surveys.error}</p>
+            </div>
+            <button className="a-icon-btn" onClick={surveys.dismissError} aria-label="סגירת ההודעה">
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SurveyCard({
+  survey,
+  surveys,
+  onOpen,
+  onRename,
+  onDelete,
+}: {
+  survey: SurveySummary;
+  surveys: Surveys;
+  onOpen: (slug: string) => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const published = survey.versions > 0;
+  const url = publicUrl(survey.slug);
+
+  return (
+    <article className={`survey-card${survey.archived_at ? ' archived' : ''}`}>
+      <div className="survey-card-main">
+        <div className="survey-card-title">
+          <h3>{survey.name}</h3>
+          <code dir="ltr">{survey.slug}</code>
+          {survey.archived_at ? (
+            <span className="chip">בארכיון</span>
+          ) : published ? (
+            <span className="chip chip-live">פעיל</span>
+          ) : (
+            <span className="chip">טרם פורסם</span>
+          )}
+        </div>
+
+        <div className="survey-link">
+          {published ? (
+            <>
+              <a href={url} target="_blank" rel="noreferrer" dir="ltr">
+                {url}
+              </a>
+              <CopyLinkButton url={url} />
+            </>
+          ) : (
+            <span className="a-hint">
+              <bdi dir="ltr">{url}</bdi> — יעבוד אחרי פרסום הגרסה הראשונה
+            </span>
+          )}
+        </div>
+
+        <p className="a-hint survey-meta">
+          {published ? (
+            <>
+              גרסה אחרונה <bdi dir="ltr">{survey.latest_version}</bdi> ({when(
+                survey.latest_published_at,
+              )}) · {survey.versions} גרסאות
+            </>
+          ) : (
+            'עדיין לא פורסמה אף גרסה'
+          )}
+          {survey.draft_updated_at && <> · טיוטה עודכנה {when(survey.draft_updated_at)}</>}
+        </p>
+      </div>
+
+      <div className="survey-card-actions">
+        <button className="a-btn primary small" onClick={() => onOpen(survey.slug)}>
+          עריכה
+        </button>
+        <button className="a-btn ghost small" onClick={onRename} disabled={surveys.busy}>
+          שינוי שם
+        </button>
+        {survey.archived_at ? (
+          <button
+            className="a-btn ghost small"
+            onClick={() => void surveys.setArchived(survey.slug, false)}
+            disabled={surveys.busy}
+          >
+            החזרה מהארכיון
+          </button>
+        ) : (
+          <button
+            className="a-btn ghost small"
+            onClick={() => void surveys.setArchived(survey.slug, true)}
+            disabled={surveys.busy}
+            title="מפסיק לקבל משיבים חדשים; הנתונים נשמרים"
+          >
+            ארכוב
+          </button>
+        )}
+        {!published && (
+          <button
+            className="a-btn danger-ghost small"
+            onClick={onDelete}
+            disabled={surveys.busy}
+            title="אפשר למחוק רק שאלון שלא פורסם מעולם"
+          >
+            <TrashIcon /> מחיקה
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function CopyLinkButton({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="a-btn ghost small"
+      onClick={() => {
+        navigator.clipboard.writeText(url).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          },
+          () => {
+            /* דפדפן שחוסם את הלוח — הקישור עצמו מוצג ואפשר לסמן אותו ידנית */
+          },
+        );
+      }}
+    >
+      <CopyIcon /> {copied ? 'הועתק ✓' : 'העתקת הקישור'}
+    </button>
+  );
+}
+
+function Dialog({
+  title,
+  children,
+  onClose,
+  busy,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="dialog-backdrop" onClick={busy ? undefined : onClose}>
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="dialog-head">
+          <h2>{title}</h2>
+          {!busy && (
+            <button className="a-icon-btn" onClick={onClose} aria-label="סגירה">
+              <CloseIcon />
+            </button>
+          )}
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CreateDialog({
+  surveys,
+  taken,
+  onClose,
+  onCreated,
+}: {
+  surveys: Surveys;
+  taken: Set<string>;
+  onClose: () => void;
+  onCreated: (slug: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [slugTouched, setSlugTouched] = useState(false);
+
+  // השם בעברית לא מייצר slug שימושי, ולכן ההצעה האוטומטית עובדת רק לשם
+  // באנגלית — ובעברית פשוט מבקשים מזהה במפורש.
+  const effectiveSlug = slugTouched ? slug : slugify(name);
+  const slugOk = SURVEY_SLUG_RE.test(effectiveSlug);
+  const duplicate = taken.has(effectiveSlug);
+  const canSubmit = name.trim().length > 0 && slugOk && !duplicate && !surveys.busy;
+
+  async function submit() {
+    if (!canSubmit) return;
+    if (await surveys.create(effectiveSlug, name.trim())) onCreated(effectiveSlug);
+  }
+
+  return (
+    <Dialog title="שאלון חדש" onClose={onClose} busy={surveys.busy}>
+      <label className="a-field">
+        <span className="a-label">שם השאלון (לתצוגה בקונסולה)</span>
+        <input
+          className="a-input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="פיילוט משכנתאות"
+          autoFocus
+        />
+      </label>
+
+      <label className="a-field">
+        <span className="a-label">מזהה בקישור (אנגלית, אותיות קטנות ומקפים)</span>
+        <input
+          className="a-input"
+          value={effectiveSlug}
+          onChange={(e) => {
+            setSlugTouched(true);
+            setSlug(e.target.value.toLowerCase());
+          }}
+          placeholder="mortgage-pilot"
+          dir="ltr"
+          maxLength={SURVEY_SLUG_MAX}
+        />
+      </label>
+
+      {effectiveSlug && slugOk && !duplicate && (
+        <p className="dialog-note">
+          הקישור לשאלון יהיה <bdi dir="ltr">{publicUrl(effectiveSlug)}</bdi>
+        </p>
+      )}
+      {effectiveSlug && !slugOk && (
+        <p className="dialog-note error-note">
+          המזהה יכול להכיל אותיות אנגליות קטנות, ספרות ומקפים בלבד, ולא להתחיל או להסתיים במקף.
+        </p>
+      )}
+      {duplicate && <p className="dialog-note error-note">כבר יש שאלון עם המזהה הזה.</p>}
+      <p className="dialog-note">
+        המזהה קבוע — הוא מופיע בקישור שמחלקים למשיבים, ולכן אי אפשר לשנות אותו אחר כך. את השם אפשר
+        לשנות תמיד.
+      </p>
+
+      <footer className="dialog-actions">
+        <button className="a-btn ghost" onClick={onClose} disabled={surveys.busy}>
+          ביטול
+        </button>
+        <button className="a-btn primary" onClick={() => void submit()} disabled={!canSubmit}>
+          {surveys.busy ? 'יוצר…' : 'יצירה ומעבר לעורך'}
+        </button>
+      </footer>
+    </Dialog>
+  );
+}
+
+function RenameDialog({
+  surveys,
+  survey,
+  onClose,
+}: {
+  surveys: Surveys;
+  survey: SurveySummary;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(survey.name);
+  const canSubmit = name.trim().length > 0 && !surveys.busy;
+
+  return (
+    <Dialog title="שינוי שם השאלון" onClose={onClose} busy={surveys.busy}>
+      <label className="a-field">
+        <span className="a-label">שם השאלון</span>
+        <input
+          className="a-input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+      </label>
+      <p className="dialog-note">
+        המזהה בקישור (<bdi dir="ltr">{survey.slug}</bdi>) לא משתנה — הקישורים שכבר חולקו ימשיכו
+        לעבוד.
+      </p>
+      <footer className="dialog-actions">
+        <button className="a-btn ghost" onClick={onClose} disabled={surveys.busy}>
+          ביטול
+        </button>
+        <button
+          className="a-btn primary"
+          onClick={() => void surveys.rename(survey.slug, name.trim()).then((ok) => ok && onClose())}
+          disabled={!canSubmit}
+        >
+          שמירה
+        </button>
+      </footer>
+    </Dialog>
+  );
+}
+
+function DeleteDialog({
+  surveys,
+  survey,
+  onClose,
+}: {
+  surveys: Surveys;
+  survey: SurveySummary;
+  onClose: () => void;
+}) {
+  const [confirmText, setConfirmText] = useState('');
+
+  return (
+    <Dialog title="מחיקת שאלון" onClose={onClose} busy={surveys.busy}>
+      <p className="dialog-note error-note">
+        המחיקה מוחקת את השאלון "{survey.name}" ואת הטיוטה שלו לצמיתות. אין ביטול.
+      </p>
+      <p className="dialog-note">
+        השאלון הזה לא פורסם מעולם ולכן אין לו תשובות. לשאלון שכבר פורסם המחיקה חסומה — שם ארכוב הוא
+        הפעולה הנכונה.
+      </p>
+      <label className="a-field">
+        <span className="a-label">
+          לאישור, הקלידו את המזהה <bdi dir="ltr">{survey.slug}</bdi>
+        </span>
+        <input
+          className="a-input"
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          dir="ltr"
+          autoFocus
+        />
+      </label>
+      <footer className="dialog-actions">
+        <button className="a-btn ghost" onClick={onClose} disabled={surveys.busy}>
+          ביטול
+        </button>
+        <button
+          className="a-btn danger-ghost"
+          onClick={() => void surveys.remove(survey.slug).then((ok) => ok && onClose())}
+          disabled={confirmText.trim() !== survey.slug || surveys.busy}
+        >
+          <TrashIcon /> מחיקה לצמיתות
+        </button>
+      </footer>
+    </Dialog>
+  );
+}

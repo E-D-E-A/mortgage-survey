@@ -1,54 +1,62 @@
-// סשן אדמין: עוגיית HMAC חתומה (בלי תלויות, node:crypto בלבד).
-// כל פונקציית אדמין חייבת לקרוא requireAdmin לפני כל גישה ל-Supabase —
-// זו נקודת האכיפה היחידה; כפתור הגוגל בדפדפן הוא UX בלבד.
+// אימות אדמין מול Supabase Auth. הלקוח שולח Authorization: Bearer <access_token>
+// שקיבל מ-supabase-js אחרי כניסה עם Google; כאן מאמתים אותו מול Supabase
+// ואוכפים את הדומיין.
+//
+// זו נקודת האכיפה היחידה. חשוב: ה-anon key ציבורי, ולכן כל אחד באינטרנט יכול
+// להשלים כניסה עם Google מול הפרויקט — ההגבלה לדומיין first-edea.com נאכפת
+// כאן ולא בדפדפן. פרמטר hd בכפתור, מסך הסכמה Internal בגוגל וה-hook
+// before-user-created הם שכבות נוספות, לא תחליף לבדיקה הזו.
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+const ALLOWED_DOMAIN = 'first-edea.com';
 
-const COOKIE_NAME = 'sq_admin';
-const MAX_AGE_S = 12 * 60 * 60; // 12 שעות
-
-function hmac(payload: string, secret: string): Buffer {
-  return createHmac('sha256', secret).update(payload).digest();
+interface SupabaseUser {
+  email?: string;
+  email_confirmed_at?: string | null;
+  confirmed_at?: string | null;
+  app_metadata?: { provider?: string; providers?: string[] };
 }
 
-export function signSession(email: string, secret: string): string {
-  const payload = Buffer.from(JSON.stringify({ email, exp: Date.now() + MAX_AGE_S * 1000 })).toString(
-    'base64url',
-  );
-  return `${payload}.${hmac(payload, secret).toString('base64url')}`;
+export interface AdminSession {
+  email: string;
 }
 
-export function verifySession(token: string, secret: string): { email: string } | null {
-  const dot = token.lastIndexOf('.');
-  if (dot <= 0) return null;
-  const payload = token.slice(0, dot);
-  const sig = Buffer.from(token.slice(dot + 1), 'base64url');
-  const expected = hmac(payload, secret);
-  if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) return null;
-  try {
-    const { email, exp } = JSON.parse(Buffer.from(payload, 'base64url').toString()) as {
-      email: unknown;
-      exp: unknown;
-    };
-    if (typeof email !== 'string' || typeof exp !== 'number' || Date.now() > exp) return null;
-    return { email };
-  } catch {
-    return null;
+/**
+ * מאמת את ה-Bearer token ומחזיר את זהות העורך, או Response עם השגיאה:
+ * 401 — טוקן חסר/פגום/פג. 403 — משתמש תקין אבל לא מהדומיין המורשה.
+ */
+export async function requireAdmin(req: Request): Promise<AdminSession | Response> {
+  const supaUrl = process.env.SUPABASE_URL;
+  const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supaUrl || !supaKey) return new Response('server not configured', { status: 503 });
+
+  const auth = req.headers.get('authorization') ?? '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (!token || token.length > 8192) return new Response('unauthorized', { status: 401 });
+
+  const res = await fetch(`${supaUrl}/auth/v1/user`, {
+    headers: { apikey: supaKey, Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return new Response('unauthorized', { status: 401 });
+
+  const user = (await res.json()) as SupabaseUser;
+  const email = (user.email ?? '').toLowerCase();
+
+  // מייל מאומת בלבד — חוסם חשבון שנרשם עם כתובת בדומיין בלי לאמת אותה
+  if (!(user.email_confirmed_at ?? user.confirmed_at)) {
+    return new Response('forbidden: email not confirmed', { status: 403 });
   }
-}
+  if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
+    return new Response(`forbidden: ${ALLOWED_DOMAIN} accounts only`, { status: 403 });
+  }
 
-/** ערך Set-Cookie: קביעת סשן (token) או מחיקה (null). */
-export function sessionCookie(token: string | null): string {
-  const base = `${COOKIE_NAME}=${token ?? ''}; HttpOnly; Secure; SameSite=Strict; Path=/.netlify/functions`;
-  return token ? `${base}; Max-Age=${MAX_AGE_S}` : `${base}; Max-Age=0`;
-}
+  // הגנה לעומק: זהות Google בלבד. מכוון לבדוק את providers (מערך) ולא את
+  // provider (יחיד) — בחשבון שנוצר קודם עם סיסמה וקושר לגוגל, provider
+  // נשאר 'email' בעוד providers מכיל את שניהם. אם השדה חסר — לא חוסמים,
+  // האכיפה האמיתית היא הדומיין למעלה + כיבוי ספק ה-Email בדשבורד.
+  const providers = user.app_metadata?.providers;
+  if (Array.isArray(providers) && providers.length > 0 && !providers.includes('google')) {
+    return new Response('forbidden: google sign-in required', { status: 403 });
+  }
 
-export function requireAdmin(req: Request): { email: string } | Response {
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  if (!secret) return new Response('server not configured', { status: 503 });
-  const cookies = req.headers.get('cookie') ?? '';
-  const match = cookies.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
-  const session = match ? verifySession(match[1], secret) : null;
-  if (!session) return new Response('unauthorized', { status: 401 });
-  return session;
+  return { email };
 }

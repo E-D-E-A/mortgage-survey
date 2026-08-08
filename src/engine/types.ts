@@ -111,6 +111,8 @@ export interface NumberScreen extends BaseScreen {
   min?: number;
   max?: number;
   unit?: string;
+  /** ערכים שלמים בלבד (גיל, מספר ילדים) — בלעדיו מתקבל גם 40.5 */
+  integer?: boolean;
 }
 
 export interface TextScreen extends BaseScreen {
@@ -120,6 +122,8 @@ export interface TextScreen extends BaseScreen {
   multiline?: boolean;
   optional?: boolean;
   placeholder?: string;
+  /** תקרת תווים; ברירת המחדל היא TEXT_MAX_LENGTH ב-engine/input-rules.ts */
+  maxLength?: number;
 }
 
 export interface EndScreen extends BaseScreen {
@@ -139,9 +143,21 @@ export type Screen =
   | TextScreen
   | EndScreen;
 
+/**
+ * תוויות אנושיות למשתנה סשן — לתצוגה בקונסולת הניהול בלבד. המנוע מתעלם מהן,
+ * ולכן שם המשתנה עצמו נשאר קוד האנליזה (ראו docs/codebook.md) גם כשהאדמין
+ * רואה רק עברית.
+ */
+export interface VarMeta {
+  label: string;
+  /** ערך → תווית; ערך שאינו כאן מוצג כמות שהוא */
+  values?: Record<string, string>;
+}
+
 export interface SurveyConfig {
   version: string;
   /** משתנים שמוגרלים פעם אחת בתחילת סשן — למשל מחיר לניסוי B39 */
   randomVars?: Record<string, (string | number)[]>;
+  varMeta?: Record<string, VarMeta>;
   screens: Screen[];
 }

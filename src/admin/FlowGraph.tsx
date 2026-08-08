@@ -13,9 +13,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Condition, Screen, SurveyConfig } from '../engine/types';
 import { validateConfig, type ValidationIssue } from '../engine/validate';
 import { buildFlow } from './graph';
+import { duplicateScreen, uniqueId } from './edits';
 import { OptionalCondition } from './ConditionBuilder';
+import type { Naming } from './display';
+import { optionalConditionSentence, screenRef } from './display';
 import { TYPE_LABELS } from './labels';
-import { CloseIcon, CopyIcon, PlusIcon, TrashIcon, TypeIcon } from './Icons';
+import { CloseIcon, CopyIcon, PlusIcon, StopIcon, TrashIcon, TypeIcon } from './Icons';
 
 const NODE_W = 236;
 const NODE_H = 74;
@@ -50,6 +53,24 @@ interface LaidOutEdge {
   ruleIndex?: number;
   /** קשת מבנית: כניסה לענף / התכנסות בין שורות סמוכות — התווית תמיד מוצגת */
   structural?: boolean;
+  /** קשת חסרת מידע (דילוג/כפילות/שלט סיום) — מצוירת רק כשאחד מצדדיה נבחר */
+  quiet?: boolean;
+  /** הכיוון של קטע הקו שהתווית יושבת עליו — לאורכו בלבד מותר להסיט אותה */
+  labelAxis?: 'h' | 'v';
+}
+
+/**
+ * שלט סיום ("מחבר מחוץ לדף") — במקום קו שחוצה את כל הקנבס אל מסך סיום רחוק,
+ * הצומת מקבל תג קטן. הקו האמיתי מצויר רק כשהצומת נבחר.
+ */
+interface LaidOutStub {
+  sourceId: string;
+  targetId: string;
+  label: string;
+  variant: Extract<Screen, { type: 'end' }>['variant'];
+  ruleIndex?: number;
+  x: number;
+  y: number;
 }
 
 const EPS = 0.5;
@@ -101,20 +122,43 @@ function orthogonalPath(pts: Point[]): string {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+/** רצפה נוחה לזום ידני — יורדים מתחתיה רק כשהתרשים לא נכנס למסך אחרת. */
+const COMFORT_MIN_ZOOM = 0.25;
+/** רצפה קשיחה: מתחתיה שום דבר אינו קריא בכל מקרה. */
+const ABS_MIN_ZOOM = 0.05;
+const MAX_ZOOM = 2;
+/** שוליים מזעריים מעל התרשים כשהוא גבוה מהקנבס. */
+const FIT_PADDING = 16;
+
+// תוויות תנאי ארוכות ("segment: A וגם כן, ואף ביצעתי / כן, אך לא ביצעתי") לא
+// נקראות ממילא בגודל הזה, ורק מתנגשות זו בזו — מקצרים לתצוגה, הנוסח המלא
+// נשאר ב-tooltip ובעורך התנאי
+const LABEL_MAX_CHARS = 28;
+const LABEL_H = 18;
+const shortLabel = (t: string) => (t.length > LABEL_MAX_CHARS ? `${t.slice(0, LABEL_MAX_CHARS - 1)}…` : t);
+const labelWidth = (t: string) => Math.min(200, shortLabel(t).length * 6.4 + 18);
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const boxesHit = (a: Box, b: Box, pad = 11) =>
+  a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
+
+// הסטות לתווית מתנגשת, מהקרובה לרחוקה — תמיד לאורך הקו שהתווית יושבת עליו,
+// אחרת התווית מתנתקת מהקו ונראית "תלויה באוויר"
+const LABEL_NUDGES_V: Array<[number, number]> = [0, -17, 17, -34, 34, -51, 51, -68, 68].map((dy) => [0, dy]);
+const LABEL_NUDGES_H: Array<[number, number]> = [0, -40, 40, -80, 80, -120, 120].map((dx) => [dx, 0]);
+
 /** כל המזהים (שאלות ומשתנים) שתנאי מסתמך עליהם */
 const condRefs = (c: Condition): string[] =>
   'all' in c ? c.all.flatMap(condRefs)
   : 'any' in c ? c.any.flatMap(condRefs)
   : 'not' in c ? condRefs(c.not)
   : ['q' in c ? c.q : c.var];
-
-function uniqueId(base: string, screens: Screen[]): string {
-  const taken = new Set(screens.map((s) => s.id));
-  if (!taken.has(base)) return base;
-  let n = 2;
-  while (taken.has(`${base}_${n}`)) n++;
-  return `${base}_${n}`;
-}
 
 function nodeMainText(screen: Screen): { value: string; field: 'title' | 'prompt' } {
   switch (screen.type) {
@@ -186,14 +230,20 @@ interface Props {
   config: SurveyConfig;
   issues: ValidationIssue[];
   selectedId: string | null;
-  vars: string[];
-  onSelect: (id: string) => void;
+  naming: Naming;
+  /** מסלול ההרצה היבשה, לפי הסדר — null כשההרצה כבויה */
+  simPath: string[] | null;
+  onSelect: (id: string | null) => void;
   onUpdate: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
 }
 
-export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate }: Props) {
+export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelect, onUpdate }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
+  /** רצפת הזום הידני; יורדת מ-COMFORT_MIN_ZOOM כשההתאמה נאלצת לרדת מתחתיה */
+  const minZoom = useRef(COMFORT_MIN_ZOOM);
+  /** האם העורך הזיז/הגדיל את המבט בעצמו — אז לא מתאימים מחדש מתחת לידיו */
+  const userMoved = useRef(false);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<number | null>(null);
   const [popover, setPopover] = useState<Popover | null>(null);
@@ -245,11 +295,13 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
   // צמתים לא מזיז שום צומת, ועריכה מזיזה רק את השורות שמתחתיה.
   const layout = useMemo(() => {
     const MARGIN = 40;
-    const V_GAP = 56; // בין שורות — משמש גם כמסדרון לקווים האופקיים
-    const INNER_GAP = 24; // בין מסכים באותו ענף
-    const COL_W = NODE_W + 40; // רוחב עמודה כולל המרווח בין ענפים
-    const LANE_GAP = 26; // מרחק הנתיב הראשון מהעמודות
-    const LANE_W = 26; // מרווח בין נתיבים
+    // המסדרון בין שורות מכיל גם את הקווים האופקיים וגם את תוויות התנאי —
+    // צר מדי והתוויות נערמות זו על זו ועל הצמתים
+    const V_GAP = 96;
+    const INNER_GAP = 30; // בין מסכים באותו ענף
+    const COL_W = NODE_W + 60; // רוחב עמודה כולל המרווח בין ענפים
+    const LANE_GAP = 30; // מרחק הנתיב הראשון מהעמודות
+    const LANE_W = 28; // מרווח בין נתיבים
 
     const flow = buildFlow(config);
     const screens = config.screens;
@@ -298,6 +350,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     const spineX = MARGIN + maxHalf;
 
     const nodes: LaidOutNode[] = new Array(screens.length);
+    const lanes: { ids: string[]; x: number; y: number }[] = [];
     const rowOf = new Map<string, number>();
     const headIds = new Set<string>(); // ראש עמודה — הכניסה מלמעלה פנויה
     const tailIds = new Set<string>(); // זנב עמודה — היציאה מלמטה פנויה
@@ -308,6 +361,11 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       let rowBottom = y;
       row.branches.forEach((br, bi) => {
         const x = spineX + ((n - 1) / 2 - bi) * COL_W;
+        // ענף = כמה מסכים שחולקים את אותו תנאי תצוגה בדיוק. זו הקבוצה שהאדמין
+        // חושב עליה כ"מסלול", ולכן זו גם יחידת העריכה — תנאי אחד לכולם.
+        if (br.length > 1 && screens[br[0]].showIf) {
+          lanes.push({ ids: br.map((idx) => screens[idx].id), x, y });
+        }
         let by = y;
         br.forEach((idx, j) => {
           const s = screens[idx];
@@ -336,8 +394,8 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       if (!m) gapSlots.set(g, (m = new Map()));
       if (!m.has(key)) m.set(key, m.size);
       const slot = m.get(key)!;
-      const off = (slot % 2 === 0 ? 1 : -1) * Math.ceil(slot / 2) * 9;
-      return clamp(gapBase(g) + off, gapBase(g) - V_GAP / 2 + 8, gapBase(g) + V_GAP / 2 - 8);
+      const off = (slot % 2 === 0 ? 1 : -1) * Math.ceil(slot / 2) * 13;
+      return clamp(gapBase(g) + off, gapBase(g) - V_GAP / 2 + 10, gapBase(g) + V_GAP / 2 - 10);
     };
 
     const mkEdge = (
@@ -347,6 +405,8 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       labelY: number,
       label: string,
       structural = false,
+      quiet = false,
+      labelAxis: 'h' | 'v' = 'v',
     ): LaidOutEdge => ({
       from: e.from,
       to: e.to,
@@ -358,6 +418,8 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       kind: e.kind,
       ruleIndex: e.ruleIndex,
       structural,
+      quiet,
+      labelAxis,
     });
 
     // קשתות שלא מסתדרות דרך המפרצים הסמוכים עוקפות בנתיב אנכי מימין לעמודות
@@ -373,6 +435,20 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     }
     const edges: LaidOutEdge[] = [];
     const laneEdges: LaneEdge[] = [];
+    const stubs: LaidOutStub[] = [];
+    const stubCount = new Map<string, number>();
+    const quietCount = new Map<string, number>();
+    let maxQuietX = 0;
+
+    // ראשי ענפים שמקבלים מזלג מהשורה שמעליהם: הכניסה אליהם כבר מסופרת שם,
+    // ולכן שרשרת "אם לא ענף A אז ענף B" בין ענפים שכנים היא כפילות — מושתקת
+    const forked = new Set<string>();
+    for (const e of flow.edges) {
+      const rs = rowOf.get(e.from);
+      const rt = rowOf.get(e.to);
+      if (rt === undefined || rs === undefined) continue;
+      if (rt === rs + 1 && tailIds.has(e.from) && headIds.has(e.to)) forked.add(e.to);
+    }
 
     flow.edges.forEach((e, i) => {
       const s = byId.get(e.from);
@@ -401,6 +477,8 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
             straight ? (s.y + s.h + t.y) / 2 : yMid,
             e.label,
             true,
+            false,
+            straight ? 'v' : 'h',
           ),
         );
         return;
@@ -416,6 +494,54 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
             (scx + tcx) / 2,
             yMid,
             e.label,
+            !forked.has(e.to),
+            forked.has(e.to),
+            'h',
+          ),
+        );
+        return;
+      }
+
+      // ניתוב מפורש אל מסך סיום רחוק: הקו היה חוצה את כל הקנבס בלי להוסיף מידע
+      // ("כאן נגמר הראיון"). במקומו שלט קטן על הצומת — הקו עצמו נשמר ומצויר
+      // רק כשהצומת נבחר, כך ששום מסלול לא נעלם באמת.
+      const isEndStub = e.kind === 'goto' && t.type === 'end';
+      if (isEndStub) {
+        const k = stubCount.get(e.from) ?? 0;
+        stubCount.set(e.from, k + 1);
+        const target = screens[t.arrayIndex];
+        stubs.push({
+          sourceId: e.from,
+          targetId: e.to,
+          label: e.label,
+          variant: target.type === 'end' ? target.variant : 'complete',
+          ruleIndex: e.ruleIndex,
+          x: s.x,
+          y: s.y + s.h + 6 + k * 24,
+        });
+      }
+
+      // קשת שקטה (דילוג/שלט סיום) — מוצגת רק כשצד שלה נבחר. היא לא מקבלת
+      // נתיב משלה: בשאלון אמיתי יש אלפי דילוגים, ונתיב לכל אחד היה מרחיב את
+      // הקנבס פי עשרות ומגלה קווים חתוכים. במקום זה — מסלול ישיר במרזב שליד
+      // העמודה: קצר, תמיד בתוך הקנבס, ומעל שכבה מעומעמת ממילא.
+      if (isEndStub || e.kind === 'skip') {
+        // כל קשת שקטה מאותו מקור מקבלת מרזב משלה, אחרת כל המסלולים שנחשפים
+        // בבחירה מצטופפים לקו אחד עבה ואי אפשר לעקוב אחרי אף אחד מהם
+        const q = quietCount.get(e.from) ?? 0;
+        quietCount.set(e.from, q + 1);
+        const gx = Math.max(s.x + s.w, t.x + t.w) + 16 + q * 20;
+        maxQuietX = Math.max(maxQuietX, gx);
+        const sy = s.y + s.h / 2;
+        const ty = t.y + t.h / 2;
+        edges.push(
+          mkEdge(
+            e,
+            [{ x: s.x + s.w, y: sy }, { x: gx, y: sy }, { x: gx, y: ty }, { x: t.x + t.w, y: ty }],
+            gx,
+            (sy + ty) / 2,
+            e.label,
+            false,
             true,
           ),
         );
@@ -448,24 +574,16 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       });
     });
 
-    // הקצאת נתיבים בצביעת מרווחים; כללי goto לפני קשתות דילוג — הכללים
-    // המשמעותיים ותוויותיהם צמודים לעמודות, בתוך כל קבוצה קצר לפני ארוך
-    laneEdges.sort((a, b) => {
-      const ga = a.e.kind === 'skip' ? 1 : 0;
-      const gb = b.e.kind === 'skip' ? 1 : 0;
-      if (ga !== gb) return ga - gb;
-      return a.maxY - a.minY - (b.maxY - b.minY);
-    });
+    // הקצאת נתיבים בצביעת מרווחים, קצר לפני ארוך — רק לקשתות שנראות תמיד
     const laneEnds: { minY: number; maxY: number }[][] = [];
-    let firstSkipLane = 0;
+    laneEdges.sort((a, b) => a.maxY - a.minY - (b.maxY - b.minY));
     for (const se of laneEdges) {
-      let lane = se.e.kind === 'skip' ? firstSkipLane : 0;
+      let lane = 0;
       for (; lane < laneEnds.length; lane++) {
         if (laneEnds[lane].every((iv) => se.maxY < iv.minY - 6 || se.minY > iv.maxY + 6)) break;
       }
       (laneEnds[lane] ??= []).push({ minY: se.minY, maxY: se.maxY });
       se.lane = lane;
-      if (se.e.kind !== 'skip') firstSkipLane = Math.max(firstSkipLane, lane + 1);
     }
 
     const colsRight = spineX + NODE_W + maxHalf;
@@ -482,16 +600,85 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       );
     }
 
-    const maxLane = laneEdges.reduce((m, se) => Math.max(m, se.lane), -1);
+    // פיזור תוויות: אף תווית לא נחה על צומת, על שלט סיום או על תווית אחרת.
+    // מסיטים אנכית בלבד (התווית נשארת על הקו שלה), ובסדר קבוע — הפריסה
+    // נשארת דטרמיניסטית, והצמתים לא זזים בכלל.
+    const occupied: Box[] = [
+      ...nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
+      ...stubs.map((st) => ({ x: st.x, y: st.y, w: labelWidth(st.label) + 60, h: 20 })),
+    ];
+    const labelBox = (e: LaidOutEdge, dx = 0, dy = 0): Box => {
+      const w = labelWidth(e.label);
+      return { x: e.labelX + dx - w / 2, y: e.labelY + dy - LABEL_H / 2, w, h: LABEL_H };
+    };
+    // רק קשתות שנראות תמיד משתתפות. קשת שקטה נחשפת לבדה בבחירה, ויש לה מרזב
+    // משלה — הזזה שלה רק הייתה מנתקת את התווית מהקו שלה ("תלויה באוויר").
+    const labelled = edges.filter((e) => e.label && !e.quiet).sort((a, b) => a.labelY - b.labelY || a.labelX - b.labelX);
+    for (const e of labelled) {
+      // מזיזים רק לאורך הקו שהתווית יושבת עליו — כך היא נשארת מחוברת אליו
+      const nudges = e.labelAxis === 'h' ? LABEL_NUDGES_H : LABEL_NUDGES_V;
+      const spot = nudges.find(([dx, dy]) => !occupied.some((o) => boxesHit(labelBox(e, dx, dy), o)));
+      if (spot) {
+        e.labelX += spot[0];
+        e.labelY += spot[1];
+        occupied.push(labelBox(e));
+      } else {
+        // אין מקום פנוי: תווית זהה סמוכה כבר אומרת את אותו הדבר — מוותרים עליה
+        // (הקו עצמו נשאר, עם התנאי המלא ב-tooltip ובתפריט הימני)
+        e.label = '';
+      }
+    }
+
+
     return {
       nodes,
       edges,
-      width: colsRight + LANE_GAP + (maxLane + 1) * LANE_W + MARGIN + 60,
+      stubs,
+      lanes,
+      width: Math.max(colsRight + LANE_GAP + laneEnds.length * LANE_W + 60, maxQuietX + 40) + MARGIN,
       height: y - V_GAP + MARGIN,
     };
   }, [config]);
 
   const nodeById = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout]);
+
+  /** מזהה מסך → כל המסכים שחולקים איתו את אותו תנאי תצוגה ברצף. */
+  const laneOf = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const lane of layout.lanes) for (const id of lane.ids) m.set(id, lane.ids);
+    return m;
+  }, [layout]);
+
+  // מיקוד: בחירת מסך מדגישה אותו ואת שכניו הישירים ומעמעמת את השאר —
+  // קוראים סיפור אחד בכל פעם במקום את כל המפה בבת אחת.
+  const focusIds = useMemo(() => {
+    if (!selectedId || !nodeById.has(selectedId)) return null;
+    const ids = new Set([selectedId]);
+    for (const e of layout.edges) {
+      if (e.from === selectedId) ids.add(e.to);
+      if (e.to === selectedId) ids.add(e.from);
+    }
+    for (const st of layout.stubs) if (st.sourceId === selectedId) ids.add(st.targetId);
+    return ids;
+  }, [selectedId, layout, nodeById]);
+
+  // הרצה יבשה: המסלול שהמשיב הזה יעבור בפועל. הוא גובר על מיקוד הבחירה —
+  // כשהאדמין מריץ תשובות, הסיפור הוא המסלול ולא השכנים של המסך הנבחר.
+  const pathSet = useMemo(() => (simPath ? new Set(simPath) : null), [simPath]);
+  const pathEdges = useMemo(() => {
+    if (!simPath) return null;
+    const set = new Set<string>();
+    for (let i = 0; i + 1 < simPath.length; i++) set.add(`${simPath[i]}→${simPath[i + 1]}`);
+    return set;
+  }, [simPath]);
+
+  // מסך סיום שכל הכניסות אליו הפכו לשלטים היה נראה מנותק — תג נגדי מחזיר לו
+  // את ההקשר: כמה מסלולים מסתיימים בו, ומאיפה
+  const inboundStubs = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const st of layout.stubs) m.set(st.targetId, [...(m.get(st.targetId) ?? []), st.sourceId]);
+    return m;
+  }, [layout]);
 
   // חתימת גאומטריה: כשהפריסה זזה, שכבת הקשתות מתחלפת בעמעום (הצמתים
   // גולשים למקומם ב-CSS; קווי SVG לא ניתנים לאנימציה אמינה — מעמעמים במקום)
@@ -503,16 +690,31 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     [layout],
   );
 
+  /**
+   * "התאמה למסך".
+   *
+   * רצפת הזום הייתה קבועה על 0.25, ועם 70 מסכים אמיתיים ההתאמה נעצרה שם:
+   * התרשים יצא גבוה כמעט פי-2 מהקנבס, הטקסט האפקטיבי ירד ל-3px, ורק 47 צמתים
+   * היו גלויים. הרצפה יורדת עכשיו עד כמה שצריך כדי שהתרשים ייכנס, והוא ממורכז
+   * גם אנכית ולא מוצמד לראש.
+   */
   const fit = useCallback(() => {
     const el = containerRef.current;
-    if (!el || layout.width === 0) return;
+    if (!el || layout.width === 0 || layout.height === 0) return;
     const k = clamp(
       Math.min((el.clientWidth - 32) / layout.width, (el.clientHeight - 32) / layout.height),
-      0.25,
+      ABS_MIN_ZOOM,
       1,
     );
-    setView({ x: (el.clientWidth - layout.width * k) / 2, y: 16, k });
-    // הפריסה השתנתה מהותית? נעדכן רק בטעינה הראשונה — לא בכל עריכה
+    // הרצפה של הזום הידני יורדת יחד עם ההתאמה, אחרת גלגלת אחת הייתה מקפיצה
+    // את התרשים בחזרה ל-0.25 ומבטלת אותה
+    minZoom.current = Math.min(COMFORT_MIN_ZOOM, k);
+    setView({
+      x: (el.clientWidth - layout.width * k) / 2,
+      y: Math.max(FIT_PADDING, (el.clientHeight - layout.height * k) / 2),
+      k,
+    });
+    userMoved.current = false;
   }, [layout.width, layout.height]);
 
   const didFit = useRef(false);
@@ -523,6 +725,29 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
     }
   }, [fit]);
 
+  // שינוי גודל חלון, פתיחת/סגירת המגירה והסתרת רשימת המסכים משנים את רוחב
+  // הקנבס בלי לגעת ב-view — התרשים היה נשאר במיקום לא נכון עד לחיצה ידנית על
+  // "התאמה למסך". מתאימים מחדש רק כל עוד העורך לא הזיז את המבט בעצמו.
+  //
+  // ⚠ רק שינוי גודל *ממשי* של הקנבס. ResizeObserver יורה גם ברגע ההצמדה,
+  // וההצמדה חוזרת בכל עריכה שמשנה את מידות התרשים (fit תלוי בהן) — בלי
+  // ההשוואה הזו כל הוספה, מחיקה או סידור מחדש היו ממרכזים את המבט מחדש,
+  // בדיוק מה שהפריסה היציבה נועדה למנוע.
+  const lastSize = useRef<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      const previous = lastSize.current;
+      lastSize.current = { w: width, h: height };
+      if (!previous || (previous.w === width && previous.h === height)) return;
+      if (!userMoved.current) fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fit]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -531,8 +756,9 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
+      userMoved.current = true;
       setView((v) => {
-        const k = clamp(v.k * Math.exp(-e.deltaY * 0.0015), 0.25, 2);
+        const k = clamp(v.k * Math.exp(-e.deltaY * 0.0015), minZoom.current, MAX_ZOOM);
         const ratio = k / v.k;
         return { k, x: px - (px - v.x) * ratio, y: py - (py - v.y) * ratio };
       });
@@ -562,25 +788,31 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
 
   /* ---------- פאן ---------- */
 
-  const panRef = useRef<{ px: number; py: number; vx: number; vy: number } | null>(null);
+  const panRef = useRef<{ px: number; py: number; vx: number; vy: number; moved: boolean } | null>(null);
 
   function startPan(e: React.PointerEvent) {
     // פאן בלחצן שמאלי בלבד — לכידת מצביע בקליק ימני מסיטה את אירוע
     // ה-contextmenu מהקשת אל הקנבס ותפריט הקשת לא נפתח
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('.fg-node-wrap, .fg-popover, .fg-toolbar, .fg-edge-label, .fg-insert-btn')) return;
+    if ((e.target as HTMLElement).closest('.fg-node-wrap, .fg-popover, .fg-toolbar, .fg-edge-label, .fg-insert-btn, .fg-stub')) return;
     setPopover(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    panRef.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y };
+    panRef.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y, moved: false };
   }
 
   function movePan(e: React.PointerEvent) {
     const p = panRef.current;
     if (!p) return;
+    if (Math.hypot(e.clientX - p.px, e.clientY - p.py) > DRAG_THRESHOLD) {
+      p.moved = true;
+      userMoved.current = true;
+    }
     setView((v) => ({ ...v, x: p.vx + (e.clientX - p.px), y: p.vy + (e.clientY - p.py) }));
   }
 
   function endPan(e: React.PointerEvent) {
+    // קליק על רקע ריק (בלי גרירה) מבטל את הבחירה ויוצא ממצב המיקוד
+    if (panRef.current && !panRef.current.moved) onSelect(null);
     panRef.current = null;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -727,15 +959,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
   /* ---------- שכפול / מחיקה ---------- */
 
   function duplicate(id: string) {
-    onUpdate((cfg) => {
-      const idx = cfg.screens.findIndex((s) => s.id === id);
-      if (idx < 0) return cfg;
-      const copy = JSON.parse(JSON.stringify(cfg.screens[idx])) as Screen;
-      copy.id = uniqueId(`${id}_2`, cfg.screens);
-      const screens = [...cfg.screens];
-      screens.splice(idx + 1, 0, copy);
-      return { ...cfg, screens };
-    });
+    onUpdate((cfg) => ({ ...cfg, screens: duplicateScreen(cfg.screens, id) }));
   }
 
   function remove(id: string) {
@@ -887,11 +1111,22 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
             </defs>
             {layout.edges.map((e, i) => {
               const active = selectedId === e.from || selectedId === e.to;
+              // קווים חסרי מידע — דילוגים ("אם המסך שמתחת מוסתר, ממשיכים למטה")
+              // ושלטי סיום — לא מצוירים כברירת מחדל; בחירת אחד הצדדים מחזירה אותם
+              if (!active && (e.quiet || (e.kind === 'skip' && !e.structural))) return null;
               return (
                 <g key={i}>
                   <path
                     d={e.path}
-                    className={['fg-edge', e.conditional ? 'conditional' : '', e.kind === 'skip' ? (e.structural ? 'skip branch' : 'skip') : '', active ? 'active' : ''].join(' ')}
+                    className={[
+                      'fg-edge',
+                      e.conditional ? 'conditional' : '',
+                      e.kind === 'skip' ? (e.structural ? 'skip branch' : 'skip') : '',
+                      active ? 'active' : '',
+                      focusIds && !active ? 'dim' : '',
+                      pathEdges?.has(`${e.from}→${e.to}`) ? 'on-path' : '',
+                      pathEdges && !pathEdges.has(`${e.from}→${e.to}`) ? 'off-path' : '',
+                    ].join(' ')}
                     markerEnd={`url(#${active ? 'fg-arrow-active' : 'fg-arrow'})`}
                   />
                   {e.kind !== 'skip' && (
@@ -902,6 +1137,12 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                       onPointerLeave={edgeLeave}
                       onContextMenu={(ev) => openEdgeMenu(ev, i)}
                     />
+                  )}
+                  {/* מסלול שנחשף במיקוד: התנאי בריחוף, במקום תווית על הקנבס */}
+                  {e.kind === 'skip' && active && e.label && (
+                    <path d={e.path} className="fg-edge-hit passive">
+                      <title>{`${screenRef(naming, e.from)} ← ${screenRef(naming, e.to)}: ${e.label}`}</title>
+                    </path>
                   )}
                 </g>
               );
@@ -919,11 +1160,18 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
 
           {layout.edges
             .map((e, i) => ({ ...e, i }))
-            .filter((e) => e.label && (e.kind !== 'skip' || e.structural || selectedId === e.from || selectedId === e.to))
+            // מסלולים שנחשפים בבחירה לא מקבלים תווית: מסך אחד יכול לדלג אל
+            // עשרות מסכים, וכל התוויות האלה הן חזרה על תנאי התצוגה של היעד.
+            // הקו מראה "לאן אפשר להגיע"; התנאי עצמו בריחוף על הקו ובלחיצה עליו.
+            .filter((e) => e.label && !e.quiet && (e.kind !== 'skip' || e.structural))
             .map((e) => (
               <button
                 key={`l${e.i}`}
-                className={`fg-edge-label${selectedId === e.from || selectedId === e.to ? ' active' : ''}`}
+                className={[
+                  'fg-edge-label',
+                  selectedId === e.from || selectedId === e.to ? 'active' : '',
+                  focusIds && selectedId !== e.from && selectedId !== e.to ? 'dim' : '',
+                ].join(' ')}
                 style={{ left: e.labelX, top: e.labelY }}
                 title={`${e.label} — לחיצה לעריכת התנאי`}
                 onContextMenu={(ev) => openEdgeMenu(ev, e.i)}
@@ -935,7 +1183,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   )
                 }
               >
-                {e.label}
+                {shortLabel(e.label)}
               </button>
             ))}
 
@@ -967,6 +1215,55 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
             </button>
           )}
 
+          {/* כותרת ענף: תנאי אחד שנכתב פעם אחת ומחזיק את כל העמודה. בלעדיה
+              "מסלול A" הוא 19 מסכים עם 19 עותקים של אותו תנאי. */}
+          {layout.lanes.map((lane) => (
+            <button
+              key={`lane-${lane.ids[0]}`}
+              className={[
+                'fg-lane',
+                selectedId && lane.ids.includes(selectedId) ? 'active' : '',
+                simPath && !lane.ids.some((id) => simPath.includes(id)) ? 'off-path' : '',
+              ].join(' ')}
+              style={{ left: lane.x, top: lane.y - 26, width: NODE_W }}
+              title={`${lane.ids.length} מסכים בתנאי אחד — לחיצה לעריכת התנאי לכולם יחד`}
+              onClick={() => setPopover({ kind: 'showIf', screenId: lane.ids[0] })}
+            >
+              <span className="fg-lane-count">{lane.ids.length}</span>
+              <span className="fg-lane-text">
+                {shortLabel(
+                  optionalConditionSentence(
+                    naming,
+                    config.screens.find((s) => s.id === lane.ids[0])?.showIf,
+                  ),
+                )}
+              </span>
+            </button>
+          ))}
+
+          {layout.stubs.map((st) => (
+            <button
+              key={`s${st.sourceId}-${st.targetId}-${st.ruleIndex}`}
+              className={[
+                'fg-stub',
+                st.variant,
+                selectedId === st.sourceId ? 'active' : '',
+                focusIds && selectedId !== st.sourceId ? 'dim' : '',
+              ].join(' ')}
+              style={{ left: st.x, top: st.y }}
+              title={`${st.label ? st.label + ' — ' : ''}מסיים כאן ועובר אל "${screenRef(naming, st.targetId)}". לחיצה לעריכת הכלל`}
+              onClick={() =>
+                st.ruleIndex === undefined
+                  ? onSelect(st.targetId)
+                  : setPopover({ kind: 'rule', screenId: st.sourceId, ruleIndex: st.ruleIndex })
+              }
+            >
+              <StopIcon />
+              <span className="fg-stub-text">{shortLabel(st.label) || 'תמיד'}</span>
+              <span className="fg-stub-target">{screenRef(naming, st.targetId)}</span>
+            </button>
+          ))}
+
           {layout.nodes.map((n) => {
             const screen = config.screens[n.arrayIndex];
             const dragging = drag?.mode === 'reorder' && drag.id === n.id;
@@ -981,6 +1278,9 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                   isConnectTarget ? 'connect-target' : '',
                   isConnectTarget && drag?.mode === 'connect' && drag.targetBlocked ? 'blocked' : '',
                   changedIds.has(n.id) ? 'changed' : '',
+                  focusIds && !focusIds.has(n.id) ? 'dim' : '',
+                  pathSet?.has(n.id) ? 'on-path' : '',
+                  pathSet && !pathSet.has(n.id) ? 'off-path' : '',
                 ].join(' ')}
                 style={{
                   left: n.x,
@@ -1011,9 +1311,13 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                     }
                   }}
                 >
+                  {/* מספר המיקום ולא המזהה: זה מה שמאפשר לדבר על מסך בקול רם
+                      ("מסך 14"), והמזהה נשאר זמין ב-tooltip למי שצריך אותו */}
                   <span className="fg-node-head">
                     <TypeIcon type={n.type} />
-                    <code dir="ltr">{n.id}</code>
+                    <span className="fg-node-pos" title={n.id}>
+                      {config.screens.findIndex((s) => s.id === n.id) + 1}
+                    </span>
                   </span>
                   {!editing && <span className={`fg-node-text${n.type === 'end' ? ' end' : ''}`}>{n.text}</span>}
                 </div>
@@ -1037,6 +1341,19 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                     }}
                     onPointerDown={(e) => e.stopPropagation()}
                   />
+                )}
+
+                {inboundStubs.has(n.id) && (
+                  <span
+                    className="fg-stub-in"
+                    title={`${inboundStubs.get(n.id)!.length} מסלולים מסתיימים כאן: ${inboundStubs
+                      .get(n.id)!
+                      .map((id) => screenRef(naming, id))
+                      .join(' · ')}`}
+                  >
+                    <StopIcon />
+                    {inboundStubs.get(n.id)!.length}
+                  </span>
                 )}
 
                 <span className="fg-node-toolbar">
@@ -1083,12 +1400,13 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
             >
               <div className="fg-popover-head">
                 <strong>
-                  {popover.kind === 'rule' && popScreen && `כלל ניתוב: ${popover.screenId} ← ${(popScreen.next ?? [])[popover.ruleIndex]?.goto ?? ''}`}
-                  {popover.kind === 'showIf' && `תנאי תצוגה: ${popover.screenId}`}
+                  {popover.kind === 'rule' && popScreen &&
+                    `קפיצה: ${screenRef(naming, popover.screenId)} ← ${screenRef(naming, (popScreen.next ?? [])[popover.ruleIndex]?.goto ?? '')}`}
+                  {popover.kind === 'showIf' && `מוצג רק כאשר — ${screenRef(naming, popover.screenId)}`}
                   {(popover.kind === 'insert' || popover.kind === 'append') && 'מסך חדש'}
                   {popover.kind === 'edgeMenu' &&
                     (layout.edges[popover.edgeIndex]
-                      ? `${layout.edges[popover.edgeIndex].from} ← ${layout.edges[popover.edgeIndex].to}`
+                      ? `${screenRef(naming, layout.edges[popover.edgeIndex].from)} ← ${screenRef(naming, layout.edges[popover.edgeIndex].to)}`
                       : '')}
                 </strong>
                 <button className="a-icon-btn" onClick={() => setPopover(null)} aria-label="סגירה">
@@ -1113,8 +1431,7 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
                         }),
                       }))
                     }
-                    screens={config.screens}
-                    vars={vars}
+                    naming={naming}
                   />
                   <button
                     className="a-btn danger-ghost small"
@@ -1126,20 +1443,30 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
               )}
 
               {popover.kind === 'showIf' && popScreen && (
-                <OptionalCondition
-                  label="המסך מוצג רק כאשר…"
-                  value={popScreen.showIf}
-                  onChange={(cond) =>
-                    onUpdate((cfg) => ({
-                      ...cfg,
-                      screens: cfg.screens.map((s) =>
-                        s.id === popover.screenId ? ({ ...s, showIf: cond } as Screen) : s,
-                      ),
-                    }))
-                  }
-                  screens={config.screens}
-                  vars={vars}
-                />
+                <>
+                  {(laneOf.get(popover.screenId)?.length ?? 1) > 1 && (
+                    <p className="a-hint">
+                      התנאי הזה משותף ל-{laneOf.get(popover.screenId)!.length} מסכים בענף. שינוי כאן
+                      מחיל אותו על כולם.
+                    </p>
+                  )}
+                  <OptionalCondition
+                    label="המסך מוצג רק כאשר…"
+                    value={popScreen.showIf}
+                    onChange={(cond) => {
+                      // כל הענף יחד: המסכים האלה מוגדרים ככאלה שחולקים תנאי,
+                      // ועריכה שמפצלת אותם היא כמעט תמיד תקלה ולא כוונה
+                      const targets = new Set(laneOf.get(popover.screenId) ?? [popover.screenId]);
+                      onUpdate((cfg) => ({
+                        ...cfg,
+                        screens: cfg.screens.map((s) =>
+                          targets.has(s.id) ? ({ ...s, showIf: cond } as Screen) : s,
+                        ),
+                      }));
+                    }}
+                    naming={naming}
+                  />
+                </>
               )}
 
               {(popover.kind === 'insert' || popover.kind === 'append') && (
@@ -1195,11 +1522,12 @@ export function FlowGraph({ config, issues, selectedId, vars, onSelect, onUpdate
   );
 
   function zoomBy(f: number) {
+    userMoved.current = true;
     setView((v) => {
       const el = containerRef.current;
       const cx = (el?.clientWidth ?? 0) / 2;
       const cy = (el?.clientHeight ?? 0) / 2;
-      const k = clamp(v.k * f, 0.25, 2);
+      const k = clamp(v.k * f, minZoom.current, MAX_ZOOM);
       const ratio = k / v.k;
       return { k, x: cx - (cx - v.x) * ratio, y: cy - (cy - v.y) * ratio };
     });
@@ -1210,7 +1538,8 @@ const NEW_TYPES: Screen['type'][] = ['info', 'consent', 'single', 'multi', 'matr
 
 function InsertForm({ screens, onSubmit }: { screens: Screen[]; onSubmit: (type: Screen['type'], id: string) => void }) {
   const [type, setType] = useState<Screen['type']>('single');
-  const [id, setId] = useState('');
+  // מגיע מוכן, כמו בהוספה מהרשימה — הוספת מסך לא נפתחת בשאלה טכנית
+  const [id, setId] = useState(() => uniqueId('screen', screens));
   const trimmed = id.trim();
   const idTaken = screens.some((s) => s.id === trimmed);
   const idValid = /^[a-zA-Z][a-zA-Z0-9_]*$/.test(trimmed) && !idTaken;
@@ -1234,13 +1563,12 @@ function InsertForm({ screens, onSubmit }: { screens: Screen[]; onSubmit: (type:
         className="a-input"
         value={id}
         onChange={(e) => setId(e.target.value)}
-        placeholder="מזהה באנגלית, למשל s_income"
+        aria-label="קוד לקובץ הנתונים"
         dir="ltr"
-        autoFocus
       />
       {trimmed && !idValid && (
         <p className="a-hint error-text">
-          {idTaken ? 'המזהה כבר קיים' : 'מזהה חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות'}
+          {idTaken ? 'הקוד כבר קיים' : 'קוד חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות'}
         </p>
       )}
       <button className="a-btn primary small" type="submit" disabled={!idValid}>

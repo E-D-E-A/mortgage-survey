@@ -1,15 +1,20 @@
 :root {
-  /* פלטת "שאלון/טפסים" — teal מוסדי (ui-ux-pro-max: Survey / Form Builder).
-     primary כהה בדרגה מ-#0D9488 כדי לעמוד ב-4.5:1 עם טקסט לבן. */
-  --bg: #f0fdfa;
+  /* תמה בהירה בלבד — גם פקדים מובנים (שדות, גלילה) נשארים בהירים במצב כהה */
+  color-scheme: light;
+
+  /* פלטת מותג: טורקיז דיגיטלי #00F5D4 + כחול ליל עמוק #03071E.
+     הטורקיז בהיר מאוד — לכן טקסט שעל גביו כחול-לילה (לא לבן),
+     וקווים/מסגרות משתמשים ב---primary-strong (טורקיז כהה, ניגודיות 3:1+). */
+  --bg: #e4f8f3;
   --card: #ffffff;
-  --text: #134e4a;
-  --muted: #64748b;
-  --primary: #0f766e;
-  --on-primary: #ffffff;
-  --primary-press: #115e59;
-  --border: #c6ded9;
-  --selected-bg: #ccfbf1;
+  --text: #03071e;
+  --muted: #4b5670;
+  --primary: #00f5d4;
+  --on-primary: #03071e;
+  --primary-press: #00d9bc;
+  --primary-strong: #00eacb; /* טורקיז כהה יותר, ניגודיות 3:1+ */
+  --border: #a9d6cd;
+  --selected-bg: #d3fbf3;
   --radius: 14px;
   --radius-sm: 8px;
 
@@ -20,14 +25,14 @@
   --warning-bg: #fef3c7;
   --success: #047857;
   --success-bg: #d1fae5;
-  --focus-ring: rgba(13, 148, 136, 0.35);
+  --focus-ring: rgba(0, 148, 127, 0.4);
 
   /* משטחים מוגבהים (קונסולת הניהול) */
   --surface-raised: #ffffff;
-  --drag-shadow: 0 8px 24px rgba(19, 78, 74, 0.18);
-  --chip-bg: #e8f1f4;
-  --edge: #8fb5af;
-  --grid-dot: #ddebe7;
+  --drag-shadow: 0 8px 24px rgba(3, 7, 30, 0.2);
+  --chip-bg: #e2f1ed;
+  --edge: #6fa096;
+  --grid-dot: #c2e3dc;
 
   /* סולם רווחים 4px */
   --space-1: 4px;
@@ -43,35 +48,6 @@
   --text-base: 1rem;
   --text-lg: 1.2rem;
   --text-xl: 1.5rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1614;
-    --card: #132220;
-    --text: #e7f2ef;
-    --muted: #97ada9;
-    /* teal בהיר על רקע כהה — לכן הטקסט שעל primary כהה, לא לבן */
-    --primary: #2dd4bf;
-    --on-primary: #042f2e;
-    --primary-press: #14b8a6;
-    --border: #2c4642;
-    --selected-bg: #163831;
-
-    --danger: #f87171;
-    --danger-bg: #431a1a;
-    --warning: #fbbf24;
-    --warning-bg: #3a2c10;
-    --success: #34d399;
-    --success-bg: #123a2c;
-    --focus-ring: rgba(45, 212, 191, 0.45);
-
-    --surface-raised: #182b28;
-    --drag-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-    --chip-bg: #1e3330;
-    --edge: #46655f;
-    --grid-dot: #172724;
-  }
 }
 
 * {
@@ -122,10 +98,11 @@ body {
   width: 100%;
   max-width: 560px;
   background: var(--card);
+  border: 1px solid rgba(3, 7, 30, 0.06);
   border-radius: var(--radius);
   padding: 28px 22px 22px;
   margin: 20px 12px 40px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.07);
+  box-shadow: 0 1px 2px rgba(3, 7, 30, 0.04), 0 12px 32px rgba(3, 7, 30, 0.06);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -149,7 +126,7 @@ body {
   height: 74px;
   border-radius: 50%;
   background: var(--selected-bg);
-  color: var(--primary);
+  color: var(--primary-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,14 +160,58 @@ h1 {
   transition: border-color 0.12s, background 0.12s;
 }
 
-.option:hover {
-  border-color: var(--primary);
+.option:hover:not(:disabled) {
+  border-color: var(--primary-strong);
 }
 
 .option.selected {
-  border-color: var(--primary);
+  border-color: var(--primary-strong);
   background: var(--selected-bg);
   font-weight: 600;
+}
+
+/* מכסת בחירות מלאה — האפשרויות שנותרו מעומעמות במקום להתעלם בשקט מהלחיצה */
+.option:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.help.at-cap {
+  color: var(--text);
+  font-weight: 550;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.input.invalid {
+  border-color: var(--danger);
+}
+
+.char-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.char-count.at-limit {
+  color: var(--danger);
+}
+
+/* גלוי לקוראי מסך בלבד — הכרזת מסך חדש ב-aria-live */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .btn {
@@ -200,16 +221,23 @@ h1 {
   border: none;
   cursor: pointer;
   margin-top: 6px;
+  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .btn.primary {
   background: var(--primary);
   color: var(--on-primary);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(3, 7, 30, 0.12);
+}
+
+.btn.primary:hover {
+  background: var(--primary-press);
 }
 
 .btn.primary:active {
   background: var(--primary-press);
+  box-shadow: none;
 }
 
 .btn.primary:disabled {
@@ -227,7 +255,9 @@ h1 {
   background: none;
   color: var(--muted);
   font-size: 0.85rem;
-  padding: 6px;
+  /* מטרת מגע של 44px לפחות — הכפתור הזה נלחץ באצבע במובייל */
+  min-height: 44px;
+  padding: 6px 16px;
   align-self: center;
 }
 
@@ -243,8 +273,8 @@ h1 {
 }
 
 .input:focus {
-  outline: 2px solid var(--primary);
-  border-color: var(--primary);
+  outline: 2px solid var(--primary-strong);
+  border-color: var(--primary-strong);
 }
 
 .number-row {
@@ -298,7 +328,7 @@ h1 {
 }
 
 .scale-btn.selected {
-  border-color: var(--primary);
+  border-color: var(--primary-strong);
   background: var(--primary);
   color: var(--on-primary);
   font-weight: 600;

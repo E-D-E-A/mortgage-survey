@@ -5,6 +5,14 @@
 [functions]
   directory = "netlify/functions"
 
+# פיתוח מקומי — פורט vite קבוע ומפורש, אחרת netlify dev עלול "לאמץ"
+# שרת vite של פרויקט אחר שכבר רץ על פורט ברירת-המחדל 5173
+[dev]
+  command = "npx vite --port 5199 --strictPort"
+  targetPort = 5199
+  port = 8888
+  framework = "#custom"
+
 # SPA — כל נתיב מוגש מ-index.html
 # (נתיבי ‎/.netlify/functions/*‎ מטופלים לפני ה-redirect ולא נבלעים בו)
 [[redirects]]

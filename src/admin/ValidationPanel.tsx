@@ -2,14 +2,17 @@
 // לחיצה על ממצא בוחרת את המסך הרלוונטי.
 
 import type { ValidationIssue } from '../engine/validate';
+import type { Naming } from './display';
+import { humanizeMessage } from './display';
 import { CheckIcon, ErrorIcon, WarningIcon } from './Icons';
 
 interface Props {
   issues: ValidationIssue[];
+  naming: Naming;
   onSelectScreen: (id: string) => void;
 }
 
-export function ValidationPanel({ issues, onSelectScreen }: Props) {
+export function ValidationPanel({ issues, naming, onSelectScreen }: Props) {
   if (issues.length === 0) {
     return (
       <div className="validation-panel ok" role="status">
@@ -29,10 +32,10 @@ export function ValidationPanel({ issues, onSelectScreen }: Props) {
             )}
             {issue.screenId ? (
               <button className="validation-link" onClick={() => onSelectScreen(issue.screenId!)}>
-                {issue.message}
+                {humanizeMessage(naming, issue.message)}
               </button>
             ) : (
-              <span>{issue.message}</span>
+              <span>{humanizeMessage(naming, issue.message)}</span>
             )}
           </li>
         ))}

@@ -8,11 +8,24 @@
 // - In dev (vite) events go to console + localStorage only; the real pipeline
 //   runs in production builds (`netlify serve` locally, or the deployed site).
 
+import { scopedKey } from './session-scope';
+
 const ENDPOINT = '/.netlify/functions/events';
 
 export const eventsEnabled = import.meta.env.PROD;
 
-export type EventType = 'session_start' | 'screen_view' | 'answer' | 'complete' | 'screenout';
+// ⚠ הרשימה משוכפלת בשלושה מקומות שחייבים להישאר מסונכרנים: כאן,
+// EVENT_TYPES ב-netlify/functions/events.mts, וה-check על survey_events
+// ב-supabase/schema.sql. סוג שלא מוכר בשרת מפיל את כל האצווה ל-400,
+// והלקוח זורק אותה — האירוע אובד בשקט.
+// שלושת סוגי הסיום נגזרים מ-EndScreen['variant'] ונושאים את אותם שמות.
+export type EventType =
+  | 'session_start'
+  | 'screen_view'
+  | 'answer'
+  | 'complete'
+  | 'screenout'
+  | 'quotafull';
 
 interface EventRow {
   event_uid: string;
@@ -24,6 +37,9 @@ interface EventRow {
   client_ts: string;
 }
 
+// התור משותף לכל השאלונים (כל שורה נושאת את survey_version שלה), אבל
+// ה-session_id מוגבל לשאלון — אחרת פתיחת שאלון שני באותה לשונית הייתה
+// נספרת כאותו סשן.
 const QUEUE_KEY = 'sq_queue_v1';
 const DEV_KEY = 'sq_dev_events_v1';
 const SESSION_KEY = 'sq_session_v1';
@@ -49,10 +65,11 @@ function persistQueue() {
 }
 
 export function getSessionId(): string {
-  let id = sessionStorage.getItem(SESSION_KEY);
+  const key = scopedKey(SESSION_KEY);
+  let id = sessionStorage.getItem(key);
   if (!id) {
     id = crypto.randomUUID();
-    sessionStorage.setItem(SESSION_KEY, id);
+    sessionStorage.setItem(key, id);
   }
   return id;
 }

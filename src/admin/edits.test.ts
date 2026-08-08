@@ -1,0 +1,133 @@
+import { describe, expect, it } from 'vitest';
+import { duplicateScreen, insertScreen, uniqueId } from './edits';
+import { validateConfig } from '../engine/validate';
+import type { Screen, SurveyConfig } from '../engine/types';
+
+const info = (id: string, extra: Partial<Screen> = {}): Screen =>
+  ({ id, type: 'info', title: id, body: 'גוף', ...extra }) as Screen;
+
+const end = (id: string): Screen => ({ id, type: 'end', variant: 'complete', title: 'ת', body: 'ב' });
+
+const base = [info('q1'), info('q2'), end('end_complete'), end('end_screenout')];
+const added = info('new');
+const ids = (screens: Screen[]) => screens.map((s) => s.id);
+
+describe('insertScreen', () => {
+  it('inserts right after the selected screen', () => {
+    expect(ids(insertScreen(base, added, 'q1'))).toEqual([
+      'q1',
+      'new',
+      'q2',
+      'end_complete',
+      'end_screenout',
+    ]);
+  });
+
+  it('inserts before the first end screen when nothing is selected', () => {
+    // הבאג המקורי: המסך נחת במקום 71 מתוך 71, אחרי מסכי הסיום, ומיד קיבל
+    // אזהרת "אינו נגיש מהמסך הראשון"
+    expect(ids(insertScreen(base, added, null))).toEqual([
+      'q1',
+      'q2',
+      'new',
+      'end_complete',
+      'end_screenout',
+    ]);
+  });
+
+  it('does not land after the end screens when an end screen is selected', () => {
+    expect(ids(insertScreen(base, added, 'end_complete'))).toEqual([
+      'q1',
+      'q2',
+      'new',
+      'end_complete',
+      'end_screenout',
+    ]);
+  });
+
+  it('appends a new end screen instead of stealing the existing end fall-through', () => {
+    const newEnd = end('end_quota');
+    expect(ids(insertScreen(base, newEnd, 'q1'))).toEqual([
+      'q1',
+      'q2',
+      'end_complete',
+      'end_screenout',
+      'end_quota',
+    ]);
+  });
+
+  it('appends when there is no end screen at all', () => {
+    expect(ids(insertScreen([info('q1')], added, null))).toEqual(['q1', 'new']);
+  });
+
+  it('ignores a selected id that no longer exists', () => {
+    expect(ids(insertScreen(base, added, 'ghost'))).toEqual([
+      'q1',
+      'q2',
+      'new',
+      'end_complete',
+      'end_screenout',
+    ]);
+  });
+
+  it('the added screen is reachable — the warning the old behaviour always produced', () => {
+    // (end_screenout ב-base אכן לא נגיש; מעניין אותנו רק המסך שנוסף)
+    for (const selected of [null, 'q1', 'end_complete']) {
+      const cfg: SurveyConfig = { version: 't', screens: insertScreen(base, added, selected) };
+      const unreachable = validateConfig(cfg).filter((i) => i.code === 'unreachable');
+      expect(unreachable.map((i) => i.screenId)).not.toContain('new');
+    }
+  });
+
+  it('does not mutate the input array', () => {
+    const before = ids(base);
+    insertScreen(base, added, 'q1');
+    expect(ids(base)).toEqual(before);
+  });
+});
+
+describe('duplicateScreen', () => {
+  const withRouting = info('seg', {
+    showIf: { var: 'x', op: 'eq', value: 1 },
+    next: [{ goto: 'end_complete' }],
+    onSubmit: [{ var: 'segment', value: 'A' }],
+  });
+
+  it('places the copy right after the original with a free id', () => {
+    const out = duplicateScreen([withRouting, end('end_complete')], 'seg');
+    expect(ids(out)).toEqual(['seg', 'seg_2', 'end_complete']);
+  });
+
+  it('drops next and onSubmit but keeps showIf and the content', () => {
+    // שני מסכים שמציבים את אותו segment הוא בדיוק המצב שקשה לשים לב אליו
+    const copy = duplicateScreen([withRouting, end('end_complete')], 'seg')[1];
+    expect(copy.onSubmit).toBeUndefined();
+    expect(copy.next).toBeUndefined();
+    expect(copy.showIf).toEqual({ var: 'x', op: 'eq', value: 1 });
+    expect((copy as { title: string }).title).toBe('seg');
+  });
+
+  it('deep-copies the content so editing the copy leaves the original alone', () => {
+    const single: Screen = {
+      id: 'q',
+      type: 'single',
+      prompt: 'p',
+      options: [{ id: 'a', label: 'A' }],
+    };
+    const out = duplicateScreen([single, end('e')], 'q');
+    (out[1] as typeof single).options[0].label = 'שונה';
+    expect((out[0] as typeof single).options[0].label).toBe('A');
+  });
+
+  it('is a no-op for an unknown id', () => {
+    expect(duplicateScreen(base, 'ghost')).toBe(base);
+  });
+});
+
+describe('uniqueId', () => {
+  it('returns the base when free, and suffixes otherwise', () => {
+    expect(uniqueId('q_2', base)).toBe('q_2');
+    expect(uniqueId('q1', base)).toBe('q1_2');
+    expect(uniqueId('q1', [...base, info('q1_2'), info('q1_3')])).toBe('q1_4');
+  });
+});

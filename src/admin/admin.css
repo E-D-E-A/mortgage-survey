@@ -7,6 +7,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap');
 
 .admin-app {
+  /* סביבת עבודה ניטרלית (בסגנון עורכי-זרימה כמו Linear/n8n): כרום אפור קריר,
+     והמותג (טורקיז/כחול-לילה) שמור לבחירה ולפעולה הראשית בלבד.
+     הדריסה כאן בלבד — השאלון עצמו נשאר בפלטת המותג המלאה. */
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --surface-raised: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --chip-bg: #f3f4f6;
+  --edge: #9ca3af;
+  --grid-dot: #e3e5e9;
+  --selected-bg: #e6faf5;
+  --focus-ring: rgba(0, 148, 127, 0.3);
+  --drag-shadow: 0 8px 24px rgba(17, 24, 39, 0.16);
+
+  background: var(--bg);
+  color: var(--text);
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -18,6 +36,17 @@
 /* ---------- סרגל עליון ---------- */
 
 .topbar {
+  /* סרגל כחול-לילה (מותג) — כרום "מוצר" כהה מעל סביבת עבודה בהירה.
+     הטוקנים נדרסים מקומית כדי שכל הפקדים שבתוכו יתואמו לרקע הכהה. */
+  --text: #ffffff;
+  --muted: rgba(255, 255, 255, 0.66);
+  --chip-bg: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.22);
+  --surface-raised: transparent;
+  --primary-strong: #00f5d4;
+  --danger: #fda4af;
+  --warning: #fcd34d;
+
   position: sticky;
   top: 0;
   z-index: 40;
@@ -25,8 +54,10 @@
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-4);
-  background: var(--surface-raised);
-  border-block-end: 1px solid var(--border);
+  background: #03071e;
+  color: var(--text);
+  /* נשמר גבול 1px — גבהי ה-sticky בהמשך מחושבים לפי 49px */
+  border-block-end: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .topbar-title {
@@ -99,6 +130,13 @@
   transition: grid-template-columns 0.32s ease;
 }
 
+/* ⚠ מיקום מפורש, לא זרימה אוטומטית. display:none על הרשימה (או מגירה שיצאה
+   מהגריד ל-position:fixed) מוציא פריט מהזרימה, והתרשים היה גולש לעמודה
+   הראשונה שרוחבה 0 — מה שכיווץ אותו ל-2px בכל פעם שהרשימה הוסתרה. */
+.admin-sidebar { grid-column: 1; }
+.admin-main { grid-column: 2; }
+.editor-drawer { grid-column: 3; }
+
 .admin-body.drawer-open { grid-template-columns: minmax(280px, 340px) 1fr 440px; }
 .admin-body.sidebar-closed { grid-template-columns: 0 1fr 0; }
 .admin-body.sidebar-closed.drawer-open { grid-template-columns: 0 1fr 440px; }
@@ -134,8 +172,24 @@
   max-width: none;
 }
 
+/* ברוחב בינוני המגירה כבר לא יכולה להיות עמודה בגריד: ב-1024px היא לקחה
+   584px, הרשימה התכווצה ל-0 והתרשים נשאר ברוחב 2px. מ-1280 ומטה היא הופכת
+   לשכבה מעל התרשים — התרשים והרשימה שומרים על הרוחב שלהם. */
+@media (max-width: 1280px) {
+  .admin-body.drawer-open { grid-template-columns: minmax(280px, 340px) 1fr 0; }
+
+  .editor-drawer {
+    position: fixed;
+    top: 49px;
+    inset-inline-end: 0;
+    width: min(440px, 92vw);
+    z-index: 30;
+    box-shadow: var(--drag-shadow);
+  }
+}
+
 @media (max-width: 1100px) {
-  .admin-body.drawer-open { grid-template-columns: 0 1fr 440px; }
+  .admin-body.drawer-open { grid-template-columns: 0 1fr 0; }
   .admin-body.drawer-open .admin-sidebar { display: none; }
 }
 
@@ -156,6 +210,8 @@
   gap: var(--space-3);
   min-width: 0;
   overflow: hidden;
+  /* עוגן להרצה היבשה, שצפה מעל התרשים ולא גוזלת ממנו רוחב */
+  position: relative;
 }
 
 .admin-empty {
@@ -176,16 +232,42 @@
   min-height: 200px;
 }
 
-@media (max-width: 900px) {
-  .admin-body { grid-template-columns: 1fr; }
-  .admin-sidebar {
-    position: static;
-    height: auto;
-    max-height: 40dvh;
-    border-inline-end: none;
-    border-block-end: 1px solid var(--border);
-  }
-  .admin-main { height: auto; min-height: 70dvh; overflow: visible; }
+/* מתחת ל-900px מוצג מסך "דסקטופ בלבד" (MIN_CONSOLE_WIDTH ב-AdminApp.tsx)
+   במקום ממשק שקורס — שלוש העמודות פשוט לא נכנסות. */
+/* העורך נשאר מורכב מאחורי השכבה בכוונה — הצרת החלון לא אמורה למחוק שינויים
+   שלא נשמרו. display:none מסתיר רק את הפריסה (מצב React נשמר), ובלעדיו
+   הפריסה הרחבה הייתה משאירה גלישה אופקית מתחת להודעה.
+   ההודעה עצמה יושבת בתוך ‎.admin-app‎ (רק העורך מציג אותה), ולכן מסתירים את
+   אחיה ולא את המכל — אחרת ההודעה הייתה מסתירה את עצמה. */
+body:has(.narrow-notice) .admin-app > .topbar,
+body:has(.narrow-notice) .admin-app > .admin-body,
+body:has(.narrow-notice) .admin-app > .admin-empty {
+  display: none;
+}
+
+.narrow-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: var(--bg);
+}
+
+.narrow-notice-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 420px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.narrow-notice-card h1 {
+  font-size: var(--text-lg);
+  color: var(--text);
 }
 
 /* ---------- תרשים הזרימה ---------- */
@@ -198,6 +280,7 @@
   border-radius: var(--radius);
   background: var(--card);
   overflow: hidden;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .fg-toolbar {
@@ -212,6 +295,7 @@
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
 }
 
 .fg-zoom {
@@ -280,6 +364,14 @@
   opacity: 1;
 }
 
+/* מצב מיקוד — נבחר מסך, וכל מה שאינו על מסלולו הישיר נסוג לרקע */
+.fg-edge.dim { opacity: 0.08; }
+.fg-edge.skip.dim, .fg-edge.skip.branch.dim { opacity: 0.06; }
+.fg-edge-label.dim { opacity: 0.15; }
+.fg-node-wrap.dim { opacity: 0.22; }
+.fg-node-wrap.dim:hover { opacity: 0.7; }
+.fg-edge { transition: opacity 0.18s ease; }
+
 .fg-arrow-head { fill: var(--edge); }
 .fg-arrow-head.active { fill: var(--primary-strong); }
 
@@ -292,6 +384,9 @@
   cursor: pointer;
 }
 
+/* שטח ריחוף בלבד (טולטיפ על מסלול שנחשף) — בלי סמן לחיצה */
+.fg-edge-hit.passive { cursor: default; }
+
 .fg-connect-line {
   stroke: var(--primary-strong);
   stroke-width: 1.5;
@@ -303,7 +398,10 @@
 .fg-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  transition: left 0.5s cubic-bezier(0.3, 0, 0.15, 1), top 0.5s cubic-bezier(0.3, 0, 0.15, 1);
+  transition:
+    left 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    top 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    opacity 0.18s ease;
   font: inherit;
   font-size: 11px;
   line-height: 1.4;
@@ -358,8 +456,67 @@
     left 0.5s cubic-bezier(0.3, 0, 0.15, 1),
     top 0.5s cubic-bezier(0.3, 0, 0.15, 1),
     width 0.5s cubic-bezier(0.3, 0, 0.15, 1),
-    height 0.5s cubic-bezier(0.3, 0, 0.15, 1);
+    height 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    opacity 0.18s ease;
 }
+
+/* שלט סיום — "המסלול נגמר כאן" במקום קו שחוצה את כל הקנבס */
+.fg-stub {
+  position: absolute;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  padding: 1px var(--space-2) 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    left 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    top 0.5s cubic-bezier(0.3, 0, 0.15, 1),
+    opacity 0.18s ease;
+}
+
+.fg-stub svg { width: 12px; height: 12px; flex: none; }
+.fg-stub code { font-size: 10px; opacity: 0.7; }
+.fg-stub-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+.fg-stub.screenout,
+.fg-stub.quotafull { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.fg-stub.complete { color: var(--success); border-color: var(--success); }
+.fg-stub:hover { border-color: var(--text); color: var(--text); }
+.fg-stub.active { box-shadow: 0 0 0 2px var(--focus-ring); }
+.fg-stub.dim { opacity: 0.2; }
+
+/* תג נגדי על מסך הסיום: כמה מסלולים מסתיימים בו (במקום חצים נכנסים) */
+.fg-stub-in {
+  position: absolute;
+  top: -11px;
+  inset-inline-start: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 18px;
+  pointer-events: none;
+}
+
+.fg-stub-in svg { width: 11px; height: 11px; }
 
 /* הצומת שהעריכה האחרונה נגעה בו — טבעת הבהוב שדועכת */
 .fg-node-wrap.changed .fg-node {
@@ -383,6 +540,15 @@
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+/* יעד שהחיבור אליו היה יוצר מעגל — נחסם, מסומן באדום */
+.fg-node-wrap.connect-target.blocked .fg-node {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-bg);
+  cursor: not-allowed;
+}
+
+.fg-connect-line.blocked { stroke: var(--danger); }
+
 .fg-node {
   position: absolute;
   inset: 0;
@@ -399,8 +565,8 @@
   padding: var(--space-2) var(--space-3);
   cursor: grab;
   overflow: hidden;
-  /* הצללה קלה — מפרידה את הצומת מהקנבס הצבוע */
-  box-shadow: 0 1px 3px rgba(3, 7, 30, 0.1);
+  /* הצללה דו-שכבתית עדינה — מרימה את הצומת מהקנבס בלי להכביד */
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   user-select: none;
   touch-action: none;
@@ -410,7 +576,7 @@
 
 .fg-node.selected {
   border-color: var(--primary-strong);
-  box-shadow: 0 0 0 1px var(--primary-strong);
+  /* box-shadow: 0 0 0 1px var(--primary-strong); */
 }
 
 .fg-node.has-error { border-color: var(--danger); }
@@ -523,6 +689,51 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* תפריט קליק-ימני על קשת */
+.fg-edge-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: stretch;
+}
+
+.fg-edge-menu .a-btn { justify-content: flex-start; }
+
+/* הודעות צפות: חסימת מעגל, כשל שמירה. יכולות להופיע יחד ולכן נערמות. */
+.toast-stack {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cycle-toast {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  max-width: 520px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--drag-shadow);
+}
+
+.cycle-toast > svg { flex-shrink: 0; margin-top: 2px; }
+.cycle-toast .a-btn { flex-shrink: 0; align-self: center; }
+.cycle-toast strong { font-size: var(--text-sm); }
+.cycle-toast p {
+  color: var(--text);
+  font-size: var(--text-xs);
+  margin-top: 2px;
 }
 
 .fg-sep {
@@ -656,9 +867,10 @@
 
 .screen-type-label { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
 
-.screen-excerpt {
-  font-size: var(--text-xs);
-  color: var(--muted);
+.screen-name {
+  font-size: var(--text-sm);
+  color: var(--text);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -726,14 +938,23 @@
 
 .editor-type svg { color: var(--muted); }
 
+.editor-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .editor-id {
-  font-size: var(--text-xs);
+  font-size: 10px;
   color: var(--muted);
   background: var(--chip-bg);
   padding: 2px var(--space-2);
   border-radius: 4px;
   direction: ltr;
-  flex: 1;
+  opacity: 0.75;
 }
 
 /* ---------- שדות טופס ---------- */
@@ -813,6 +1034,9 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
 
 .a-btn:disabled { opacity: 0.45; cursor: default; }
 
+/* קישור שמעוצב ככפתור (למשל "צפייה" בסרגל העורך) — בלי קו תחתון וירושת צבע */
+a.a-btn { text-decoration: none; }
+
 .a-btn.primary { background: var(--primary); color: var(--on-primary); }
 .a-btn.primary:not(:disabled):hover { background: var(--primary-press); }
 
@@ -880,7 +1104,8 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
 
 .option-row { display: flex; align-items: center; gap: var(--space-2); }
 .option-row .a-input { flex: 1; }
-.option-row .option-id { flex: 0 0 130px; font-size: var(--text-xs); }
+.option-row .option-id { flex: 0 0 96px; font-size: 10px; color: var(--muted); opacity: 0.75; }
+.option-row .option-id:focus { opacity: 1; color: var(--text); }
 
 /* ---------- בונה תנאים ---------- */
 
@@ -1026,7 +1251,33 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
 
 .login-card h1 { font-size: var(--text-xl); }
 
-.gis-button { min-height: 44px; }
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  font: inherit;
+  font-size: var(--text-base);
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-google:hover:not(:disabled) { background: var(--surface-hover, var(--card)); }
+
+.btn-google:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.btn-google:disabled { opacity: 0.6; cursor: default; }
+
+.btn-google svg { flex: none; }
 
 /* ---------- הפחתת תנועה ---------- */
 
@@ -1038,3 +1289,361 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ---------- רשימת השאלונים (מסך הבית של הקונסולה) ---------- */
+
+.admin-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.survey-list {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.survey-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-block-end: var(--space-2);
+}
+
+.survey-list-head h2 { font-size: var(--text-lg); }
+.survey-list-head p { margin-block-start: var(--space-1); max-width: 52ch; }
+
+.survey-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+
+.survey-card.archived { background: var(--bg); }
+.survey-card.archived .survey-card-title h3 { color: var(--muted); }
+
+.survey-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 240px;
+  flex: 1;
+}
+
+.survey-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.survey-card-title h3 { font-size: var(--text-base); }
+
+.survey-card-title code {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  background: var(--chip-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* ירוק = "משיבים יכולים להיכנס עכשיו". שאר המצבים ניטרליים בכוונה. */
+.chip-live { color: var(--success); }
+
+.survey-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+}
+
+.survey-link a {
+  color: var(--primary-strong);
+  word-break: break-all;
+}
+
+.survey-meta { margin: 0; }
+
+.survey-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.survey-archive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-block-start: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--border);
+  align-items: stretch;
+}
+
+.survey-archive > .a-btn { align-self: flex-start; }
+
+.topbar-slug {
+  font-size: var(--text-xs);
+  opacity: 0.7;
+}
+
+/* ---------- שכבת השמות: מספר מיקום במקום מזהה ---------- */
+
+.fg-node-pos {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 14px;
+}
+
+.fg-stub-target {
+  font-size: 10px;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90px;
+}
+
+/* ---------- פאנל ההקשר במגירת העריכה ---------- */
+
+.flow-context {
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: var(--space-3);
+}
+
+.flow-context-title {
+  margin: 0 0 2px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.flow-line {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.flow-line > svg { flex: none; margin-top: 3px; color: var(--muted); }
+.flow-line.strong { font-weight: 600; }
+.flow-line.muted { color: var(--muted); }
+.flow-line.warn { color: var(--danger); }
+
+.flow-ref {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font: inherit;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.flow-ref:hover { color: var(--primary, #00947f); }
+.flow-ref.missing { text-decoration: line-through; color: var(--danger); cursor: default; }
+
+/* ---------- תנאים: המשפט מעל העץ ---------- */
+
+.cond-sentence {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  background: var(--chip-bg);
+  border-radius: 6px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.cond-subject { max-width: 260px; }
+
+.cond-value-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  flex: 1;
+  min-width: 160px;
+  padding: var(--space-1) 0;
+}
+
+/* ---------- יצירת סימון חדש ---------- */
+
+.define-form {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: var(--space-2);
+  margin: var(--space-2) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.define-actions { display: flex; gap: var(--space-2); }
+
+.add-screen-code { font-size: var(--text-xs); color: var(--muted); width: 100%; }
+.add-screen-code summary { cursor: pointer; padding: var(--space-1) 0; }
+
+/* ---------- הרצה יבשה ---------- */
+
+.simulator {
+  position: absolute;
+  inset-block-start: 44px;
+  inset-inline-start: var(--space-3);
+  z-index: 6;
+  width: 320px;
+  max-height: calc(100% - 60px);
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--drag-shadow);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.simulator-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.simulator-head .a-hint { flex: 1; margin: 0; }
+
+.simulator-answers,
+.simulator-path { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.sim-question { display: flex; flex-direction: column; gap: 3px; }
+
+.sim-question-label {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text);
+  text-align: start;
+  cursor: pointer;
+}
+
+.sim-question-label:hover { text-decoration: underline; }
+.sim-multi { display: flex; flex-direction: column; gap: 2px; }
+
+.sim-summary {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--muted);
+  border-block-start: 1px solid var(--border);
+  padding-block-start: var(--space-2);
+}
+
+.sim-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sim-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text);
+  text-align: start;
+  cursor: pointer;
+}
+
+.sim-step:hover { color: var(--primary, #00947f); }
+
+.sim-step-pos {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 20px;
+  text-align: end;
+}
+
+.sim-step-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sim-var {
+  display: inline-block;
+  margin-inline-start: 28px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--chip-bg);
+  border-radius: 4px;
+  padding: 1px var(--space-2);
+}
+
+/* מסלול ההרצה גובר על העמעום הרגיל: מה שמחוץ למסלול נסוג, מה שבתוכו מודגש */
+.fg-node-wrap.off-path { opacity: 0.18; }
+.fg-node-wrap.on-path .fg-node { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+.fg-edge.off-path { opacity: 0.1; }
+.fg-edge.on-path { stroke: var(--text); stroke-width: 2.2; opacity: 1; }
+
+/* ---------- כותרת ענף ---------- */
+
+.fg-lane {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 20px;
+  padding: 0 var(--space-2);
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.fg-lane:hover { border-style: solid; border-color: var(--text); color: var(--text); }
+.fg-lane.active { border-style: solid; box-shadow: 0 0 0 2px var(--focus-ring); }
+.fg-lane.off-path { opacity: 0.18; }
+
+.fg-lane-count {
+  background: var(--chip-bg);
+  border-radius: 8px;
+  padding: 0 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fg-lane-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

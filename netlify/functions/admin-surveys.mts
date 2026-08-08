@@ -1,0 +1,208 @@
+// ניהול רשימת השאלונים. עורכי first-edea בלבד (requireAdmin לפני הכל).
+//   GET                       → { surveys: [...] } כולל מצב הטיוטה והגרסה האחרונה
+//   POST   { slug, name }     → יצירת שאלון + טיוטת שלד
+//   PATCH  { slug, name?, archived? } → שינוי שם / ארכוב / החזרה מארכיון
+//   DELETE ?survey=<slug>     → מחיקה אמיתית, רק לשאלון שלא פורסם מעולם
+//
+// מחיקה מול ארכוב: גרסה שפורסמה היא immutable ואירועי משיבים מפנים אליה,
+// ולכן שאלון שכבר פורסם לא נמחק לעולם — מארכבים אותו. הארכוב מפסיק להגיש
+// אותו לסשנים חדשים, אבל משיב שכבר באמצע ממשיך (הגרסה שלו מוצמדת לסשן).
+
+import { requireAdmin } from './lib/session';
+import { json, supaHeaders, supabaseEnv } from './lib/supabase';
+import { isValidSlug } from '../../src/data/surveys';
+import { starterConfig } from '../../src/questionnaire/starter';
+
+const MAX_NAME_CHARS = 80;
+
+interface SurveyRow {
+  slug: string;
+  name: string;
+  created_at: string;
+  created_by: string;
+  archived_at: string | null;
+}
+
+export default async (req: Request): Promise<Response> => {
+  const session = await requireAdmin(req);
+  if (session instanceof Response) return session;
+
+  const env = supabaseEnv();
+  if (env instanceof Response) return env;
+  const headers = supaHeaders(env.key);
+
+  if (req.method === 'GET') return listSurveys(env.url, headers);
+  if (req.method === 'POST') return createSurvey(req, env.url, headers, session.email);
+  if (req.method === 'PATCH') return patchSurvey(req, env.url, headers);
+  if (req.method === 'DELETE') return deleteSurvey(req, env.url, headers);
+  return new Response('method not allowed', { status: 405 });
+};
+
+/**
+ * שלוש שאילתות מקבילות ואיחוד בזיכרון, במקום embed של PostgREST: הרשימה
+ * קטנה, והצירוף כאן לא תלוי בשמות ה-FK בסכמה.
+ */
+async function listSurveys(url: string, headers: Record<string, string>): Promise<Response> {
+  const [surveysRes, draftsRes, configsRes] = await Promise.all([
+    fetch(`${url}/rest/v1/surveys?select=slug,name,created_at,created_by,archived_at&order=created_at.asc`, { headers }),
+    fetch(`${url}/rest/v1/survey_drafts?select=survey_id,updated_at,updated_by`, { headers }),
+    fetch(`${url}/rest/v1/survey_configs?select=survey_id,version,published_at&order=published_at.desc`, { headers }),
+  ]);
+  if (!surveysRes.ok || !draftsRes.ok || !configsRes.ok) {
+    return new Response('upstream error', { status: 502 });
+  }
+
+  const surveys = (await surveysRes.json()) as SurveyRow[];
+  const drafts = (await draftsRes.json()) as {
+    survey_id: string;
+    updated_at: string;
+    updated_by: string;
+  }[];
+  const configs = (await configsRes.json()) as {
+    survey_id: string;
+    version: string;
+    published_at: string;
+  }[];
+
+  const draftBy = new Map(drafts.map((d) => [d.survey_id, d]));
+  const versionCount = new Map<string, number>();
+  const latest = new Map<string, { version: string; published_at: string }>();
+  for (const c of configs) {
+    versionCount.set(c.survey_id, (versionCount.get(c.survey_id) ?? 0) + 1);
+    // הרשימה מסודרת published_at יורד — הראשון לכל שאלון הוא האחרון שפורסם
+    if (!latest.has(c.survey_id)) latest.set(c.survey_id, c);
+  }
+
+  return json({
+    surveys: surveys.map((s) => ({
+      ...s,
+      has_draft: draftBy.has(s.slug),
+      draft_updated_at: draftBy.get(s.slug)?.updated_at ?? null,
+      draft_updated_by: draftBy.get(s.slug)?.updated_by ?? null,
+      versions: versionCount.get(s.slug) ?? 0,
+      latest_version: latest.get(s.slug)?.version ?? null,
+      latest_published_at: latest.get(s.slug)?.published_at ?? null,
+    })),
+  });
+}
+
+async function readBody(req: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const body = (await req.json()) as unknown;
+    return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim().slice(0, MAX_NAME_CHARS);
+  return name.length > 0 ? name : null;
+}
+
+async function createSurvey(
+  req: Request,
+  url: string,
+  headers: Record<string, string>,
+  email: string,
+): Promise<Response> {
+  const body = await readBody(req);
+  if (!body) return new Response('invalid json', { status: 400 });
+  const slug = body.slug;
+  const name = cleanName(body.name);
+  if (!isValidSlug(slug)) return new Response('invalid slug', { status: 400 });
+  if (!name) return new Response('invalid name', { status: 400 });
+
+  const created = await fetch(`${url}/rest/v1/surveys`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify({ slug, name, created_by: email }),
+  });
+  if (created.status === 409) return new Response('slug already exists', { status: 409 });
+  if (!created.ok) return new Response('upstream error', { status: 502 });
+
+  // טיוטת שלד מיד עם היצירה — שאלון בלי טיוטה הוא מצב שהעורך לא יכול לתקן
+  // מתוך רשימת השאלונים. כשל כאן לא מבטל את השאלון: הכניסה לעורך תיצור אותה.
+  const now = new Date().toISOString();
+  await fetch(`${url}/rest/v1/survey_drafts`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      survey_id: slug,
+      config: starterConfig(name),
+      updated_at: now,
+      updated_by: email,
+    }),
+  });
+
+  return json({ slug, name });
+}
+
+async function patchSurvey(
+  req: Request,
+  url: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const body = await readBody(req);
+  if (!body) return new Response('invalid json', { status: 400 });
+  if (!isValidSlug(body.slug)) return new Response('invalid slug', { status: 400 });
+
+  const patch: Record<string, unknown> = {};
+  if (body.name !== undefined) {
+    const name = cleanName(body.name);
+    if (!name) return new Response('invalid name', { status: 400 });
+    patch.name = name;
+  }
+  if (body.archived !== undefined) {
+    if (typeof body.archived !== 'boolean') return new Response('invalid archived', { status: 400 });
+    patch.archived_at = body.archived ? new Date().toISOString() : null;
+  }
+  if (Object.keys(patch).length === 0) return new Response('nothing to update', { status: 400 });
+
+  const res = await fetch(`${url}/rest/v1/surveys?slug=eq.${encodeURIComponent(body.slug)}`, {
+    method: 'PATCH',
+    headers: { ...headers, Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) return new Response('upstream error', { status: 502 });
+  const rows = (await res.json()) as unknown[];
+  if (rows.length === 0) return new Response('survey not found', { status: 404 });
+  return json(rows[0]);
+}
+
+async function deleteSurvey(
+  req: Request,
+  url: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const slug = new URL(req.url).searchParams.get('survey') ?? '';
+  if (!isValidSlug(slug)) return new Response('invalid slug', { status: 400 });
+
+  // שאלון שפורסם לא נמחק — אירועי משיבים מפנים לגרסאות שלו. ה-FK מ-
+  // survey_configs חוסם את זה גם ברמת ה-DB; הבדיקה כאן היא כדי להחזיר
+  // הסבר במקום 409 סתום.
+  const published = await fetch(
+    `${url}/rest/v1/survey_configs?survey_id=eq.${encodeURIComponent(slug)}&select=version&limit=1`,
+    { headers },
+  );
+  if (!published.ok) return new Response('upstream error', { status: 502 });
+  if (((await published.json()) as unknown[]).length > 0) {
+    return new Response('survey has published versions', { status: 409 });
+  }
+
+  // הטיוטה יורדת עם השאלון (on delete cascade), אבל מחיקה מפורשת קודם
+  // שומרת על התנהגות זהה גם אם ה-cascade חסר בהתקנה ותיקה
+  await fetch(`${url}/rest/v1/survey_drafts?survey_id=eq.${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers,
+  });
+  const res = await fetch(`${url}/rest/v1/surveys?slug=eq.${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: { ...headers, Prefer: 'return=representation' },
+  });
+  if (!res.ok) return new Response('upstream error', { status: 502 });
+  const rows = (await res.json()) as unknown[];
+  if (rows.length === 0) return new Response('survey not found', { status: 404 });
+  return json({ deleted: slug });
+}

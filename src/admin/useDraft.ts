@@ -1,13 +1,35 @@
-// ניהול מצב הטיוטה בקונסולה: טעינה, עריכה בזיכרון (dirty), היסטוריית
-// undo/redo, שמירה עם נעילה אופטימית (409 ⇒ conflict), ויצירת טיוטה
-// ראשונה משאלון הדגמה.
+// ניהול מצב הטיוטה של שאלון אחד בקונסולה: טעינה, עריכה בזיכרון (dirty),
+// היסטוריית undo/redo, שמירה עם נעילה אופטימית (409 ⇒ conflict), ויצירת
+// טיוטה ראשונה משאלון הדגמה.
+// כל הקריאות מקבלות את ה-slug — הקונסולה מנהלת כמה שאלונים.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SurveyConfig } from '../engine/types';
-import { questionnaire } from '../questionnaire/placeholder';
-import { ConflictError, UnauthorizedError, getDraft, saveDraft } from './api';
+import { questionnaire } from '../questionnaire/survey-v1';
+import {
+  ConflictError,
+  ForbiddenError,
+  SaveFailedError,
+  UnauthorizedError,
+  getDraft,
+  saveDraft,
+} from './api';
 
-export type DraftPhase = 'loading' | 'empty' | 'ready' | 'error';
+/**
+ * ניסוח כשל שמירה לעורך. שתיקה כאן היא התרחיש הגרוע: הצ׳יפ "שינויים לא
+ * שמורים" נשאר, הכפתור חוזר להיות פעיל, והעורך מניח שהשמירה עברה.
+ */
+function describeSaveFailure(e: unknown): string {
+  if (e instanceof SaveFailedError) {
+    if (e.status === 422) return 'השרת דחה את הטיוטה (שגיאות ולידציה). תקנו את השגיאות ונסו שוב.';
+    if (e.status >= 500) return `השמירה נכשלה — שגיאת שרת (${e.status}). השינויים עדיין כאן; נסו שוב.`;
+    return `השמירה נכשלה (${e.status}). השינויים עדיין כאן; נסו שוב.`;
+  }
+  return 'השמירה נכשלה — אין תקשורת עם השרת. השינויים עדיין כאן; נסו שוב.';
+}
+
+/** 'forbidden' — מחובר אבל החשבון לא בדומיין המורשה (בשונה מ-error כללי) */
+export type DraftPhase = 'loading' | 'empty' | 'ready' | 'error' | 'forbidden';
 
 /** עומק ההיסטוריה; עריכות צפופות (הקלדה) מתאחדות לצעד undo אחד */
 const HISTORY_LIMIT = 100;
@@ -19,6 +41,8 @@ export interface Draft {
   dirty: boolean;
   saving: boolean;
   conflict: boolean;
+  /** כשל שמירה שאינו התנגשות ואינו אימות — טקסט להצגה לעורך, או null */
+  saveError: string | null;
   canUndo: boolean;
   canRedo: boolean;
   /** עדכון הקונפיג בזיכרון (מסמן dirty ונרשם בהיסטוריה) */
@@ -28,6 +52,7 @@ export interface Draft {
   save: () => Promise<boolean>;
   createFromDemo: () => Promise<void>;
   reload: () => Promise<void>;
+  dismissSaveError: () => void;
 }
 
 // הקונפיג אימיוטבילי — כל עריכה יוצרת אובייקט חדש, ולכן ההיסטוריה שומרת
@@ -38,12 +63,13 @@ interface EditState {
   future: SurveyConfig[];
 }
 
-export function useDraft(onAuthError: () => void): Draft {
+export function useDraft(slug: string, onAuthError: () => void): Draft {
   const [phase, setPhase] = useState<DraftPhase>('loading');
   const [edit, setEdit] = useState<EditState>({ config: null, past: [], future: [] });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const updatedAtRef = useRef<string | null>(null);
   /** מה ששמור בשרת — undo שמגיע בדיוק אליו מנקה את סימון ה-dirty */
   const savedRef = useRef<SurveyConfig | null>(null);
@@ -52,8 +78,9 @@ export function useDraft(onAuthError: () => void): Draft {
   const reload = useCallback(async () => {
     setPhase('loading');
     setConflict(false);
+    setSaveError(null);
     try {
-      const draft = await getDraft();
+      const draft = await getDraft(slug);
       updatedAtRef.current = draft.updated_at;
       savedRef.current = draft.config;
       setEdit({ config: draft.config, past: [], future: [] });
@@ -61,9 +88,9 @@ export function useDraft(onAuthError: () => void): Draft {
       setPhase(draft.config ? 'ready' : 'empty');
     } catch (e) {
       if (e instanceof UnauthorizedError) onAuthError();
-      setPhase('error');
+      setPhase(e instanceof ForbiddenError ? 'forbidden' : 'error');
     }
-  }, [onAuthError]);
+  }, [slug, onAuthError]);
 
   useEffect(() => {
     void reload();
@@ -118,8 +145,9 @@ export function useDraft(onAuthError: () => void): Draft {
     const config = edit.config;
     if (!config) return false;
     setSaving(true);
+    setSaveError(null);
     try {
-      const { updated_at } = await saveDraft(config, updatedAtRef.current);
+      const { updated_at } = await saveDraft(slug, config, updatedAtRef.current);
       updatedAtRef.current = updated_at;
       savedRef.current = config;
       setDirty(false);
@@ -127,16 +155,18 @@ export function useDraft(onAuthError: () => void): Draft {
     } catch (e) {
       if (e instanceof ConflictError) setConflict(true);
       else if (e instanceof UnauthorizedError) onAuthError();
+      else if (e instanceof ForbiddenError) setPhase('forbidden');
+      else setSaveError(describeSaveFailure(e));
       return false;
     } finally {
       setSaving(false);
     }
-  }, [edit.config, onAuthError]);
+  }, [slug, edit.config, onAuthError]);
 
   const createFromDemo = useCallback(async () => {
     setSaving(true);
     try {
-      const { updated_at } = await saveDraft(questionnaire, null);
+      const { updated_at } = await saveDraft(slug, questionnaire, null);
       updatedAtRef.current = updated_at;
       savedRef.current = questionnaire;
       setEdit({ config: questionnaire, past: [], future: [] });
@@ -145,10 +175,12 @@ export function useDraft(onAuthError: () => void): Draft {
     } catch (e) {
       if (e instanceof ConflictError) await reload();
       else if (e instanceof UnauthorizedError) onAuthError();
+      else if (e instanceof ForbiddenError) setPhase('forbidden');
+      else setSaveError(describeSaveFailure(e));
     } finally {
       setSaving(false);
     }
-  }, [onAuthError, reload]);
+  }, [slug, onAuthError, reload]);
 
   return {
     phase,
@@ -156,6 +188,7 @@ export function useDraft(onAuthError: () => void): Draft {
     dirty,
     saving,
     conflict,
+    saveError,
     canUndo: edit.past.length > 0,
     canRedo: edit.future.length > 0,
     update,
@@ -164,5 +197,6 @@ export function useDraft(onAuthError: () => void): Draft {
     save,
     createFromDemo,
     reload,
+    dismissSaveError: () => setSaveError(null),
   };
 }

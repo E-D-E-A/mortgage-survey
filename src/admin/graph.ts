@@ -3,7 +3,13 @@
 // שעובר את showIf שלו. תוויות הקשתות הן התשובה שמובילה למסך הבא,
 // עם תרגום מזהי אפשרויות לנוסח שהמשיב רואה.
 
-import type { Condition, Screen, SurveyConfig } from '../engine/types';
+import type { Condition, Screen, SurveyConfig, VarMeta } from '../engine/types';
+
+type VarMetaMap = Record<string, VarMeta>;
+
+const varName = (meta: VarMetaMap, name: string) => meta[name]?.label || name;
+const varValue = (meta: VarMetaMap, name: string, value: unknown) =>
+  meta[name]?.values?.[String(value)] ?? String(value);
 
 export interface FlowNode {
   id: string;
@@ -75,33 +81,41 @@ function complement(screen: Screen | undefined, value: unknown): string | null {
   return rest.map((o) => o.label).join(' / ');
 }
 
-/** תיאור תנאי בעברית קריאה, לתווית על הקשת */
-export function describeCondition(cond: Condition, screens: Screen[]): string {
-  if ('all' in cond) return cond.all.map((c) => describeCondition(c, screens)).join(' וגם ');
-  if ('any' in cond) return cond.any.map((c) => describeCondition(c, screens)).join(' או ');
+/**
+ * תיאור תנאי בעברית קריאה, לתווית על הקשת. משתני סשן עוברים דרך varMeta —
+ * "segment: A" על קשת בתרשים הוא בדיוק סוג הדבר שאדמין לא-טכני לא מפענח.
+ */
+export function describeCondition(cond: Condition, screens: Screen[], meta: VarMetaMap = {}): string {
+  if ('all' in cond) return cond.all.map((c) => describeCondition(c, screens, meta)).join(' וגם ');
+  if ('any' in cond) return cond.any.map((c) => describeCondition(c, screens, meta)).join(' או ');
   if ('not' in cond) {
     // שלילה של השוואה פשוטה מתורגמת ל-ne, שמנוסח טוב יותר
     const inner = cond.not;
     if ('q' in inner && (inner.op === 'eq' || inner.op === 'in')) {
-      return describeCondition({ q: inner.q, op: 'ne', value: inner.value }, screens);
+      return describeCondition({ q: inner.q, op: 'ne', value: inner.value }, screens, meta);
     }
-    return `לא ${describeCondition(inner, screens)}`;
+    return `לא ${describeCondition(inner, screens, meta)}`;
   }
 
   const isQ = 'q' in cond;
   const ref = isQ ? cond.q : cond.var;
   const screen = isQ ? screens.find((s) => s.id === ref) : undefined;
+  const subject = isQ ? '' : varName(meta, ref);
 
-  if (cond.op === 'answered') return isQ ? 'נענתה' : `${ref} קיים`;
-  if (cond.op in NUMERIC_OPS) return `${isQ ? '' : ref + ' '}${NUMERIC_OPS[cond.op]} ${cond.value}`;
+  if (cond.op === 'answered') return isQ ? 'נענתה' : `${subject} קיים`;
+  if (cond.op in NUMERIC_OPS) return `${isQ ? '' : subject + ' '}${NUMERIC_OPS[cond.op]} ${cond.value}`;
 
-  const v = values(screen, cond.value);
+  const v = isQ
+    ? values(screen, cond.value)
+    : Array.isArray(cond.value)
+      ? cond.value.map((x) => varValue(meta, ref, x)).join(' / ')
+      : varValue(meta, ref, cond.value);
   switch (cond.op) {
     case 'eq':
     case 'in':
-      return isQ ? v : `${ref}: ${v}`;
+      return isQ ? v : `${subject}: ${v}`;
     case 'ne':
-      return isQ ? (complement(screen, cond.value) ?? `≠ ${v}`) : `${ref} ≠ ${v}`;
+      return isQ ? (complement(screen, cond.value) ?? `≠ ${v}`) : `${subject} ≠ ${v}`;
     case 'includes':
     case 'includesAny':
       return `כולל ${v}`;
@@ -124,6 +138,7 @@ export function nodeText(screen: Screen): string {
 
 export function buildFlow(config: SurveyConfig): Flow {
   const screens = config.screens ?? [];
+  const meta = config.varMeta ?? {};
   const known = new Set(screens.map((s) => s.id));
   const nodes: FlowNode[] = screens.map((screen) => ({
     id: screen.id,
@@ -143,7 +158,7 @@ export function buildFlow(config: SurveyConfig): Flow {
         edges.push({
           from: screen.id,
           to: rule.goto,
-          label: rule.if ? describeCondition(rule.if, screens) : 'תמיד',
+          label: rule.if ? describeCondition(rule.if, screens, meta) : 'תמיד',
           conditional: Boolean(rule.if),
           kind: 'goto',
           ruleIndex: r,
@@ -166,7 +181,7 @@ export function buildFlow(config: SurveyConfig): Flow {
         from: screen.id,
         to: target.id,
         label: target.showIf
-          ? describeCondition(target.showIf, screens)
+          ? describeCondition(target.showIf, screens, meta)
           : rules.length > 0
             ? 'אחרת'
             : '',

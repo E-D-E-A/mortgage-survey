@@ -47,6 +47,11 @@ export const CheckIcon = (props: SVGProps<SVGSVGElement>) => (
   <Svg {...props}><polyline points="20 6 9 17 4 12" /></Svg>
 );
 
+/** מחבר-סיום: "המסלול נגמר כאן" — במקום קו ארוך אל מסך סיום מרוחק */
+export const StopIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Svg {...props}><circle cx="12" cy="12" r="9" /><line x1="8" y1="12" x2="16" y2="12" /></Svg>
+);
+
 export const PlusIcon = () => (
   <Svg><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Svg>
 );
@@ -112,6 +117,14 @@ export const LogoutIcon = () => (
   <Svg>
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
     <polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+  </Svg>
+);
+
+/** המשך ברצף — חץ שמאלה, כיוון הזרימה בממשק RTL */
+export const ArrowIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Svg {...props}>
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="11 18 5 12 11 6" />
   </Svg>
 );
 

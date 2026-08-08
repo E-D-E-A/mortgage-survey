@@ -1,38 +1,36 @@
-// טיוטת השאלון (שורה יחידה). עורכי first-edea בלבד (requireAdmin לפני הכל).
+// טיוטת שאלון (שורה אחת לכל שאלון). עורכי first-edea בלבד (requireAdmin לפני הכל).
+// הפרמטר ?survey=<slug> בוחר את השאלון; בהיעדרו — שאלון ברירת המחדל.
 // GET → { config, updated_at } | { config: null }
 // PUT { config, expected_updated_at } → שמירה עם נעילה אופטימית:
 //   expected_updated_at שאינו תואם ל-DB ⇒ 409 (מישהו שמר במקביל).
 // טיוטה מותרת להיות לא-תקינה — הוולידציה חוסמת רק פרסום.
 
 import { requireAdmin } from './lib/session';
+import { json, supaHeaders, supabaseEnv } from './lib/supabase';
+import { DEFAULT_SURVEY_SLUG, isValidSlug } from '../../src/data/surveys';
 
 const MAX_CONFIG_BYTES = 500_000;
 
-function supaHeaders(key: string): Record<string, string> {
-  return { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
-}
-
 export default async (req: Request): Promise<Response> => {
-  const session = requireAdmin(req);
+  const session = await requireAdmin(req);
   if (session instanceof Response) return session;
 
-  const supaUrl = process.env.SUPABASE_URL;
-  const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supaUrl || !supaKey) {
-    return new Response('server not configured', { status: 503 });
-  }
+  const env = supabaseEnv();
+  if (env instanceof Response) return env;
+  const headers = supaHeaders(env.key);
+
+  const slug = new URL(req.url).searchParams.get('survey') ?? DEFAULT_SURVEY_SLUG;
+  if (!isValidSlug(slug)) return new Response('invalid survey', { status: 400 });
+  const scope = `survey_id=eq.${encodeURIComponent(slug)}`;
 
   if (req.method === 'GET') {
-    const res = await fetch(`${supaUrl}/rest/v1/survey_drafts?id=eq.1&select=config,updated_at`, {
-      headers: supaHeaders(supaKey),
-    });
+    const res = await fetch(
+      `${env.url}/rest/v1/survey_drafts?${scope}&select=config,updated_at`,
+      { headers },
+    );
     if (!res.ok) return new Response('upstream error', { status: 502 });
     const rows = (await res.json()) as { config: unknown; updated_at: string }[];
-    const body = rows.length > 0 ? rows[0] : { config: null, updated_at: null };
-    return new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return json(rows.length > 0 ? rows[0] : { config: null, updated_at: null });
   }
 
   if (req.method !== 'PUT') {
@@ -63,28 +61,36 @@ export default async (req: Request): Promise<Response> => {
   }
 
   const now = new Date().toISOString();
-  const row = { id: 1, config, updated_at: now, updated_by: session.email };
 
   if (expected === null) {
-    // יצירת הטיוטה הראשונה; אם כבר קיימת — 409 (מישהו הקדים)
-    const res = await fetch(`${supaUrl}/rest/v1/survey_drafts`, {
+    // יצירת הטיוטה הראשונה של השאלון; אם כבר קיימת — 409 (מישהו הקדים).
+    // שאלון שלא קיים נחסם ע"י ה-FK ומחזיר 409 מ-PostgREST; מפרידים בין
+    // השניים כדי לא להציג לעורך "מישהו הקדים אותך" על שאלון שנמחק.
+    const res = await fetch(`${env.url}/rest/v1/survey_drafts`, {
       method: 'POST',
-      headers: { ...supaHeaders(supaKey), Prefer: 'return=minimal' },
-      body: JSON.stringify(row),
+      headers: { ...headers, Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        survey_id: slug,
+        config,
+        updated_at: now,
+        updated_by: session.email,
+      }),
     });
-    if (res.status === 409) return new Response('draft already exists', { status: 409 });
+    if (res.status === 409) {
+      const detail = await res.text();
+      return detail.includes('survey_drafts_survey_id_fkey')
+        ? new Response('survey not found', { status: 404 })
+        : new Response('draft already exists', { status: 409 });
+    }
     if (!res.ok) return new Response('upstream error', { status: 502 });
-    return new Response(JSON.stringify({ updated_at: now }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return json({ updated_at: now });
   }
 
   const res = await fetch(
-    `${supaUrl}/rest/v1/survey_drafts?id=eq.1&updated_at=eq.${encodeURIComponent(expected as string)}`,
+    `${env.url}/rest/v1/survey_drafts?${scope}&updated_at=eq.${encodeURIComponent(expected as string)}`,
     {
       method: 'PATCH',
-      headers: { ...supaHeaders(supaKey), Prefer: 'return=representation' },
+      headers: { ...headers, Prefer: 'return=representation' },
       body: JSON.stringify({ config, updated_at: now, updated_by: session.email }),
     },
   );
@@ -94,8 +100,5 @@ export default async (req: Request): Promise<Response> => {
     // הטיוטה השתנתה מאז שנטענה — שמירה נדחית כדי לא לדרוס
     return new Response('draft changed concurrently', { status: 409 });
   }
-  return new Response(JSON.stringify({ updated_at: now }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return json({ updated_at: now });
 };

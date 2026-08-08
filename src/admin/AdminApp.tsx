@@ -1,15 +1,23 @@
-// קונסולת הניהול (/admin): שער כניסה (Google, first-edea.com בלבד) ואז עורך
-// הטיוטה — רשימת מסכים עם גרירה, עורך מסך, ולידציה חיה, שמירה ופרסום.
+// קונסולת הניהול (/admin): שער כניסה (Supabase Auth, first-edea.com בלבד),
+// ואחריו שני מסכים — רשימת השאלונים (/admin) ועורך של שאלון אחד
+// (/admin/<slug>): רשימת מסכים עם גרירה, עורך מסך, ולידציה חיה, שמירה ופרסום.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Screen, SurveyConfig } from '../engine/types';
+import type { Answers, Screen, SurveyConfig } from '../engine/types';
+import { simulatePath } from '../engine/path';
 import { validateConfig } from '../engine/validate';
-import { getSession, logout } from './api';
+import { isValidSlug, surveyPath } from '../data/surveys';
 import { useDraft } from './useDraft';
+import { useSurveys } from './useSurveys';
+import { insertScreen } from './edits';
+import { makeNaming } from './display';
 import { LoginScreen } from './LoginScreen';
+import { SurveyList } from './SurveyList';
+import { supabase } from './supabaseClient';
 import { ScreenList } from './ScreenList';
 import { ScreenEditor } from './ScreenEditor';
 import { FlowGraph } from './FlowGraph';
+import { Simulator } from './Simulator';
 import { ValidationPanel } from './ValidationPanel';
 import { PublishDialog } from './PublishDialog';
 import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, RedoIcon, UndoIcon, WarningIcon } from './Icons';
@@ -17,13 +25,48 @@ import './admin.css';
 
 const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
+/**
+ * מתחת לרוחב הזה הקונסולה לא נבנתה לעבוד: תרשים הזרימה, רשימת המסכים ומגירת
+ * העריכה צריכים שלוש עמודות במקביל. עדיף מסך הסבר מפורש מאשר ממשק שקורס.
+ * הערך תואם לנקודת השבירה של .admin-body ב-admin.css.
+ */
+const MIN_CONSOLE_WIDTH = 900;
+
+function useTooNarrow(): boolean {
+  const [tooNarrow, setTooNarrow] = useState(
+    () => window.matchMedia(`(max-width: ${MIN_CONSOLE_WIDTH - 1}px)`).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MIN_CONSOLE_WIDTH - 1}px)`);
+    const onChange = (e: MediaQueryListEvent) => setTooNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return tooNarrow;
+}
+
 type Auth = { phase: 'checking' } | { phase: 'login' } | { phase: 'in'; email: string };
+
+/** ‎/admin‎ → רשימת השאלונים, ‎/admin/<slug>‎ → העורך של אותו שאלון. */
+type Route = { view: 'list' } | { view: 'editor'; slug: string };
+
+function parseRoute(pathname: string): Route {
+  const m = pathname.match(/^\/admin\/([^/]+)\/?$/);
+  if (!m) return { view: 'list' };
+  const slug = decodeURIComponent(m[1]);
+  return isValidSlug(slug) ? { view: 'editor', slug } : { view: 'list' };
+}
 
 export default function AdminApp() {
   const [auth, setAuth] = useState<Auth>({ phase: 'checking' });
 
   useEffect(() => {
-    void getSession().then((s) => setAuth(s ? { phase: 'in', email: s.email } : { phase: 'login' }));
+    // נורה גם בטעינה (INITIAL_SESSION) וגם בחזרה מגוגל (SIGNED_IN),
+    // כי detectSessionInUrl קולט את הטוקנים מה-URL בעצמו
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuth(session ? { phase: 'in', email: session.user.email ?? '' } : { phase: 'login' });
+    });
+    return () => data.subscription.unsubscribe();
   }, []);
 
   if (auth.phase === 'checking') {
@@ -35,14 +78,91 @@ export default function AdminApp() {
       </div>
     );
   }
+
   if (auth.phase === 'login') {
     return (
       <div className="admin-app">
-        <LoginScreen onLogin={(email) => setAuth({ phase: 'in', email })} />
+        <LoginScreen />
       </div>
     );
   }
-  return <Editor email={auth.email} onAuthError={() => setAuth({ phase: 'login' })} />;
+
+  return (
+    <Console
+      email={auth.email}
+      onAuthError={() => {
+        void supabase.auth.signOut();
+        setAuth({ phase: 'login' });
+      }}
+    />
+  );
+}
+
+/** ניווט בין רשימת השאלונים לעורך, בלי ראוטר חיצוני (שני מסכים בלבד). */
+function Console({ email, onAuthError }: { email: string; onAuthError: () => void }) {
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
+  const surveys = useSurveys(onAuthError);
+
+  useEffect(() => {
+    const onPop = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const navigate = useCallback((path: string) => {
+    window.history.pushState(null, '', path);
+    setRoute(parseRoute(path));
+  }, []);
+
+  if (route.view === 'list') {
+    return (
+      <div className="admin-app">
+        <ConsoleTopbar email={email} />
+        <div className="admin-scroll">
+          <SurveyList surveys={surveys} onOpen={(slug) => navigate(`/admin/${slug}`)} />
+        </div>
+      </div>
+    );
+  }
+
+  const survey = surveys.items.find((s) => s.slug === route.slug);
+  return (
+    <Editor
+      key={route.slug}
+      slug={route.slug}
+      name={survey?.name ?? route.slug}
+      archived={Boolean(survey?.archived_at)}
+      email={email}
+      onBack={() => {
+        void surveys.reload();
+        navigate('/admin');
+      }}
+      onAuthError={onAuthError}
+    />
+  );
+}
+
+function ConsoleTopbar({ email }: { email: string }) {
+  return (
+    <header className="topbar">
+      <div className="topbar-title">
+        <h1>ניהול השאלונים</h1>
+      </div>
+      <div className="topbar-actions">
+        <span className="topbar-user" title={email}>
+          {email}
+        </span>
+        <button
+          className="a-icon-btn"
+          onClick={() => void supabase.auth.signOut()}
+          aria-label="יציאה"
+          title="יציאה"
+        >
+          <LogoutIcon />
+        </button>
+      </div>
+    </header>
+  );
 }
 
 function newScreen(type: Screen['type'], id: string): Screen {
@@ -74,14 +194,32 @@ function newScreen(type: Screen['type'], id: string): Screen {
   }
 }
 
-function Editor({ email, onAuthError }: { email: string; onAuthError: () => void }) {
-  const draft = useDraft(onAuthError);
+interface EditorProps {
+  slug: string;
+  name: string;
+  archived: boolean;
+  email: string;
+  onBack: () => void;
+  onAuthError: () => void;
+}
+
+function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProps) {
+  const draft = useDraft(slug, onAuthError);
+  const tooNarrow = useTooNarrow();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [publishOpen, setPublishOpen] = useState(false);
+  // null = ההרצה היבשה כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
+  const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
+
+  // חזרה לרשימה עם שינויים לא שמורים מאבדת אותם — אותה אזהרה כמו ביציאה מהדף
+  const leave = useCallback(() => {
+    if (draft.dirty && !window.confirm('יש שינויים שלא נשמרו. לצאת בכל זאת ולאבד אותם?')) return;
+    onBack();
+  }, [draft.dirty, onBack]);
 
   // בחירת מסך מכל מקום (תרשים, רשימה, פאנל ולידציה) פותחת את מגירת העריכה
-  const selectScreen = useCallback((id: string) => {
+  const selectScreen = useCallback((id: string | null) => {
     setSelectedId(id);
   }, []);
 
@@ -91,6 +229,11 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
   const warningCount = issues.length - errorCount;
 
   const selected = config?.screens.find((s) => s.id === selectedId) ?? null;
+
+  const simPath = useMemo(
+    () => (config && simAnswers ? simulatePath(config, simAnswers).map((s) => s.screen.id) : null),
+    [config, simAnswers],
+  );
 
   // אזהרת יציאה עם שינויים לא שמורים
   useEffect(() => {
@@ -167,12 +310,41 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
     [guardedUpdate],
   );
 
-  const knownVars = useMemo(() => {
-    if (!config) return [];
-    const vars = new Set<string>(Object.keys(config.randomVars ?? {}));
-    for (const s of config.screens) for (const r of s.onSubmit ?? []) vars.add(r.var);
-    return [...vars];
-  }, [config]);
+  // שכבת השמות: כל תווית שהאדמין קורא נגזרת מכאן, ולכן היא נבנית פעם אחת
+  const naming = useMemo(
+    () => makeNaming(config ?? { version: '', screens: [] }),
+    [config],
+  );
+
+  /** סימון חדש נרשם ברמת השאלון, לא על המסך — אחרת רק המסך שיצר אותו יידע את שמו. */
+  const defineVar = useCallback(
+    (name: string, label: string) => {
+      draft.update((cfg) => ({
+        ...cfg,
+        varMeta: { ...cfg.varMeta, [name]: { ...cfg.varMeta?.[name], label } },
+      }));
+    },
+    [draft],
+  );
+
+  const defineVarValue = useCallback(
+    (name: string, value: string, label: string) => {
+      draft.update((cfg) => {
+        const existing = cfg.varMeta?.[name];
+        return {
+          ...cfg,
+          varMeta: {
+            ...cfg.varMeta,
+            [name]: {
+              label: existing?.label ?? name,
+              values: { ...existing?.values, [value]: label },
+            },
+          },
+        };
+      });
+    },
+    [draft],
+  );
 
   return (
     <div className="admin-app">
@@ -186,12 +358,14 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
           >
             <PanelIcon />
           </button>
-          <h1>ניהול השאלון</h1>
-          {config && (
-            <span className="a-hint" dir="ltr">
-              {config.version}
-            </span>
-          )}
+          <button className="a-btn ghost small" onClick={leave} title="חזרה לרשימת השאלונים">
+            → כל השאלונים
+          </button>
+          <h1>{name}</h1>
+          <code className="topbar-slug" dir="ltr">
+            {slug}
+          </code>
+          {archived && <span className="chip">בארכיון</span>}
         </div>
         <div className="topbar-status">
           {errorCount > 0 && (
@@ -233,6 +407,23 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
             {draft.saving ? 'שומר…' : 'שמירה'}
           </button>
           <button
+            className={`a-btn ${simAnswers ? 'primary' : 'secondary'}`}
+            onClick={() => setSimAnswers((a) => (a ? null : {}))}
+            disabled={draft.phase !== 'ready'}
+            title="לענות כמו משיב ולראות את המסלול שנוצר"
+          >
+            הרצה יבשה
+          </button>
+          <a
+            className="a-btn secondary"
+            href={surveyPath(slug)}
+            target="_blank"
+            rel="noreferrer"
+            title="פתיחת השאלון כפי שהמשיבים רואים אותו (הגרסה שפורסמה)"
+          >
+            צפייה
+          </a>
+          <button
             className="a-btn primary"
             onClick={() => setPublishOpen(true)}
             disabled={draft.phase !== 'ready'}
@@ -244,7 +435,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
           </span>
           <button
             className="a-icon-btn"
-            onClick={() => void logout().then(onAuthError)}
+            onClick={() => void supabase.auth.signOut()}
             aria-label="יציאה"
             title="יציאה"
           >
@@ -264,9 +455,21 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
         </div>
       )}
 
+      {draft.phase === 'forbidden' && (
+        <div className="admin-empty">
+          <p>
+            החשבון הזה אינו מורשה — הכניסה מוגבלת לחשבונות Google של first-edea.com. אם התחברתם
+            בעבר עם סיסמה, צאו והיכנסו מחדש עם Google.
+          </p>
+          <button className="a-btn primary" onClick={() => void supabase.auth.signOut()}>
+            יציאה והתחברות עם Google
+          </button>
+        </div>
+      )}
+
       {draft.phase === 'empty' && (
         <div className="admin-empty">
-          <p>עדיין אין טיוטה. אפשר להתחיל משאלון הדגמה ולערוך אותו.</p>
+          <p>לשאלון הזה עדיין אין טיוטה. אפשר להתחיל משאלון הדגמה ולערוך אותו.</p>
           <button className="a-btn primary" onClick={() => void draft.createFromDemo()} disabled={draft.saving}>
             יצירת טיוטה מהדמו
           </button>
@@ -278,6 +481,7 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
           <aside className="admin-sidebar">
             <ScreenList
               screens={config.screens}
+              naming={naming}
               selectedId={selectedId}
               issues={issues}
               onSelect={selectScreen}
@@ -290,18 +494,33 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
                 })
               }
               onAdd={(type, id) => {
-                draft.update((cfg) => ({ ...cfg, screens: [...cfg.screens, newScreen(type, id)] }));
+                // מסך חדש לא יכול ליצור מעגל, ולכן update ישיר ולא guardedUpdate
+                draft.update((cfg) => ({
+                  ...cfg,
+                  screens: insertScreen(cfg.screens, newScreen(type, id), selectedId),
+                }));
                 selectScreen(id);
               }}
             />
           </aside>
           <main className="admin-main">
-            <ValidationPanel issues={issues} onSelectScreen={selectScreen} />
+            <ValidationPanel issues={issues} naming={naming} onSelectScreen={selectScreen} />
+            {simAnswers && (
+              <Simulator
+                config={config}
+                naming={naming}
+                answers={simAnswers}
+                onAnswers={setSimAnswers}
+                onSelect={selectScreen}
+                onClose={() => setSimAnswers(null)}
+              />
+            )}
             <FlowGraph
               config={config}
               issues={issues}
               selectedId={selectedId}
-              vars={knownVars}
+              naming={naming}
+              simPath={simPath}
               onSelect={selectScreen}
               onUpdate={guardedUpdate}
             />
@@ -316,9 +535,12 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
               </div>
               <ScreenEditor
                 key={selected.id}
+                config={config}
                 screen={selected}
-                screens={config.screens}
-                vars={knownVars}
+                naming={naming}
+                onSelect={selectScreen}
+                onDefineVar={defineVar}
+                onDefineVarValue={defineVarValue}
                 onChange={(next) => updateScreen(selected.id, next)}
                 onDelete={() => {
                   if (!window.confirm(`למחוק את המסך "${selected.id}"?`)) return;
@@ -335,23 +557,78 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
       )}
 
       {publishOpen && (
-        <PublishDialog issues={issues} dirty={draft.dirty} onClose={() => setPublishOpen(false)} />
+        <PublishDialog
+          slug={slug}
+          issues={issues}
+          dirty={draft.dirty}
+          onSave={draft.save}
+          onClose={() => setPublishOpen(false)}
+        />
       )}
 
-      {cycleBlock && (
-        <div className="cycle-toast" role="alert">
-          <ErrorIcon width={16} height={16} />
-          <div>
-            <strong>הפעולה נחסמה — היא הייתה יוצרת לולאה אינסופית</strong>
-            <p>{cycleBlock}</p>
-          </div>
-          <button className="a-icon-btn" onClick={() => setCycleBlock(null)} aria-label="סגירת ההודעה">
-            <CloseIcon />
-          </button>
+      {(cycleBlock || draft.saveError) && (
+        <div className="toast-stack">
+          {cycleBlock && (
+            <div className="cycle-toast" role="alert">
+              <ErrorIcon width={16} height={16} />
+              <div>
+                <strong>הפעולה נחסמה — היא הייתה יוצרת לולאה אינסופית</strong>
+                <p>{cycleBlock}</p>
+              </div>
+              <button
+                className="a-icon-btn"
+                onClick={() => setCycleBlock(null)}
+                aria-label="סגירת ההודעה"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          )}
+          {draft.saveError && (
+            <div className="cycle-toast" role="alert">
+              <ErrorIcon width={16} height={16} />
+              <div>
+                <strong>השמירה נכשלה</strong>
+                <p>{draft.saveError}</p>
+              </div>
+              <button
+                className="a-btn secondary small"
+                onClick={() => void draft.save()}
+                disabled={draft.saving}
+              >
+                {draft.saving ? 'שומר…' : 'ניסיון נוסף'}
+              </button>
+              <button
+                className="a-icon-btn"
+                onClick={draft.dismissSaveError}
+                aria-label="סגירת ההודעה"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {draft.conflict && (
+      {/* שכבה מעל ולא החלפה של העץ: הצרת החלון באמצע עבודה לא תפרק את העורך
+          ולא תמחק שינויים שלא נשמרו */}
+      {tooNarrow && (
+        <div className="narrow-notice" role="alert">
+          <div className="narrow-notice-card">
+            <h1>עריכת שאלון</h1>
+            <p>
+              העורך בנוי למסך רחב: תרשים הזרימה, רשימת המסכים ומגירת העריכה עובדים זה לצד זה
+              וזקוקים לרוחב של {MIN_CONSOLE_WIDTH} פיקסלים לפחות.
+            </p>
+            <p>אפשר לפתוח אותו במחשב, או להרחיב את החלון — העבודה שלכם נשמרת בינתיים.</p>
+            <button className="a-btn secondary" onClick={leave}>
+              → חזרה לרשימת השאלונים
+            </button>
+          </div>
+        </div>
+      )}
+
+      {draft.conflict && config && (
         <div className="dialog-backdrop">
           <div className="dialog" role="alertdialog" aria-modal="true" aria-label="התנגשות שמירה">
             <header className="dialog-head">
@@ -361,7 +638,12 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
               מישהו אחר שמר את הטיוטה מאז שנטענה. כדי לא לדרוס את השינויים שלו — נטען מחדש את
               הגרסה העדכנית. השינויים שלא נשמרו כאן יאבדו.
             </p>
+            <p className="dialog-note">
+              לפני הטעינה מחדש אפשר להעתיק את הגרסה שעל המסך, כדי להשוות אליה או לשחזר ממנה
+              ידנית אחר כך.
+            </p>
             <footer className="dialog-actions">
+              <CopyConfigButton config={config} />
               <button className="a-btn primary" onClick={() => void draft.reload()}>
                 טעינה מחדש
               </button>
@@ -370,5 +652,41 @@ function Editor({ email, onAuthError }: { email: string; onAuthError: () => void
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * מוצא יחיד מדיאלוג ההתנגשות: העבודה שעל המסך עומדת להימחק, ובלי זה אין שום
+ * דרך להציל אותה.
+ */
+function CopyConfigButton({ config }: { config: SurveyConfig }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'downloaded'>('idle');
+
+  async function rescue() {
+    const json = JSON.stringify(config, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      setState('copied');
+    } catch {
+      // דפדפן שחוסם את הלוח — מורידים קובץ במקום. העיקר שהעבודה לא תאבד.
+      const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'survey-draft.json';
+      link.click();
+      URL.revokeObjectURL(url);
+      setState('downloaded');
+    }
+  }
+
+  const labels = {
+    idle: 'העתקת ה-JSON שלי',
+    copied: 'הועתק ✓',
+    downloaded: 'הורד כקובץ ✓',
+  };
+  return (
+    <button className="a-btn ghost" onClick={() => void rescue()}>
+      {labels[state]}
+    </button>
   );
 }

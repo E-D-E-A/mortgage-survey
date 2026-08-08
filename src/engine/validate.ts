@@ -5,7 +5,7 @@
 // Shared verbatim between the admin editor (live feedback) and the publish
 // Netlify function (server-side gate) — esbuild bundles this file into both.
 
-import type { Condition, Screen, SurveyConfig } from './types';
+import type { Condition, Option, Screen, SurveyConfig } from './types';
 
 export interface ValidationIssue {
   level: 'error' | 'warning';
@@ -20,12 +20,89 @@ export interface ValidationIssue {
     | 'no-end-screen'
     | 'no-end-reachable'
     | 'var-totality'
-    | 'first-screen-showif';
+    | 'first-screen-showif'
+    | 'empty-text'
+    | 'no-choices'
+    | 'empty-choice-id'
+    | 'duplicate-choice-id'
+    | 'unknown-option'
+    | 'scale-range'
+    | 'bad-max-selections'
+    | 'bad-text-limit'
+    | 'var-order';
   screenId?: string;
   message: string;
 }
 
-type Leaf = { q: string; op: string } | { var: string; op: string };
+type Leaf =
+  | { q: string; op: string; value?: unknown }
+  | { var: string; op: string; value?: unknown };
+
+/** אופרטורים שערכם אמור להיות מזהה אפשרות של המסך המופנה. */
+const OPTION_VALUE_OPS = new Set(['eq', 'ne', 'in', 'includes', 'includesAny']);
+
+/** אפשרויות הבחירה של המסך, או null למסך שאין לו אפשרויות. */
+function optionsOf(screen: Screen): Option[] | null {
+  return screen.type === 'single' || screen.type === 'multi' ? screen.options : null;
+}
+
+/** הכותרת שהמשיב רואה, והשם של השדה שמחזיק אותה (להודעה בעברית). */
+function headingOf(screen: Screen): { text: unknown; field: string } {
+  switch (screen.type) {
+    case 'info':
+    case 'consent':
+    case 'end':
+      return { text: screen.title, field: 'כותרת' };
+    default:
+      return { text: screen.prompt, field: 'נוסח שאלה' };
+  }
+}
+
+/**
+ * שלמות רשימת פריטים (אפשרויות במסך בחירה, שורות במטריצה): רשימה לא ריקה,
+ * מזהים קיימים וייחודיים, ותוויות לא ריקות. כל אחד מאלה שובר את המסך למשיב
+ * או את הקידוד בניתוח.
+ */
+function checkChoiceList(
+  screenId: string,
+  kind: 'אפשרות' | 'שורה',
+  items: { id: string; label: string }[],
+  emptyMessage: string,
+  issues: ValidationIssue[],
+): void {
+  if (items.length === 0) {
+    issues.push({ level: 'error', code: 'no-choices', screenId, message: emptyMessage });
+    return;
+  }
+  const seen = new Set<string>();
+  items.forEach((item, i) => {
+    if (typeof item.id !== 'string' || !item.id.trim()) {
+      issues.push({
+        level: 'error',
+        code: 'empty-choice-id',
+        screenId,
+        message: `ל${kind} ${i + 1} במסך "${screenId}" אין מזהה (id) — התשובה תישמר בלי משמעות`,
+      });
+    } else if (seen.has(item.id)) {
+      issues.push({
+        level: 'error',
+        code: 'duplicate-choice-id',
+        screenId,
+        message: `המזהה "${item.id}" חוזר ביותר מ${kind} אחת במסך "${screenId}" — אי אפשר להבחין ביניהן בניתוח`,
+      });
+    } else {
+      seen.add(item.id);
+    }
+    if (typeof item.label !== 'string' || !item.label.trim()) {
+      issues.push({
+        level: 'error',
+        code: 'empty-text',
+        screenId,
+        message: `ל${kind} ${i + 1} במסך "${screenId}" אין טקסט — המשיב יראה שורה ריקה`,
+      });
+    }
+  });
+}
 
 function collectLeaves(cond: Condition, out: Leaf[]): void {
   if ('all' in cond) cond.all.forEach((c) => collectLeaves(c, out));
@@ -86,6 +163,42 @@ function assignsTotally(screen: Screen, varName: string): boolean {
   return false;
 }
 
+/**
+ * ערך בתנאי שאמור להיות מזהה אפשרות — ואינו אחת מהאפשרויות של המסך המופנה.
+ * זה מה שקורה כששמו של id של אפשרות משתנה או שהאפשרות נמחקת: התנאי נשאר
+ * תקין תחבירית, והענף פשוט מת בלי שום סימן חיצוני.
+ *
+ * ⚠ רק ערכים מחרוזתיים נבדקים. השוואה מול מספר (למשל על מסך שהיה בעבר מסוג
+ * אחר) עשויה להיות מכוונת, ואזהרת שווא כאן גרועה יותר מהחמצה.
+ */
+function checkOptionValues(
+  screenId: string,
+  leaf: { q: string; op: string; value?: unknown },
+  screens: Screen[],
+  idToIndex: Map<string, number>,
+  issues: ValidationIssue[],
+): void {
+  if (!OPTION_VALUE_OPS.has(leaf.op)) return;
+  const targetIndex = idToIndex.get(leaf.q);
+  if (targetIndex === undefined) return; // כבר דווח כ-unknown-ref
+  const options = optionsOf(screens[targetIndex]);
+  if (!options) return;
+
+  const ids = new Set(options.map((o) => o.id));
+  const values = Array.isArray(leaf.value) ? leaf.value : [leaf.value];
+  for (const value of values) {
+    if (typeof value !== 'string' || ids.has(value)) continue;
+    // ne הפוך: ערך שלא קיים הופך את התנאי לאמת תמידית ולא לענף מת
+    const effect = leaf.op === 'ne' ? 'התנאי יתקיים תמיד' : 'הענף לעולם לא יופעל';
+    issues.push({
+      level: 'error',
+      code: 'unknown-option',
+      screenId,
+      message: `תנאי במסך "${screenId}" בודק את "${leaf.q}" מול "${value}", שאינו אחת מהאפשרויות של אותו מסך — ${effect}`,
+    });
+  }
+}
+
 export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const screens = config.screens ?? [];
@@ -134,6 +247,103 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     });
   }
 
+  // --- שלמות תוכן המסך ---
+  // עריכה שנראית תמימה (שינוי מזהה אפשרות, מחיקת האפשרות האחרונה, סולם הפוך)
+  // יכולה להשאיר את המשיב מול מסך ריק או תקוע בלי דרך להמשיך ובלי דרך לחזור.
+  for (const s of screens) {
+    const heading = headingOf(s);
+    if (typeof heading.text !== 'string' || !heading.text.trim()) {
+      issues.push({
+        level: 'error',
+        code: 'empty-text',
+        screenId: s.id,
+        message: `למסך "${s.id}" אין ${heading.field} — המשיב יראה מסך ריק`,
+      });
+    }
+
+    if (s.type === 'consent' && [s.agreeLabel, s.declineLabel].some((l) => !l || !l.trim())) {
+      issues.push({
+        level: 'error',
+        code: 'empty-text',
+        screenId: s.id,
+        message: `למסך ההסכמה "${s.id}" חסר טקסט באחד מכפתורי ההסכמה`,
+      });
+    }
+
+    const options = optionsOf(s);
+    if (options) {
+      checkChoiceList(
+        s.id,
+        'אפשרות',
+        options,
+        `למסך "${s.id}" אין אף אפשרות לבחירה — "המשך" יישאר חסום והמשיב ייתקע`,
+        issues,
+      );
+    }
+
+    if (s.type === 'multi' && s.maxSelections !== undefined) {
+      if (!Number.isInteger(s.maxSelections) || s.maxSelections < 1) {
+        issues.push({
+          level: 'error',
+          code: 'bad-max-selections',
+          screenId: s.id,
+          message: `מכסת הבחירות במסך "${s.id}" היא ${s.maxSelections} — חייב מספר שלם מ-1 ומעלה (0 או ערך שלילי אינם "בלי הגבלה")`,
+        });
+      } else if (s.maxSelections >= s.options.length) {
+        issues.push({
+          level: 'warning',
+          code: 'bad-max-selections',
+          screenId: s.id,
+          message: `מכסת הבחירות במסך "${s.id}" (${s.maxSelections}) אינה קטנה ממספר האפשרויות — היא לא מגבילה דבר`,
+        });
+      }
+    }
+
+    if (s.type === 'text' && s.maxLength !== undefined) {
+      if (!Number.isInteger(s.maxLength) || s.maxLength < 1) {
+        issues.push({
+          level: 'error',
+          code: 'bad-text-limit',
+          screenId: s.id,
+          message: `תקרת התווים במסך "${s.id}" היא ${s.maxLength} — חייב מספר שלם מ-1 ומעלה (0 היה חוסם כל הקלדה)`,
+        });
+      }
+    }
+
+    if (s.type === 'matrix') {
+      checkChoiceList(
+        s.id,
+        'שורה',
+        s.items,
+        `למטריצה "${s.id}" אין אף שורה — המשיב יראה מסך ריק`,
+        issues,
+      );
+      const { scaleMin, scaleMax } = s;
+      if (!Number.isInteger(scaleMin) || !Number.isInteger(scaleMax)) {
+        issues.push({
+          level: 'error',
+          code: 'scale-range',
+          screenId: s.id,
+          message: `קצות הסולם במטריצה "${s.id}" חייבים להיות מספרים שלמים (כרגע ${scaleMin}–${scaleMax})`,
+        });
+      } else if (scaleMin > scaleMax) {
+        issues.push({
+          level: 'error',
+          code: 'scale-range',
+          screenId: s.id,
+          message: `הסולם במטריצה "${s.id}" הפוך (${scaleMin} עד ${scaleMax}) — לא ייווצר אף כפתור והמשיב ייתקע`,
+        });
+      } else if (scaleMin === scaleMax) {
+        issues.push({
+          level: 'warning',
+          code: 'scale-range',
+          screenId: s.id,
+          message: `לסולם במטריצה "${s.id}" יש ערך אחד בלבד (${scaleMin}) — אין כאן מה למדוד`,
+        });
+      }
+    }
+  }
+
   // --- שלמות הפניות ---
   const producedVars = new Set<string>(Object.keys(config.randomVars ?? {}));
   for (const s of screens) for (const r of s.onSubmit ?? []) producedVars.add(r.var);
@@ -168,6 +378,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           message: `תנאי במסך "${s.id}" מפנה למשתנה "${leaf.var}" שאף מסך לא מציב (onSubmit) ואינו מוגרל (randomVars)`,
         });
       }
+      if ('q' in leaf) checkOptionValues(s.id, leaf, screens, idToIndex, issues);
     }
   }
 
@@ -192,7 +403,8 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'cycle',
           screenId: screens[v].id,
-          message: `נמצא מעגל בניתוב: ${path.join(' ← ')} — משיב עלול להיתקע בלולאה אינסופית`,
+          // מזהים במרכאות כדי שהקונסולה תוכל להחליף אותם בשמות המסכים
+          message: `נמצא מעגל בניתוב: ${path.map((id) => `"${id}"`).join(' ← ')} — משיב עלול להיתקע בלולאה אינסופית`,
         });
         cycleReported = true;
         return;
@@ -238,6 +450,52 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
       message: 'אף מסך סיום אינו נגיש מהמסך הראשון',
     });
   }
+
+  // --- סדר: משתנה שנבדק לפני שהוא מוצב ---
+  // גרירה אחת בעכבר יכולה להקדים מסך מותנה לפני המסך שמייצר את המשתנה שלו.
+  // התוצאה שקטה לחלוטין: המסך פשוט לא יוצג לאף משיב, כי בזמן הבדיקה למשתנה
+  // עדיין אין ערך.
+  //
+  // showIf נבדק *לפני* שהמסך נשלח ולכן דורש יצרן במסך קודם ממש; כללי next
+  // ו-onSubmit נבדקים אחרי שכללי ה-onSubmit של המסך עצמו כבר רצו (App.tsx
+  // ממקם אותם על אותו ctx), ולכן המסך עצמו נחשב יצרן לגיטימי עבורם.
+  //
+  // אזהרה ולא שגיאה: כללי goto יכולים לשנות את סדר ההגעה בפועל, וסדר המערך
+  // הוא רק ברירת המחדל.
+  const varProducers = new Map<string, number[]>();
+  screens.forEach((s, i) => {
+    for (const rule of s.onSubmit ?? []) {
+      varProducers.set(rule.var, [...(varProducers.get(rule.var) ?? []), i]);
+    }
+  });
+
+  screens.forEach((s, i) => {
+    const selfRules = [...(s.next ?? []), ...(s.onSubmit ?? [])];
+    const groups: { conditions: Condition[]; latestProducer: number }[] = [
+      { conditions: s.showIf ? [s.showIf] : [], latestProducer: i - 1 },
+      { conditions: selfRules.flatMap((r) => (r.if ? [r.if] : [])), latestProducer: i },
+    ];
+    const reported = new Set<string>();
+    for (const { conditions, latestProducer } of groups) {
+      const leaves: Leaf[] = [];
+      for (const cond of conditions) collectLeaves(cond, leaves);
+      for (const leaf of leaves) {
+        if (!('var' in leaf) || reported.has(leaf.var)) continue;
+        if (leaf.var.startsWith('url_')) continue;
+        if (config.randomVars && leaf.var in config.randomVars) continue;
+        const producers = varProducers.get(leaf.var);
+        if (!producers || producers.length === 0) continue; // כבר דווח כ-unknown-ref
+        if (producers.some((p) => p <= latestProducer)) continue;
+        reported.add(leaf.var);
+        issues.push({
+          level: 'warning',
+          code: 'var-order',
+          screenId: s.id,
+          message: `המסך "${s.id}" נשען על המשתנה "${leaf.var}", אבל כל המסכים שמציבים אותו באים אחריו בזרימה — התנאי ייבדק לפני שיש למשתנה ערך`,
+        });
+      }
+    }
+  });
 
   // --- אינווריאנטת הטוטאליות של onSubmit ---
   // משתנה שמשמש בתנאים חייב להיות מוצב באופן טוטאלי לפחות במסך אחד, אחרת

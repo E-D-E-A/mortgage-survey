@@ -2,7 +2,16 @@
 // המפתחות (service_role) חיים רק בסביבת השרת של Netlify ולעולם לא נשלחים ללקוח.
 // service_role עוקף RLS, ולכן כל האכיפה נמצאת כאן: whitelist שדות, enum, מגבלות גודל.
 
-const EVENT_TYPES = new Set(['session_start', 'screen_view', 'answer', 'complete', 'screenout']);
+// ⚠ חייב להישאר מסונכרן עם EventType ב-src/data/events.ts ועם ה-check על
+// survey_events ב-supabase/schema.sql — סוג חסר כאן מפיל אצווה שלמה ל-400.
+const EVENT_TYPES = new Set([
+  'session_start',
+  'screen_view',
+  'answer',
+  'complete',
+  'screenout',
+  'quotafull',
+]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BATCH = 20;
 const MAX_BODY_BYTES = 200_000;

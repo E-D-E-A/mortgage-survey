@@ -1,83 +1,51 @@
-// מסך כניסה: כפתור Google Identity Services. הכפתור הוא UX בלבד —
-// האכיפה האמיתית (דומיין first-edea.com) נעשית בצד השרת ב-admin-auth.
+// מסך כניסה: Google בלבד, דרך Supabase Auth. אין סיסמאות ואין הרשמה עצמית.
+// הכפתור הוא UX בלבד — ההגבלה לחשבונות first-edea.com נאכפת בשרת
+// (netlify/functions/lib/session.ts), ולא כאן.
 
-import { useEffect, useRef, useState } from 'react';
-import { login } from './api';
+import { useState } from 'react';
+import { authConfigured, signInWithGoogle } from './supabaseClient';
 
-const GIS_SRC = 'https://accounts.google.com/gsi/client';
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-
-interface GisId {
-  initialize(config: { client_id: string; callback: (r: { credential: string }) => void }): void;
-  renderButton(el: HTMLElement, config: Record<string, unknown>): void;
-}
-
-declare global {
-  interface Window {
-    google?: { accounts: { id: GisId } };
-  }
-}
-
-export function LoginScreen({ onLogin }: { onLogin: (email: string) => void }) {
-  const buttonRef = useRef<HTMLDivElement>(null);
+export function LoginScreen() {
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!CLIENT_ID) return;
-    let cancelled = false;
-
-    function init() {
-      if (cancelled || !window.google || !buttonRef.current) return;
-      window.google.accounts.id.initialize({
-        client_id: CLIENT_ID!,
-        callback: ({ credential }) => {
-          login(credential)
-            .then(({ email }) => onLogin(email))
-            .catch((e: Error) => {
-              setError(
-                e.message === 'forbidden'
-                  ? 'הכניסה מוגבלת לחשבונות first-edea.com בלבד'
-                  : 'הכניסה נכשלה — נסו שוב',
-              );
-            });
-        },
-      });
-      window.google.accounts.id.renderButton(buttonRef.current, {
-        theme: 'outline',
-        size: 'large',
-        locale: 'he',
-        text: 'signin_with',
-        width: 280,
-      });
+  async function signIn() {
+    setError(null);
+    setBusy(true);
+    try {
+      await signInWithGoogle();
+      // הצלחה = הפניה לגוגל; הדף מתחלף ולכן busy נשאר true
+    } catch {
+      setError('פתיחת הכניסה עם Google נכשלה — נסו שוב');
+      setBusy(false);
     }
+  }
 
-    if (window.google) {
-      init();
-    } else {
-      const script = document.createElement('script');
-      script.src = GIS_SRC;
-      script.async = true;
-      script.onload = init;
-      script.onerror = () => setError('טעינת Google נכשלה — בדקו את החיבור');
-      document.head.appendChild(script);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [onLogin]);
+  if (!authConfigured) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <h1>ניהול השאלון</h1>
+          <p className="a-hint error-text">
+            חסרים VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — הגדירו את משתני הסביבה והריצו מחדש
+            (ראו README)
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-screen">
       <div className="login-card">
         <h1>ניהול השאלון</h1>
-        <p className="a-hint">כניסה מוגבלת לחשבונות first-edea.com</p>
-        {CLIENT_ID ? (
-          <div ref={buttonRef} className="gis-button" />
-        ) : (
-          <p className="a-hint error-text">
-            חסר VITE_GOOGLE_CLIENT_ID — הגדירו את משתני הסביבה והריצו מחדש (ראו README)
-          </p>
-        )}
+        <p className="a-hint">הכניסה מוגבלת לחשבונות first-edea.com</p>
+
+        <button className="btn-google" type="button" onClick={() => void signIn()} disabled={busy}>
+          <GoogleMark />
+          <span>{busy ? 'מעביר לגוגל…' : 'כניסה עם Google'}</span>
+        </button>
+
         {error && (
           <p className="a-hint error-text" role="alert">
             {error}
@@ -85,5 +53,28 @@ export function LoginScreen({ onLogin }: { onLogin: (email: string) => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.91c1.7-1.57 2.69-3.88 2.69-6.62z"
+      />
+      <path
+        fill="#34A853"
+        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.91-2.26c-.81.54-1.84.86-3.05.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.34A9 9 0 0 0 9 18z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.94H.96a9 9 0 0 0 0 8.12l3.01-2.34z"
+      />
+      <path
+        fill="#EA4335"
+        d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.94l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"
+      />
+    </svg>
   );
 }

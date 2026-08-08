@@ -21,11 +21,15 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { Screen } from '../engine/types';
 import type { ValidationIssue } from '../engine/validate';
-import { TYPE_LABELS, screenExcerpt } from './labels';
+import type { Naming } from './display';
+import { TYPE_LABELS } from './labels';
+import { screenKindLabel, screenLabel, screenRef, varLabel } from './display';
+import { uniqueId } from './edits';
 import { BranchIcon, ErrorIcon, EyeIcon, GripIcon, PlusIcon, TypeIcon, VarIcon, WarningIcon } from './Icons';
 
 interface ListProps {
   screens: Screen[];
+  naming: Naming;
   selectedId: string | null;
   issues: ValidationIssue[];
   onSelect: (id: string) => void;
@@ -33,7 +37,7 @@ interface ListProps {
   onAdd: (type: Screen['type'], id: string) => void;
 }
 
-export function ScreenList({ screens, selectedId, issues, onSelect, onReorder, onAdd }: ListProps) {
+export function ScreenList({ screens, naming, selectedId, issues, onSelect, onReorder, onAdd }: ListProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -67,6 +71,7 @@ export function ScreenList({ screens, selectedId, issues, onSelect, onReorder, o
               <SortableItem
                 key={screen.id}
                 screen={screen}
+                naming={naming}
                 index={i}
                 selected={screen.id === selectedId}
                 incoming={incoming.get(screen.id) ?? []}
@@ -84,6 +89,7 @@ export function ScreenList({ screens, selectedId, issues, onSelect, onReorder, o
 
 function SortableItem({
   screen,
+  naming,
   index,
   selected,
   incoming,
@@ -91,6 +97,7 @@ function SortableItem({
   onSelect,
 }: {
   screen: Screen;
+  naming: Naming;
   index: number;
   selected: boolean;
   incoming: string[];
@@ -104,6 +111,8 @@ function SortableItem({
   const hasWarning = issues.some((i) => i.level === 'warning');
   const gotos = (screen.next ?? []).map((r) => r.goto);
   const vars = [...new Set((screen.onSubmit ?? []).map((r) => r.var))];
+  const label = (id: string) => screenRef(naming, id);
+  const varName = (v: string) => varLabel(naming, v);
 
   return (
     <li
@@ -131,8 +140,7 @@ function SortableItem({
           <span className="screen-type-icon">
             <TypeIcon type={screen.type} />
           </span>
-          <code className="screen-id" dir="ltr">{screen.id}</code>
-          <span className="screen-type-label">{TYPE_LABELS[screen.type]}</span>
+          <span className="screen-type-label">{screenKindLabel(screen)}</span>
           {hasError && (
             <span className="badge badge-error" title="שגיאות ולידציה">
               <ErrorIcon width={12} height={12} />
@@ -144,7 +152,7 @@ function SortableItem({
             </span>
           )}
         </span>
-        <span className="screen-excerpt">{screenExcerpt(screen)}</span>
+        <span className="screen-name">{screenLabel(screen)}</span>
         {(screen.showIf || gotos.length > 0 || incoming.length > 0 || vars.length > 0) && (
           <span className="screen-badges">
             {screen.showIf && (
@@ -152,19 +160,19 @@ function SortableItem({
                 <EyeIcon width={12} height={12} /> מותנה
               </span>
             )}
-            {gotos.map((g, i) => (
-              <span key={i} className="badge" title={`ניתוב אל ${g}`}>
-                <BranchIcon width={12} height={12} /> <bdi dir="ltr">{g}</bdi>
+            {gotos.length > 0 && (
+              <span className="badge" title={`קופץ אל: ${gotos.map((g) => label(g)).join(' · ')}`}>
+                <BranchIcon width={12} height={12} /> {gotos.length} קפיצות החוצה
               </span>
-            ))}
+            )}
             {incoming.length > 0 && (
-              <span className="badge" title={`נכנסים מ: ${incoming.join(', ')}`}>
-                ← {incoming.length} קפיצות
+              <span className="badge" title={`מגיעים מ: ${incoming.map((g) => label(g)).join(' · ')}`}>
+                ← {incoming.length} קפיצות פנימה
               </span>
             )}
             {vars.map((v) => (
-              <span key={v} className="badge" title={`מציב את המשתנה ${v}`}>
-                <VarIcon width={12} height={12} /> <bdi dir="ltr">{v}</bdi>
+              <span key={v} className="badge" title="מסמן את המשיב כאן">
+                <VarIcon width={12} height={12} /> {varName(v)}
               </span>
             ))}
           </span>
@@ -179,10 +187,19 @@ const NEW_TYPES: Screen['type'][] = ['info', 'consent', 'single', 'multi', 'matr
 function AddScreenForm({ screens, onAdd }: { screens: Screen[]; onAdd: ListProps['onAdd'] }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Screen['type']>('single');
-  const [id, setId] = useState('');
+  // הקוד מגיע מוכן: אדמין לא-טכני לא אמור להמציא מזהה כדי להוסיף שאלה, אבל
+  // הוא כן נשאר גלוי ולעריכה — זה השם שהחוקר יראה בקובץ הנתונים
+  const [id, setId] = useState(() => uniqueId('screen', screens));
+  const [touched, setTouched] = useState(false);
   const trimmed = id.trim();
   const idTaken = screens.some((s) => s.id === trimmed);
   const idValid = /^[a-zA-Z][a-zA-Z0-9_]*$/.test(trimmed) && !idTaken;
+
+  function reset() {
+    setId(uniqueId('screen', screens));
+    setTouched(false);
+    setOpen(false);
+  }
 
   if (!open) {
     return (
@@ -198,8 +215,7 @@ function AddScreenForm({ screens, onAdd }: { screens: Screen[]; onAdd: ListProps
         e.preventDefault();
         if (!idValid) return;
         onAdd(type, trimmed);
-        setId('');
-        setOpen(false);
+        reset();
       }}
     >
       <select className="a-select" value={type} onChange={(e) => setType(e.target.value as Screen['type'])}>
@@ -209,25 +225,30 @@ function AddScreenForm({ screens, onAdd }: { screens: Screen[]; onAdd: ListProps
           </option>
         ))}
       </select>
-      <input
-        className="a-input"
-        value={id}
-        onChange={(e) => setId(e.target.value)}
-        placeholder="מזהה באנגלית, למשל s_income"
-        dir="ltr"
-        autoFocus
-      />
       <button className="a-btn primary small" type="submit" disabled={!idValid}>
         הוספה
       </button>
-      <button className="a-btn ghost small" type="button" onClick={() => setOpen(false)}>
+      <button className="a-btn ghost small" type="button" onClick={reset}>
         ביטול
       </button>
-      {trimmed && !idValid && (
-        <p className="a-hint error-text">
-          {idTaken ? 'המזהה כבר קיים' : 'מזהה חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות'}
-        </p>
-      )}
+      <details className="add-screen-code" open={touched}>
+        <summary>קוד לקובץ הנתונים</summary>
+        <input
+          className="a-input"
+          value={id}
+          onChange={(e) => {
+            setTouched(true);
+            setId(e.target.value);
+          }}
+          dir="ltr"
+          aria-label="קוד המסך"
+        />
+        {trimmed && !idValid && (
+          <p className="a-hint error-text">
+            {idTaken ? 'הקוד כבר קיים' : 'קוד חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות'}
+          </p>
+        )}
+      </details>
     </form>
   );
 }

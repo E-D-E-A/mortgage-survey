@@ -1,71 +1,128 @@
 // שכבת הגישה של קונסולת הניהול לפונקציות ה-Netlify.
-// כל הקריאות עם credentials — עוגיית הסשן (HttpOnly) נשלחת אוטומטית.
+// כל קריאה נושאת את ה-access token של Supabase Auth ככותרת Bearer;
+// הפונקציה מאמתת אותו מול Supabase ואוכפת את הדומיין (lib/session.ts).
+// כל קצוות הטיוטה והפרסום מקבלים ?survey=<slug> — הן פועלות על שאלון אחד.
 
 import type { SurveyConfig } from '../engine/types';
 import type { ValidationIssue } from '../engine/validate';
+import { accessToken } from './supabaseClient';
 
+/** טוקן חסר/פג — צריך להתחבר מחדש. */
 export class UnauthorizedError extends Error {}
+/** מחובר, אבל החשבון לא מורשה (לא בדומיין first-edea.com). */
+export class ForbiddenError extends Error {}
 
-async function call(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(`/.netlify/functions/${path}`, {
-    credentials: 'same-origin',
-    ...init,
-  });
-  if (res.status === 401) throw new UnauthorizedError();
-  return res;
-}
-
-export async function getSession(): Promise<{ email: string } | null> {
-  try {
-    const res = await call('admin-auth');
-    if (!res.ok) return null;
-    return (await res.json()) as { email: string };
-  } catch {
-    return null;
+/** כשל שאינו 401/403 — נושא את קוד הסטטוס כדי שנוכל להסביר לעורך. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message?: string,
+  ) {
+    super(message ?? `request failed: ${status}`);
   }
 }
 
-export async function login(credential: string): Promise<{ email: string }> {
-  const res = await call('admin-auth', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credential }),
+async function call(path: string, init?: RequestInit): Promise<Response> {
+  const token = await accessToken();
+  if (!token) throw new UnauthorizedError();
+  const res = await fetch(`/.netlify/functions/${path}`, {
+    ...init,
+    headers: { ...init?.headers, Authorization: `Bearer ${token}` },
   });
-  if (res.status === 403) throw new Error('forbidden');
-  if (!res.ok) throw new Error(`login failed: ${res.status}`);
-  return (await res.json()) as { email: string };
+  if (res.status === 401) throw new UnauthorizedError();
+  if (res.status === 403) throw new ForbiddenError(await res.text());
+  return res;
 }
 
-export async function logout(): Promise<void> {
-  await call('admin-auth', { method: 'DELETE' });
+const jsonInit = { 'Content-Type': 'application/json' };
+
+// ---------- שאלונים ----------
+
+export interface SurveySummary {
+  slug: string;
+  name: string;
+  created_at: string;
+  created_by: string;
+  archived_at: string | null;
+  has_draft: boolean;
+  draft_updated_at: string | null;
+  draft_updated_by: string | null;
+  /** כמה גרסאות פורסמו; 0 ⇒ מותר למחוק את השאלון לגמרי */
+  versions: number;
+  latest_version: string | null;
+  latest_published_at: string | null;
 }
+
+export async function listSurveys(): Promise<SurveySummary[]> {
+  const res = await call('admin-surveys');
+  if (!res.ok) throw new ApiError(res.status);
+  return ((await res.json()) as { surveys: SurveySummary[] }).surveys;
+}
+
+export async function createSurvey(slug: string, name: string): Promise<void> {
+  const res = await call('admin-surveys', {
+    method: 'POST',
+    headers: jsonInit,
+    body: JSON.stringify({ slug, name }),
+  });
+  if (!res.ok) throw new ApiError(res.status);
+}
+
+export async function updateSurvey(
+  slug: string,
+  patch: { name?: string; archived?: boolean },
+): Promise<void> {
+  const res = await call('admin-surveys', {
+    method: 'PATCH',
+    headers: jsonInit,
+    body: JSON.stringify({ slug, ...patch }),
+  });
+  if (!res.ok) throw new ApiError(res.status);
+}
+
+export async function deleteSurvey(slug: string): Promise<void> {
+  const res = await call(`admin-surveys?survey=${encodeURIComponent(slug)}`, { method: 'DELETE' });
+  if (!res.ok) throw new ApiError(res.status);
+}
+
+// ---------- טיוטה ----------
 
 export interface DraftData {
   config: SurveyConfig | null;
   updated_at: string | null;
 }
 
-export async function getDraft(): Promise<DraftData> {
-  const res = await call('admin-draft');
-  if (!res.ok) throw new Error(`draft load failed: ${res.status}`);
+export async function getDraft(slug: string): Promise<DraftData> {
+  const res = await call(`admin-draft?survey=${encodeURIComponent(slug)}`);
+  if (!res.ok) throw new ApiError(res.status, `draft load failed: ${res.status}`);
   return (await res.json()) as DraftData;
 }
 
 export class ConflictError extends Error {}
 
+/** כשל שמירה שאינו 401/403/409 — נושא את קוד הסטטוס כדי שנוכל להסביר לעורך. */
+export class SaveFailedError extends Error {
+  constructor(readonly status: number) {
+    super(`draft save failed: ${status}`);
+  }
+}
+
 export async function saveDraft(
+  slug: string,
   config: SurveyConfig,
   expectedUpdatedAt: string | null,
 ): Promise<{ updated_at: string }> {
-  const res = await call('admin-draft', {
+  const res = await call(`admin-draft?survey=${encodeURIComponent(slug)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonInit,
     body: JSON.stringify({ config, expected_updated_at: expectedUpdatedAt }),
   });
   if (res.status === 409) throw new ConflictError();
-  if (!res.ok) throw new Error(`draft save failed: ${res.status}`);
+  if (!res.ok) throw new SaveFailedError(res.status);
   return (await res.json()) as { updated_at: string };
 }
+
+// ---------- פרסום ----------
 
 export interface PublishResult {
   version?: string;
@@ -73,10 +130,13 @@ export interface PublishResult {
   errors?: ValidationIssue[];
 }
 
-export async function publish(label: string): Promise<{ status: number; data: PublishResult }> {
-  const res = await call('admin-publish', {
+export async function publish(
+  slug: string,
+  label: string,
+): Promise<{ status: number; data: PublishResult }> {
+  const res = await call(`admin-publish?survey=${encodeURIComponent(slug)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonInit,
     body: JSON.stringify({ label }),
   });
   const data = res.status === 200 || res.status === 422 ? ((await res.json()) as PublishResult) : {};

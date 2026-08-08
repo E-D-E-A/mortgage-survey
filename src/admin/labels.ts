@@ -28,15 +28,3 @@ export const OP_LABELS: Record<Op, string> = {
 
 /** אופרטורים שערכם רשימה */
 export const LIST_OPS: Op[] = ['in', 'includesAny'];
-
-/** תקציר טקסטואלי קצר של מסך לרשימה */
-export function screenExcerpt(screen: Screen): string {
-  switch (screen.type) {
-    case 'info':
-    case 'consent':
-    case 'end':
-      return screen.title;
-    default:
-      return screen.prompt;
-  }
-}

@@ -1,31 +1,53 @@
-// עורך מסך בודד: שדות לפי סוג המסך + המנגנונים המשותפים —
-// תנאי תצוגה (showIf), ניתוב (next) והצבת משתנים (onSubmit).
+// עורך מסך בודד: קודם ההקשר (איך מגיעים לכאן ולאן ממשיכים), אחריו התוכן,
+// ורק בסוף המנגנונים — תנאי תצוגה (showIf), קפיצות (next) וסימונים (onSubmit).
+//
+// הסדר הזה מכוון: מי שפותח מסך רוצה קודם לדעת איפה הוא עומד בזרימה.
 
-import type { Option, Screen } from '../engine/types';
+import { TEXT_MAX_LENGTH } from '../engine/input-rules';
+import type { Option, Screen, SurveyConfig } from '../engine/types';
+import type { Naming } from './display';
+import { screenKindLabel, screenLabel } from './display';
 import { OptionalCondition } from './ConditionBuilder';
+import { FlowContext } from './FlowContext';
 import { NextRulesEditor } from './NextRulesEditor';
 import { SetVarEditor } from './SetVarEditor';
-import { TYPE_LABELS } from './labels';
 import { PlusIcon, TrashIcon, TypeIcon } from './Icons';
 
 interface Props {
+  config: SurveyConfig;
   screen: Screen;
-  screens: Screen[];
-  vars: string[];
+  naming: Naming;
   onChange: (screen: Screen) => void;
   onDelete: () => void;
+  onSelect: (id: string) => void;
+  onDefineVar: (name: string, label: string) => void;
+  onDefineVarValue: (name: string, value: string, label: string) => void;
 }
 
-export function ScreenEditor({ screen, screens, vars, onChange, onDelete }: Props) {
+export function ScreenEditor({
+  config,
+  screen,
+  naming,
+  onChange,
+  onDelete,
+  onSelect,
+  onDefineVar,
+  onDefineVarValue,
+}: Props) {
   const patch = (p: Partial<Screen>) => onChange({ ...screen, ...p } as Screen);
 
   return (
     <div className="editor">
       <header className="editor-head">
         <span className="editor-type">
-          <TypeIcon type={screen.type} /> {TYPE_LABELS[screen.type]}
+          <TypeIcon type={screen.type} /> {screenKindLabel(screen)}
         </span>
-        <code className="editor-id" title="מזהה המסך קבוע — תנאים ותשובות מפנים אליו">
+        <strong className="editor-name">{screenLabel(screen)}</strong>
+        <code
+          className="editor-id"
+          dir="ltr"
+          title="הקוד של המסך בקובץ הנתונים — קבוע, ותנאים מפנים אליו"
+        >
           {screen.id}
         </code>
         <button className="a-btn danger-ghost small" onClick={onDelete}>
@@ -33,16 +55,17 @@ export function ScreenEditor({ screen, screens, vars, onChange, onDelete }: Prop
         </button>
       </header>
 
+      <FlowContext config={config} screen={screen} naming={naming} onSelect={onSelect} />
+
       <TypeFields screen={screen} patch={patch} />
 
       <hr className="a-sep" />
 
       <OptionalCondition
-        label="מוצג רק בתנאי (showIf)"
+        label="מוצג רק כאשר"
         value={screen.showIf}
         onChange={(cond) => patch({ showIf: cond })}
-        screens={screens}
-        vars={vars}
+        naming={naming}
       />
 
       {screen.type !== 'end' && (
@@ -50,14 +73,14 @@ export function ScreenEditor({ screen, screens, vars, onChange, onDelete }: Prop
           <NextRulesEditor
             rules={screen.next ?? []}
             onChange={(rules) => patch({ next: rules })}
-            screens={screens}
-            vars={vars}
+            naming={naming}
           />
           <SetVarEditor
             rules={screen.onSubmit ?? []}
             onChange={(rules) => patch({ onSubmit: rules })}
-            screens={screens}
-            vars={vars}
+            naming={naming}
+            onDefineVar={onDefineVar}
+            onDefineVarValue={onDefineVarValue}
           />
         </>
       )}
@@ -164,20 +187,23 @@ function OptionsEditor({
       </div>
       {options.map((opt, i) => (
         <div className="option-row" key={i}>
-          <input
-            className="a-input option-id"
-            value={opt.id}
-            onChange={(e) => patch(i, { ...opt, id: e.target.value })}
-            placeholder="מזהה"
-            aria-label="מזהה אפשרות"
-            dir="ltr"
-          />
+          {/* הנוסח קודם והקוד אחריו: מה שהמשיב יראה הוא העיקר, והקוד נחוץ
+              רק לקובץ הנתונים — אבל נשאר גלוי ולעריכה */}
           <input
             className="a-input"
             value={opt.label}
             onChange={(e) => patch(i, { ...opt, label: e.target.value })}
             placeholder="נוסח האפשרות"
             aria-label="נוסח אפשרות"
+          />
+          <input
+            className="a-input option-id"
+            value={opt.id}
+            onChange={(e) => patch(i, { ...opt, id: e.target.value })}
+            placeholder="קוד"
+            aria-label="קוד האפשרות בקובץ הנתונים"
+            title="קוד האפשרות בקובץ הנתונים"
+            dir="ltr"
           />
           <label className="a-check compact" title="בחירה באפשרות זו מנקה את כל השאר">
             <input
@@ -269,16 +295,6 @@ function TypeFields({ screen, patch }: { screen: Screen; patch: (p: Partial<Scre
             {screen.items.map((item, i) => (
               <div className="option-row" key={i}>
                 <input
-                  className="a-input option-id"
-                  value={item.id}
-                  onChange={(e) =>
-                    patch({ items: screen.items.map((it, j) => (j === i ? { ...it, id: e.target.value } : it)) })
-                  }
-                  placeholder="מזהה"
-                  aria-label="מזהה פריט"
-                  dir="ltr"
-                />
-                <input
                   className="a-input"
                   value={item.label}
                   onChange={(e) =>
@@ -286,6 +302,17 @@ function TypeFields({ screen, patch }: { screen: Screen; patch: (p: Partial<Scre
                   }
                   placeholder="נוסח הפריט"
                   aria-label="נוסח פריט"
+                />
+                <input
+                  className="a-input option-id"
+                  value={item.id}
+                  onChange={(e) =>
+                    patch({ items: screen.items.map((it, j) => (j === i ? { ...it, id: e.target.value } : it)) })
+                  }
+                  placeholder="קוד"
+                  aria-label="קוד הפריט בקובץ הנתונים"
+                  title="קוד הפריט בקובץ הנתונים"
+                  dir="ltr"
                 />
                 <button
                   className="a-icon-btn danger"
@@ -335,6 +362,11 @@ function TypeFields({ screen, patch }: { screen: Screen; patch: (p: Partial<Scre
             value={screen.unit ?? ''}
             onChange={(v) => patch({ unit: v || undefined })}
           />
+          <Check
+            label="מספרים שלמים בלבד (גיל, מספר ילדים)"
+            checked={screen.integer ?? false}
+            onChange={(v) => patch({ integer: v || undefined })}
+          />
         </>
       );
     case 'text':
@@ -360,6 +392,11 @@ function TypeFields({ screen, patch }: { screen: Screen; patch: (p: Partial<Scre
             label="אפשר לדלג (אופציונלי)"
             checked={screen.optional ?? false}
             onChange={(v) => patch({ optional: v || undefined })}
+          />
+          <Num
+            label={`תקרת תווים (ברירת מחדל ${TEXT_MAX_LENGTH})`}
+            value={screen.maxLength}
+            onChange={(v) => patch({ maxLength: v })}
           />
         </>
       );
