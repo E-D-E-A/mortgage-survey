@@ -880,18 +880,62 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, focusRe
 
   const panRef = useRef<{ px: number; py: number; vx: number; vy: number; moved: boolean } | null>(null);
 
+  /**
+   * צביטה לשינוי גודל. במסך מגע אין גלגלת, וההתאמה למסך של שאלון עם 38 מסכים
+   * נוחתת על 18% — קריא רק אם אפשר לקרב. שני מצביעים פעילים מחליפים את הפאן
+   * בצביטה: המרחק ביניהם קובע את הזום, והנקודה שביניהם נשארת מתחת לאצבעות.
+   */
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; k: number; x: number; y: number } | null>(null);
+
+  /** מרכז ומרחק של שני המצביעים, ביחס לפינת הקנבס. */
+  function pinchGeometry(): { cx: number; cy: number; dist: number } | null {
+    const el = containerRef.current;
+    if (!el || pointers.current.size < 2) return null;
+    const [a, b] = [...pointers.current.values()];
+    const rect = el.getBoundingClientRect();
+    return {
+      cx: (a.x + b.x) / 2 - rect.left,
+      cy: (a.y + b.y) / 2 - rect.top,
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+    };
+  }
+
   function startPan(e: React.PointerEvent) {
     // פאן בלחצן שמאלי בלבד — לכידת מצביע בקליק ימני מסיטה את אירוע
     // ה-contextmenu מהקשת אל הקנבס ותפריט הקשת לא נפתח
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('.fg-node-wrap, .fg-popover, .fg-toolbar, .fg-edge-label, .fg-insert-btn, .fg-stub')) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     cancelFocusAnim();
     setPopover(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    // אצבע שנייה — הפאן נעצר במקומו והצביטה מתחילה מהמצב הנוכחי
+    const g = pinchGeometry();
+    if (g) {
+      panRef.current = null;
+      pinchRef.current = { dist: g.dist, k: view.k, x: view.x, y: view.y };
+      return;
+    }
     panRef.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y, moved: false };
   }
 
   function movePan(e: React.PointerEvent) {
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    const pinch = pinchRef.current;
+    if (pinch) {
+      const g = pinchGeometry();
+      if (!g || pinch.dist === 0) return;
+      userMoved.current = true;
+      const k = clamp((g.dist / pinch.dist) * pinch.k, minZoom.current, MAX_ZOOM);
+      const ratio = k / pinch.k;
+      setView({ k, x: g.cx - (g.cx - pinch.x) * ratio, y: g.cy - (g.cy - pinch.y) * ratio });
+      return;
+    }
+
     const p = panRef.current;
     if (!p) return;
     if (Math.hypot(e.clientX - p.px, e.clientY - p.py) > DRAG_THRESHOLD) {
@@ -902,8 +946,15 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, focusRe
   }
 
   function endPan(e: React.PointerEvent) {
-    // קליק על רקע ריק (בלי גרירה) מבטל את הבחירה ויוצא ממצב המיקוד
-    if (panRef.current && !panRef.current.moved) onSelect(null);
+    pointers.current.delete(e.pointerId);
+    if (pinchRef.current) {
+      // האצבע שנותרה לא מקבלת פאן: היא הייתה מקפיצה את התרשים מהנקודה שבה
+      // התחילה הצביטה. הפאן חוזר רק במגע הבא.
+      if (pointers.current.size === 0) pinchRef.current = null;
+    } else if (panRef.current && !panRef.current.moved) {
+      // קליק על רקע ריק (בלי גרירה) מבטל את הבחירה ויוצא ממצב המיקוד
+      onSelect(null);
+    }
     panRef.current = null;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);

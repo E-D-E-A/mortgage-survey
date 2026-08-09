@@ -20,3 +20,6 @@ docs/
 
 # נוצר ע"י סביבת ה-Edge Functions של Netlify
 deno.lock
+
+# צילומי המסך של בדיקות ה-QA (qa/README.md) — נוצרים מחדש בכל הרצה
+qa/shots/

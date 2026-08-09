@@ -28,11 +28,17 @@ import './admin.css';
 const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
 /**
- * מתחת לרוחב הזה הקונסולה לא נבנתה לעבוד: תרשים הזרימה, רשימת המסכים ומגירת
- * העריכה צריכים שלוש עמודות במקביל. עדיף מסך הסבר מפורש מאשר ממשק שקורס.
- * הערך תואם לנקודת השבירה של .admin-body ב-admin.css.
+ * מתחת לרוחב הזה שלוש העמודות לא נכנסות זו לצד זו, והקונסולה עוברת לפריסת
+ * מובייל: לשונית אחת בכל רגע (רשימת המסכים / תרשים הזרימה), ומגירת העריכה
+ * נפתחת כיריעה על כל המסך. הערך תואם לנקודת השבירה של .admin-body ב-admin.css.
  */
-const MIN_CONSOLE_WIDTH = 900;
+const NARROW_WIDTH = 900;
+
+/**
+ * מתחת לרוחב הזה גם הכיתובים מתקצרים. בטאבלט (768) שבע הפעולות נכנסות לשורה
+ * אחת בשמן המלא, ואין סיבה לקצר אותן שם.
+ */
+const COMPACT_WIDTH = 640;
 
 /* ---------- רוחב הפאנלים ---------- */
 
@@ -91,17 +97,17 @@ function useMeasuredTopbar(): {
   return { appRef, topbarRef };
 }
 
-function useTooNarrow(): boolean {
-  const [tooNarrow, setTooNarrow] = useState(
-    () => window.matchMedia(`(max-width: ${MIN_CONSOLE_WIDTH - 1}px)`).matches,
-  );
+/** האם החלון צר מ-`width`. אותן נקודות שבירה שבגיליון — מקור אמת אחד. */
+function useNarrowerThan(width: number): boolean {
+  const query = `(max-width: ${width - 1}px)`;
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${MIN_CONSOLE_WIDTH - 1}px)`);
-    const onChange = (e: MediaQueryListEvent) => setTooNarrow(e.matches);
+    const mq = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return tooNarrow;
+  }, [query]);
+  return narrow;
 }
 
 type Auth = { phase: 'checking' } | { phase: 'login' } | { phase: 'in'; email: string };
@@ -264,9 +270,12 @@ interface EditorProps {
 
 function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProps) {
   const draft = useDraft(slug, onAuthError);
-  const tooNarrow = useTooNarrow();
+  const narrow = useNarrowerThan(NARROW_WIDTH);
+  const compact = useNarrowerThan(COMPACT_WIDTH);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  /** בפריסת מובייל רק אחד משני המשטחים מוצג בכל רגע. */
+  const [mobileTab, setMobileTab] = useState<'list' | 'graph'>('list');
   const [publishOpen, setPublishOpen] = useState(false);
   // null = בדיקת המסלול כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
   const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
@@ -460,16 +469,24 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
     <div className="admin-app" ref={appRef}>
       <header className="topbar" ref={topbarRef}>
         <div className="topbar-title">
+          {/* בפריסת מובייל אין שתי עמודות להסתיר — הלשוניות מחליפות את הכפתור */}
+          {!narrow && (
+            <button
+              className="a-icon-btn"
+              onClick={() => setSidebarOpen((v) => !v)}
+              aria-label={sidebarOpen ? 'הסתרת רשימת המסכים' : 'הצגת רשימת המסכים'}
+              title={sidebarOpen ? 'הסתרת רשימת המסכים' : 'הצגת רשימת המסכים'}
+            >
+              <PanelIcon />
+            </button>
+          )}
           <button
-            className="a-icon-btn"
-            onClick={() => setSidebarOpen((v) => !v)}
-            aria-label={sidebarOpen ? 'הסתרת רשימת המסכים' : 'הצגת רשימת המסכים'}
-            title={sidebarOpen ? 'הסתרת רשימת המסכים' : 'הצגת רשימת המסכים'}
+            className="a-btn ghost small"
+            onClick={leave}
+            title="חזרה לרשימת השאלונים"
+            aria-label="חזרה לרשימת השאלונים"
           >
-            <PanelIcon />
-          </button>
-          <button className="a-btn ghost small" onClick={leave} title="חזרה לרשימת השאלונים">
-            → כל השאלונים
+            {compact ? '→' : '→ כל השאלונים'}
           </button>
           <h1>{name}</h1>
           <code className="topbar-slug" dir="ltr">
@@ -524,7 +541,9 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
             disabled={draft.phase !== 'ready'}
             title="לענות כמו משיב, ולראות בדיוק לאילו מסכים הוא יגיע"
           >
-            בדיקת מסלול
+            {/* כיתוב מקוצר במסך צר: בשלמותם שבעת הפקדים גלשו לשלוש שורות
+                ותפסו 139px — שישית ממסך טלפון, לפני שנראה מסך אחד */}
+            {compact ? 'בדיקה' : 'בדיקת מסלול'}
           </button>
           <a
             className="a-btn secondary"
@@ -533,7 +552,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
             rel="noreferrer"
             title="פתיחת השאלון כפי שהמשיבים רואים אותו — הגרסה האחרונה שפורסמה"
           >
-            צפייה בשאלון
+            {compact ? 'צפייה' : 'צפייה בשאלון'}
           </a>
           <button
             className="a-btn primary"
@@ -588,9 +607,32 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
         </div>
       )}
 
+      {draft.phase === 'ready' && config && narrow && (
+        <div className="mobile-tabs" role="tablist" aria-label="משטח העבודה">
+          <button
+            role="tab"
+            aria-selected={mobileTab === 'list'}
+            className={`mobile-tab${mobileTab === 'list' ? ' active' : ''}`}
+            onClick={() => setMobileTab('list')}
+          >
+            רשימת המסכים
+          </button>
+          <button
+            role="tab"
+            aria-selected={mobileTab === 'graph'}
+            className={`mobile-tab${mobileTab === 'graph' ? ' active' : ''}`}
+            onClick={() => setMobileTab('graph')}
+          >
+            תרשים הזרימה
+          </button>
+        </div>
+      )}
+
       {draft.phase === 'ready' && config && (
         <div
-          className={`admin-body${sidebarOpen ? '' : ' sidebar-closed'}${selected ? ' drawer-open' : ''}`}
+          className={`admin-body${sidebarOpen ? '' : ' sidebar-closed'}${selected ? ' drawer-open' : ''}${
+            narrow ? ` narrow show-${mobileTab}` : ''
+          }`}
           style={{ '--sidebar-w': `${sidebarEff}px`, '--drawer-w': `${drawerEff}px` } as CSSProperties}
         >
           <aside className="admin-sidebar">
@@ -619,20 +661,22 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
                 }}
               />
             </div>
-            <PanelResizer
-              edge="sidebar"
-              width={sidebarEff}
-              label="שינוי רוחב רשימת המסכים"
-              clampWidth={clampSidebar}
-              onWidth={(w, done) => {
-                setSidebarW(w);
-                if (done) saveWidth(SIDEBAR_KEY, w);
-              }}
-              onReset={() => {
-                setSidebarW(SIDEBAR_DEFAULT);
-                saveWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT);
-              }}
-            />
+            {!narrow && (
+              <PanelResizer
+                edge="sidebar"
+                width={sidebarEff}
+                label="שינוי רוחב רשימת המסכים"
+                clampWidth={clampSidebar}
+                onWidth={(w, done) => {
+                  setSidebarW(w);
+                  if (done) saveWidth(SIDEBAR_KEY, w);
+                }}
+                onReset={() => {
+                  setSidebarW(SIDEBAR_DEFAULT);
+                  saveWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT);
+                }}
+              />
+            )}
           </aside>
           <main className="admin-main">
             <ValidationPanel issues={issues} naming={naming} onSelectScreen={revealScreen} />
@@ -652,27 +696,32 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
               selectedId={selectedId}
               naming={naming}
               simPath={simPath}
-              focusRequest={focusRequest}
+              // בפריסת מובייל התרשים מוסתר בלשונית השנייה, ורוחב הקנבס שלו 0:
+              // מיקוד צומת שם היה מקבע מבט שגוי ומונע התאמה מחדש. הבקשה מומרת
+              // ל-null עד שהתרשים גלוי, ואז נמסרת עם אותו מונה.
+              focusRequest={narrow && mobileTab !== 'graph' ? null : focusRequest}
               onSelect={selectScreen}
               onUpdate={guardedUpdate}
             />
           </main>
           {selected && (
             <aside className="editor-drawer" aria-label={`עריכת המסך ״${screenLabel(selected)}״`}>
-              <PanelResizer
-                edge="drawer"
-                width={drawerEff}
-                label="שינוי רוחב חלון העריכה"
-                clampWidth={clampDrawer}
-                onWidth={(w, done) => {
-                  setDrawerW(w);
-                  if (done) saveWidth(DRAWER_KEY, w);
-                }}
-                onReset={() => {
-                  setDrawerW(DRAWER_DEFAULT);
-                  saveWidth(DRAWER_KEY, DRAWER_DEFAULT);
-                }}
-              />
+              {!narrow && (
+                <PanelResizer
+                  edge="drawer"
+                  width={drawerEff}
+                  label="שינוי רוחב חלון העריכה"
+                  clampWidth={clampDrawer}
+                  onWidth={(w, done) => {
+                    setDrawerW(w);
+                    if (done) saveWidth(DRAWER_KEY, w);
+                  }}
+                  onReset={() => {
+                    setDrawerW(DRAWER_DEFAULT);
+                    saveWidth(DRAWER_KEY, DRAWER_DEFAULT);
+                  }}
+                />
+              )}
               <div className="drawer-head">
                 <strong>עריכת מסך</strong>
                 <button className="a-icon-btn" onClick={() => setSelectedId(null)} aria-label="סגירת העורך" title="סגירה">
@@ -762,24 +811,6 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
               </button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* שכבה מעל ולא החלפה של העץ: הצרת החלון באמצע עבודה לא תפרק את העורך
-          ולא תמחק שינויים שלא נשמרו */}
-      {tooNarrow && (
-        <div className="narrow-notice" role="alert">
-          <div className="narrow-notice-card">
-            <h1>עריכת שאלון</h1>
-            <p>
-              העורך בנוי למסך רחב: תרשים הזרימה, רשימת המסכים ומגירת העריכה עובדים זה לצד זה
-              וזקוקים לרוחב של {MIN_CONSOLE_WIDTH} פיקסלים לפחות.
-            </p>
-            <p>אפשר לפתוח אותו במחשב, או להרחיב את החלון — מה שערכתם נשאר פתוח כאן בינתיים.</p>
-            <button className="a-btn secondary" onClick={leave}>
-              → חזרה לרשימת השאלונים
-            </button>
-          </div>
         </div>
       )}
 

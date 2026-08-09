@@ -4,7 +4,7 @@
    כל שאר המידע (ענפים, משתנים, תנאים) מסומן בצורה וטיפוגרפיה, לא בצבע.
    RTL בירושה מ-<html dir="rtl">; מאפיינים לוגיים בלבד. */
 
-@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap');
+/* Heebo נטען מ-index.html (‎<link>‎ מקבילי), לא ב-@import שחוסם את הגיליון */
 
 .admin-app {
   /* סביבת עבודה ניטרלית (בסגנון עורכי-זרימה כמו Linear/n8n): כרום אפור קריר,
@@ -291,42 +291,43 @@ body.resizing-x { cursor: col-resize; user-select: none; }
   min-height: 200px;
 }
 
-/* מתחת ל-900px מוצג מסך "דסקטופ בלבד" (MIN_CONSOLE_WIDTH ב-AdminApp.tsx)
-   במקום ממשק שקורס — שלוש העמודות פשוט לא נכנסות. */
-/* העורך נשאר מורכב מאחורי השכבה בכוונה — הצרת החלון לא אמורה למחוק שינויים
-   שלא נשמרו. display:none מסתיר רק את הפריסה (מצב React נשמר), ובלעדיו
-   הפריסה הרחבה הייתה משאירה גלישה אופקית מתחת להודעה.
-   ההודעה עצמה יושבת בתוך ‎.admin-app‎ (רק העורך מציג אותה), ולכן מסתירים את
-   אחיה ולא את המכל — אחרת ההודעה הייתה מסתירה את עצמה. */
-body:has(.narrow-notice) .admin-app > .topbar,
-body:has(.narrow-notice) .admin-app > .admin-body,
-body:has(.narrow-notice) .admin-app > .admin-empty {
-  display: none;
+/* ---------- לשוניות המובייל ---------- */
+
+/* מתחת ל-900px (NARROW_WIDTH ב-AdminApp.tsx) שלוש העמודות לא נכנסות זו לצד
+   זו. במקום ממשק שקורס — משטח אחד בכל רגע, והלשוניות מחליפות ביניהם. */
+.mobile-tabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--card);
+  border-block-end: 1px solid var(--border);
+  position: sticky;
+  top: var(--topbar-h, 49px);
+  z-index: 20;
 }
 
-.narrow-notice {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-5);
-  background: var(--bg);
-}
-
-.narrow-notice-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  max-width: 420px;
-  text-align: center;
+.mobile-tab {
+  flex: 1;
+  min-height: 40px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--chip-bg);
   color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.narrow-notice-card h1 {
-  font-size: var(--text-lg);
+.mobile-tab.active {
+  background: var(--selected-bg);
   color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--primary-strong);
+}
+
+.mobile-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* ---------- תרשים הזרימה ---------- */
@@ -1808,3 +1809,257 @@ a.a-btn { text-decoration: none; }
 }
 
 .fg-lane-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ════════════════════ מסך מגע ════════════════════ */
+
+/* מטרות מגע ושדות קלט. ⚠ ‎16px‎ הוא הרף שמתחתיו ספארי במובייל מקרב את התצוגה
+   בכל כניסה לשדה — ואז כל הפריסה נדחפת החוצה והעורך נראה שבור. */
+@media (pointer: coarse) {
+  .a-input,
+  .a-select {
+    font-size: 16px;
+    min-height: 40px;
+  }
+
+  .a-icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .a-btn { min-height: 40px; }
+  .a-btn.small { min-height: 34px; }
+
+  .a-check input { width: 20px; height: 20px; }
+
+  .drag-handle { padding: 0 var(--space-2); }
+
+  .fg-node-toolbar .a-icon-btn { width: 32px; height: 32px; }
+
+  /* בלי ריחוף אין טולטיפ ואין רמז — הפקדים על הצומת נשארים גלויים */
+  .fg-insert-btn { width: 26px; height: 26px; }
+}
+
+/* ════════════════════ פריסת מובייל ════════════════════ */
+
+/* הרף תואם ל-NARROW_WIDTH ב-AdminApp.tsx: שם נקבע איזו לשונית מוצגת, כאן
+   נקבע איך היא נראית. שני המקומות חייבים להסכים על אותו מספר. */
+@media (max-width: 899px) {
+  /* ---------- סרגל עליון ---------- */
+
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    padding-top: calc(var(--space-2) + env(safe-area-inset-top, 0px));
+  }
+
+  .topbar-title {
+    flex: 1 1 100%;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .topbar-title h1 {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--text-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* המזהה והדוא״ל הם מידע עזר — במסך צר הם דוחפים החוצה את הפעולות */
+  .topbar-slug,
+  .topbar-user {
+    display: none;
+  }
+
+  .topbar-status {
+    flex: 1 1 100%;
+    order: 3;
+  }
+
+  /* הפעולות נדחסות לשורה אחת (ולכל היותר שתיים). ⚠ בלי הכיווץ הזה הן תפסו
+     שלוש שורות ו-151px — כמעט חמישית ממסך טלפון, לפני שראו מסך אחד */
+  .topbar-actions {
+    flex: 1 1 100%;
+    order: 2;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .topbar-actions .a-btn {
+    flex: 0 1 auto;
+    min-height: 34px;
+    padding: 2px var(--space-2);
+    font-size: var(--text-xs);
+  }
+
+  .topbar-actions .a-icon-btn {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+  }
+
+  /* ---------- שלוש עמודות → משטח אחד ---------- */
+
+  .admin-body,
+  .admin-body.drawer-open,
+  .admin-body.sidebar-closed,
+  .admin-body.sidebar-closed.drawer-open {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-body { transition: none; }
+
+  /* שתי הלשוניות חולקות את אותו תא בגריד; רק אחת מהן מוצגת בכל רגע */
+  .admin-sidebar,
+  .admin-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  /* חלון שהוצר מדסקטופ עם רשימה סגורה — הלשוניות הן שקובעות כאן, לא הכפתור
+     שכבר לא מוצג */
+  .admin-body.sidebar-closed .admin-sidebar { display: flex; }
+  .admin-body.show-graph .admin-sidebar { display: none; }
+  .admin-body.show-list .admin-main { display: none; }
+
+  /* סרגל + שורת הלשוניות — שניהם דביקים ומעל המשטח */
+  .admin-body { --chrome-h: calc(var(--topbar-h, 49px) + 57px); }
+
+  .admin-sidebar,
+  .admin-main {
+    height: calc(100dvh - var(--chrome-h));
+    border-inline-end: none;
+  }
+
+  /* ⚠ ‎top‎ רק על הרשימה. ‎.admin-main‎ הוא ‎position: relative‎ (עוגן להרצה
+     היבשה), ו-‎top‎ עליו אינו הצמדה אלא הזזה — הוא ירד 196px והשאיר פס לבן */
+  .admin-sidebar { top: var(--chrome-h); }
+
+  .admin-main { padding: var(--space-3); }
+
+  /* ---------- מגירת העריכה → יריעה על כל המסך ---------- */
+
+  /* הסרגל העליון נשאר גלוי מעליה בכוונה: "שמירה" ו"פרסום" חייבים להיות
+     בהישג יד גם באמצע עריכת מסך */
+  .editor-drawer {
+    position: fixed;
+    inset-inline: 0;
+    top: var(--topbar-h, 49px);
+    width: 100%;
+    height: calc(100dvh - var(--topbar-h, 49px));
+    z-index: 60;
+    border-inline-start: none;
+    box-shadow: none;
+  }
+
+  .drawer-head {
+    padding: var(--space-3);
+    min-height: 48px;
+  }
+
+  .editor-drawer .editor {
+    padding: var(--space-3);
+    padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* בטאבלט היריעה רחבה, וטופס במלוא 768px מותח כל תווית על שורה של 90 תווים.
+     התוכן נשאר בעמודה קריאה במרכז; הכותרת נשארת ברוחב מלא ככותרת יריעה. */
+  @media (min-width: 641px) {
+    .editor-drawer .editor {
+      max-width: 620px;
+      margin-inline: auto;
+      width: 100%;
+    }
+  }
+
+  /* בעורך אין רוחב לשתי עמודות — כל שדה על שורה משלו */
+  .a-grid-2 { grid-template-columns: 1fr; }
+
+  /* ---------- בדיקת מסלול → יריעה תחתונה ---------- */
+
+  .simulator {
+    position: fixed;
+    inset-block-start: auto;
+    inset-inline: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 62dvh;
+    z-index: 55;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* ---------- הודעות צפות ---------- */
+
+  .toast-stack {
+    left: var(--space-3);
+    right: var(--space-3);
+    transform: none;
+    bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    align-items: stretch;
+  }
+
+  .cycle-toast {
+    max-width: none;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- דיאלוגים ---------- */
+
+  .dialog-backdrop {
+    padding: var(--space-3);
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    align-items: flex-end;
+  }
+
+  .dialog {
+    max-height: 88dvh;
+    padding: var(--space-4);
+  }
+
+  /* ערימה הפוכה: הפעולה הראשית למטה, קרוב לאגודל */
+  .dialog-actions {
+    flex-direction: column-reverse;
+    gap: var(--space-2);
+  }
+
+  .dialog-actions > .a-btn { width: 100%; }
+
+  /* ---------- רשימת השאלונים ---------- */
+
+  .admin-scroll {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .survey-list { padding: var(--space-4) var(--space-3) var(--space-6); }
+
+  .survey-list-head { gap: var(--space-3); }
+  .survey-list-head > .a-btn { width: 100%; }
+
+  .survey-card {
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .survey-card-main { min-width: 0; }
+
+  /* כתובת מלאה על מסך צר חייבת להישבר, אחרת היא דוחפת את הכרטיס החוצה */
+  .survey-link a { word-break: break-all; }
+
+  .survey-card-actions {
+    width: 100%;
+    gap: var(--space-2);
+    padding-block-start: var(--space-2);
+    border-block-start: 1px solid var(--border);
+  }
+
+  .survey-card-actions > .a-btn { flex: 1 1 auto; }
+
+  /* ---------- מסך כניסה ---------- */
+
+  .login-screen { padding: var(--space-4); }
+  .login-card { padding: var(--space-5) var(--space-4); }
+}

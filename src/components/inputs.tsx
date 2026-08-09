@@ -84,14 +84,25 @@ function rovingTabIndex(selected: boolean, isFirst: boolean, anySelected: boolea
   return selected || (!anySelected && isFirst) ? 0 : -1;
 }
 
+/**
+ * שורת הפעולה של המסך. במובייל היא נדבקת לתחתית המסך (styles.css) כדי
+ * שכפתור ההמשך יהיה תמיד באזור האגודל — ברשימת אפשרויות ארוכה הוא היה
+ * דורש גלילה עד הסוף לפני כל מעבר.
+ */
+function Actions({ children }: { children: ReactNode }) {
+  return <div className="actions">{children}</div>;
+}
+
 export function InfoView({ screen, submit }: ViewProps<InfoScreen>) {
   return (
     <div className="screen">
       <ScreenTitle>{screen.title}</ScreenTitle>
       <Paragraphs text={screen.body} />
-      <button className="btn primary" onClick={() => submit(undefined)}>
-        {screen.cta ?? 'המשך'}
-      </button>
+      <Actions>
+        <button className="btn primary" onClick={() => submit(undefined)}>
+          {screen.cta ?? 'המשך'}
+        </button>
+      </Actions>
     </div>
   );
 }
@@ -113,12 +124,14 @@ export function ConsentView({ screen, submit }: ViewProps<ConsentScreen>) {
         autoComplete="off"
         aria-hidden="true"
       />
-      <button className="btn primary" onClick={() => submit('agreed', { hp: hp !== '' })}>
-        {screen.agreeLabel}
-      </button>
-      <button className="btn secondary" onClick={() => submit('declined', { hp: hp !== '' })}>
-        {screen.declineLabel}
-      </button>
+      <Actions>
+        <button className="btn primary" onClick={() => submit('agreed', { hp: hp !== '' })}>
+          {screen.agreeLabel}
+        </button>
+        <button className="btn secondary" onClick={() => submit('declined', { hp: hp !== '' })}>
+          {screen.declineLabel}
+        </button>
+      </Actions>
     </div>
   );
 }
@@ -184,13 +197,15 @@ export function SingleChoiceView({ screen, submit, initial }: ViewProps<SingleCh
           />
         ))}
       </div>
-      <button
-        className="btn primary"
-        disabled={selected === null}
-        onClick={() => submit(selected, { order: options.map((o) => o.id) })}
-      >
-        המשך
-      </button>
+      <Actions>
+        <button
+          className="btn primary"
+          disabled={selected === null}
+          onClick={() => submit(selected, { order: options.map((o) => o.id) })}
+        >
+          המשך
+        </button>
+      </Actions>
     </div>
   );
 }
@@ -240,13 +255,15 @@ export function MultiChoiceView({ screen, submit, initial }: ViewProps<MultiChoi
           />
         ))}
       </div>
-      <button
-        className="btn primary"
-        disabled={selected.length === 0}
-        onClick={() => submit(selected, { order: options.map((o) => o.id) })}
-      >
-        המשך
-      </button>
+      <Actions>
+        <button
+          className="btn primary"
+          disabled={selected.length === 0}
+          onClick={() => submit(selected, { order: options.map((o) => o.id) })}
+        >
+          המשך
+        </button>
+      </Actions>
     </div>
   );
 }
@@ -312,13 +329,15 @@ export function MatrixView({ screen, submit, initial }: ViewProps<MatrixScreen>)
           </div>
         </div>
       ))}
-      <button
-        className="btn primary"
-        disabled={!complete}
-        onClick={() => submit(values, { order: items.map((i) => i.id) })}
-      >
-        המשך
-      </button>
+      <Actions>
+        <button
+          className="btn primary"
+          disabled={!complete}
+          onClick={() => submit(values, { order: items.map((i) => i.id) })}
+        >
+          המשך
+        </button>
+      </Actions>
     </div>
   );
 }
@@ -372,9 +391,11 @@ export function NumberView({ screen, submit, initial }: ViewProps<NumberScreen>)
           {error}
         </p>
       )}
-      <button className="btn primary" disabled={value === null} onClick={() => submit(value)}>
-        המשך
-      </button>
+      <Actions>
+        <button className="btn primary" disabled={value === null} onClick={() => submit(value)}>
+          המשך
+        </button>
+      </Actions>
     </div>
   );
 }
@@ -423,13 +444,15 @@ export function TextView({ screen, submit, initial }: ViewProps<TextScreen>) {
           {text.length} / {limit}
         </p>
       )}
-      <button
-        className="btn primary"
-        disabled={empty && !screen.optional}
-        onClick={() => submit(empty ? null : text.trim())}
-      >
-        {screen.optional && empty ? 'דילוג' : 'המשך'}
-      </button>
+      <Actions>
+        <button
+          className="btn primary"
+          disabled={empty && !screen.optional}
+          onClick={() => submit(empty ? null : text.trim())}
+        >
+          {screen.optional && empty ? 'דילוג' : 'המשך'}
+        </button>
+      </Actions>
     </div>
   );
 }

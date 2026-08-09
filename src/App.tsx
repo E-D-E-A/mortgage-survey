@@ -239,35 +239,68 @@ export default function App({ config }: { config: SurveyConfig }) {
     window.scrollTo(0, 0);
   }, [state.current]);
 
+  // "אחורה" עלה מתחתית הכרטיס אל סרגל העליון: במובייל שורת הפעולה נדבקת
+  // לתחתית המסך, וקישור שיושב מתחתיה היה נחבא מאחוריה בכל מסך ארוך.
+  const canGoBack = screen.type !== 'end' && screen.type !== 'info' && state.history.length > 0;
+
   return (
     <div className="app">
       {!eventsEnabled && (
         <div className="dev-banner">מצב פיתוח — תשובות נכתבות לקונסול בלבד ולא נשלחות לשרת</div>
       )}
-      {screen.type !== 'end' && (
-        <div
-          className="progress"
-          role="progressbar"
-          aria-label="התקדמות בשאלון"
-          aria-valuenow={percent}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuetext={`${percent} אחוז`}
-        >
-          <div className="progress-fill" style={{ width: `${percent}%` }} />
-        </div>
-      )}
+      <header className="app-bar">
+        {canGoBack ? (
+          <button className="icon-btn" onClick={goBack} aria-label="חזרה לשאלה הקודמת">
+            <BackIcon />
+          </button>
+        ) : (
+          <span className="icon-btn-space" aria-hidden="true" />
+        )}
+        <span className="app-bar-brand">שאלון מחקר</span>
+        {screen.type !== 'end' ? (
+          <span className="app-bar-percent" aria-hidden="true">
+            {percent}%
+          </span>
+        ) : (
+          <span className="icon-btn-space" aria-hidden="true" />
+        )}
+        {/* פס ההתקדמות יושב על הגבול התחתון של הסרגל — סרגל אחד דביק במקום
+            שני אלמנטים שצריכים לדעת את הגובה זה של זה */}
+        {screen.type !== 'end' && (
+          <div
+            className="progress"
+            role="progressbar"
+            aria-label="התקדמות בשאלון"
+            aria-valuenow={percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`${percent} אחוז`}
+          >
+            <div className="progress-fill" style={{ width: `${percent}%` }} />
+          </div>
+        )}
+      </header>
       {/* ההכרזה על המסך החדש נעשית בהעברת המיקוד לכותרת (ראו cardRef למעלה).
           אזור live נוסף היה מקריא את אותה כותרת פעמיים */}
       <main className="card" key={screen.id} ref={cardRef}>
         <ScreenView screen={shown} submit={submit} initial={state.answers[screen.id]} />
-        {screen.type !== 'end' && screen.type !== 'info' && state.history.length > 0 && (
-          <button className="btn link" onClick={goBack}>
-            → חזרה לשאלה הקודמת
-          </button>
-        )}
       </main>
     </div>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      {/* חץ ימינה — ב-RTL זו התנועה "אחורה" */}
+      <path
+        d="M5 12h14M13 6l6 6-6 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
