@@ -16,7 +16,7 @@ export function LoginScreen() {
       await signInWithGoogle();
       // הצלחה = הפניה לגוגל; הדף מתחלף ולכן busy נשאר true
     } catch {
-      setError('פתיחת הכניסה עם Google נכשלה — נסו שוב');
+      setError('לא הצלחנו לפתוח את הכניסה עם Google — נסו שוב');
       setBusy(false);
     }
   }
@@ -27,8 +27,8 @@ export function LoginScreen() {
         <div className="login-card">
           <h1>ניהול השאלון</h1>
           <p className="a-hint error-text">
-            חסרים VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — הגדירו את משתני הסביבה והריצו מחדש
-            (ראו README)
+            הקונסולה לא מוגדרת: חסרים VITE_SUPABASE_URL ו-VITE_SUPABASE_ANON_KEY. הגדירו את משתני
+            הסביבה והריצו מחדש (ההוראות ב-README).
           </p>
         </div>
       </div>
@@ -39,11 +39,11 @@ export function LoginScreen() {
     <div className="login-screen">
       <div className="login-card">
         <h1>ניהול השאלון</h1>
-        <p className="a-hint">הכניסה מוגבלת לחשבונות first-edea.com</p>
+        <p className="a-hint">הכניסה פתוחה לחשבונות first-edea.com בלבד</p>
 
         <button className="btn-google" type="button" onClick={() => void signIn()} disabled={busy}>
           <GoogleMark />
-          <span>{busy ? 'מעביר לגוגל…' : 'כניסה עם Google'}</span>
+          <span>{busy ? 'מעבירים לגוגל…' : 'כניסה עם Google'}</span>
         </button>
 
         {error && (

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SurveyConfig } from '../engine/types';
 import { questionnaire } from '../questionnaire/survey-v1';
+import { sameShape } from './edits';
 import {
   ConflictError,
   ForbiddenError,
@@ -21,9 +22,9 @@ import {
  */
 function describeSaveFailure(e: unknown): string {
   if (e instanceof SaveFailedError) {
-    if (e.status === 422) return 'השרת דחה את הטיוטה (שגיאות ולידציה). תקנו את השגיאות ונסו שוב.';
-    if (e.status >= 500) return `השמירה נכשלה — שגיאת שרת (${e.status}). השינויים עדיין כאן; נסו שוב.`;
-    return `השמירה נכשלה (${e.status}). השינויים עדיין כאן; נסו שוב.`;
+    if (e.status === 422) return 'השרת מצא שגיאות בטיוטה ולכן לא שמר אותה. תקנו אותן ונסו שוב.';
+    if (e.status >= 500) return `השמירה נכשלה בגלל תקלה בשרת (קוד ${e.status}). השינויים עדיין כאן — נסו שוב.`;
+    return `השמירה נכשלה (קוד ${e.status}). השינויים עדיין כאן — נסו שוב.`;
   }
   return 'השמירה נכשלה — אין תקשורת עם השרת. השינויים עדיין כאן; נסו שוב.';
 }
@@ -31,7 +32,14 @@ function describeSaveFailure(e: unknown): string {
 /** 'forbidden' — מחובר אבל החשבון לא בדומיין המורשה (בשונה מ-error כללי) */
 export type DraftPhase = 'loading' | 'empty' | 'ready' | 'error' | 'forbidden';
 
-/** עומק ההיסטוריה; עריכות צפופות (הקלדה) מתאחדות לצעד undo אחד */
+/**
+ * עומק ההיסטוריה; הקלדה רצופה מתאחדת לצעד undo אחד.
+ *
+ * "רצופה" היא גם עניין של זמן וגם של סוג: החלון לבדו איחד גם שתי לחיצות
+ * כפתור שנעשו זו אחר זו (הוספת אפשרות ואז מחיקת שורה), וביטול אחד מחק את
+ * שתיהן. לכן איחוד מותנה גם ב-sameShape — רק עריכה שלא שינתה את מבנה
+ * הקונפיג נחשבת המשך של קודמתה.
+ */
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 800;
 
@@ -100,12 +108,13 @@ export function useDraft(slug: string, onAuthError: () => void): Draft {
     // החלטת האיחוד נלקחת מחוץ ל-updater — הוא חייב להישאר טהור (StrictMode
     // מריץ אותו פעמיים)
     const now = Date.now();
-    const coalesce = now - lastEditAt.current < COALESCE_MS;
+    const recent = now - lastEditAt.current < COALESCE_MS;
     lastEditAt.current = now;
     setEdit((s) => {
       if (!s.config) return s;
       const next = fn(s.config);
       if (next === s.config) return s;
+      const coalesce = recent && sameShape(s.config, next);
       const past = coalesce ? s.past : [...s.past.slice(-(HISTORY_LIMIT - 1)), s.config];
       return { config: next, past, future: [] };
     });

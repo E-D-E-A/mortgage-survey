@@ -81,14 +81,14 @@ function checkChoiceList(
         level: 'error',
         code: 'empty-choice-id',
         screenId,
-        message: `ל${kind} ${i + 1} במסך "${screenId}" אין מזהה (id) — התשובה תישמר בלי משמעות`,
+        message: `ל${kind} ${i + 1} במסך "${screenId}" אין קוד לקובץ הנתונים — התשובה תגיע לניתוח בלי שם`,
       });
     } else if (seen.has(item.id)) {
       issues.push({
         level: 'error',
         code: 'duplicate-choice-id',
         screenId,
-        message: `המזהה "${item.id}" חוזר ביותר מ${kind} אחת במסך "${screenId}" — אי אפשר להבחין ביניהן בניתוח`,
+        message: `הקוד "${item.id}" חוזר ביותר מ${kind} אחת במסך "${screenId}" — בניתוח אי אפשר יהיה להבחין ביניהן`,
       });
     } else {
       seen.add(item.id);
@@ -98,7 +98,7 @@ function checkChoiceList(
         level: 'error',
         code: 'empty-text',
         screenId,
-        message: `ל${kind} ${i + 1} במסך "${screenId}" אין טקסט — המשיב יראה שורה ריקה`,
+        message: `ל${kind} ${i + 1} במסך "${screenId}" אין נוסח — המשיב יראה שורה ריקה`,
       });
     }
   });
@@ -189,12 +189,13 @@ function checkOptionValues(
   for (const value of values) {
     if (typeof value !== 'string' || ids.has(value)) continue;
     // ne הפוך: ערך שלא קיים הופך את התנאי לאמת תמידית ולא לענף מת
-    const effect = leaf.op === 'ne' ? 'התנאי יתקיים תמיד' : 'הענף לעולם לא יופעל';
+    const effect =
+      leaf.op === 'ne' ? 'התנאי יתקיים אצל כל משיב' : 'המסלול הזה לעולם לא ייפתח';
     issues.push({
       level: 'error',
       code: 'unknown-option',
       screenId,
-      message: `תנאי במסך "${screenId}" בודק את "${leaf.q}" מול "${value}", שאינו אחת מהאפשרויות של אותו מסך — ${effect}`,
+      message: `תנאי במסך "${screenId}" מחפש את התשובה "${value}" בשאלה "${leaf.q}", אבל אין שם אפשרות כזאת — ${effect}`,
     });
   }
 }
@@ -204,7 +205,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   const screens = config.screens ?? [];
 
   if (screens.length === 0) {
-    return [{ level: 'error', code: 'empty-config', message: 'השאלון ריק — אין מסכים כלל' }];
+    return [{ level: 'error', code: 'empty-config', message: 'השאלון ריק — אין בו אף מסך' }];
   }
 
   // --- זהויות ---
@@ -214,7 +215,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
       issues.push({
         level: 'error',
         code: 'empty-id',
-        message: `למסך במיקום ${i + 1} אין מזהה (id)`,
+        message: `למסך במקום ${i + 1} אין קוד לקובץ הנתונים`,
       });
       return;
     }
@@ -223,7 +224,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         level: 'error',
         code: 'duplicate-id',
         screenId: s.id,
-        message: `המזהה "${s.id}" מופיע יותר מפעם אחת`,
+        message: `הקוד "${s.id}" מופיע ביותר ממסך אחד — לכל מסך צריך קוד משלו`,
       });
       return;
     }
@@ -235,7 +236,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
       level: 'error',
       code: 'first-screen-showif',
       screenId: screens[0].id,
-      message: `המסך הראשון ("${screens[0].id}") לא יכול להיות מותנה (showIf) — חייב להיות מסך פתיחה שמוצג תמיד`,
+      message: `המסך הראשון ("${screens[0].id}") מוצג בתנאי — המסך הראשון חייב להופיע לכל מי שנכנס לשאלון`,
     });
   }
 
@@ -243,7 +244,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     issues.push({
       level: 'error',
       code: 'no-end-screen',
-      message: 'אין בשאלון אף מסך סיום (end)',
+      message: 'אין בשאלון אף מסך סיום — למשיב אין איפה לסיים',
     });
   }
 
@@ -266,7 +267,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         level: 'error',
         code: 'empty-text',
         screenId: s.id,
-        message: `למסך ההסכמה "${s.id}" חסר טקסט באחד מכפתורי ההסכמה`,
+        message: `במסך ההסכמה "${s.id}" אחד הכפתורים בלי כיתוב`,
       });
     }
 
@@ -276,7 +277,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         s.id,
         'אפשרות',
         options,
-        `למסך "${s.id}" אין אף אפשרות לבחירה — "המשך" יישאר חסום והמשיב ייתקע`,
+        `למסך "${s.id}" אין אף אפשרות לבחירה — כפתור ההמשך יישאר חסום והמשיב ייתקע`,
         issues,
       );
     }
@@ -287,14 +288,14 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'bad-max-selections',
           screenId: s.id,
-          message: `מכסת הבחירות במסך "${s.id}" היא ${s.maxSelections} — חייב מספר שלם מ-1 ומעלה (0 או ערך שלילי אינם "בלי הגבלה")`,
+          message: `מספר הבחירות המרבי במסך "${s.id}" הוא ${s.maxSelections} — צריך מספר שלם מ-1 ומעלה. כדי לא להגביל בכלל, השאירו את השדה ריק`,
         });
       } else if (s.maxSelections >= s.options.length) {
         issues.push({
           level: 'warning',
           code: 'bad-max-selections',
           screenId: s.id,
-          message: `מכסת הבחירות במסך "${s.id}" (${s.maxSelections}) אינה קטנה ממספר האפשרויות — היא לא מגבילה דבר`,
+          message: `מספר הבחירות המרבי במסך "${s.id}" (${s.maxSelections}) גדול או שווה למספר האפשרויות — הוא לא מגביל דבר`,
         });
       }
     }
@@ -305,7 +306,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'bad-text-limit',
           screenId: s.id,
-          message: `תקרת התווים במסך "${s.id}" היא ${s.maxLength} — חייב מספר שלם מ-1 ומעלה (0 היה חוסם כל הקלדה)`,
+          message: `אורך התשובה המרבי במסך "${s.id}" הוא ${s.maxLength} — צריך מספר שלם מ-1 ומעלה, אחרת אי אפשר להקליד דבר`,
         });
       }
     }
@@ -331,14 +332,14 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'scale-range',
           screenId: s.id,
-          message: `הסולם במטריצה "${s.id}" הפוך (${scaleMin} עד ${scaleMax}) — לא ייווצר אף כפתור והמשיב ייתקע`,
+          message: `הסולם במטריצה "${s.id}" הפוך (מ-${scaleMin} עד ${scaleMax}) — לא ייווצר אף כפתור והמשיב ייתקע`,
         });
       } else if (scaleMin === scaleMax) {
         issues.push({
           level: 'warning',
           code: 'scale-range',
           screenId: s.id,
-          message: `לסולם במטריצה "${s.id}" יש ערך אחד בלבד (${scaleMin}) — אין כאן מה למדוד`,
+          message: `לסולם במטריצה "${s.id}" יש דרגה אחת בלבד (${scaleMin}) — אין כאן מה למדוד`,
         });
       }
     }
@@ -355,7 +356,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'dangling-goto',
           screenId: s.id,
-          message: `המסך "${s.id}" מנתב אל "${rule.goto}" שאינו קיים`,
+          message: `המסך "${s.id}" קופץ אל "${rule.goto}" — מסך שלא קיים`,
         });
       }
     }
@@ -367,7 +368,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'unknown-ref',
           screenId: s.id,
-          message: `תנאי במסך "${s.id}" מפנה לשאלה "${leaf.q}" שאינה קיימת`,
+          message: `תנאי במסך "${s.id}" נשען על השאלה "${leaf.q}", שלא קיימת בשאלון`,
         });
       }
       if ('var' in leaf && !producedVars.has(leaf.var) && !leaf.var.startsWith('url_')) {
@@ -375,7 +376,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'unknown-ref',
           screenId: s.id,
-          message: `תנאי במסך "${s.id}" מפנה למשתנה "${leaf.var}" שאף מסך לא מציב (onSubmit) ואינו מוגרל (randomVars)`,
+          message: `תנאי במסך "${s.id}" נשען על הסימון "${leaf.var}", שאף מסך לא קובע`,
         });
       }
       if ('q' in leaf) checkOptionValues(s.id, leaf, screens, idToIndex, issues);
@@ -404,7 +405,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           code: 'cycle',
           screenId: screens[v].id,
           // מזהים במרכאות כדי שהקונסולה תוכל להחליף אותם בשמות המסכים
-          message: `נמצא מעגל בניתוב: ${path.map((id) => `"${id}"`).join(' ← ')} — משיב עלול להיתקע בלולאה אינסופית`,
+          message: `הזרימה חוזרת על עצמה: ${path.map((id) => `"${id}"`).join(' ← ')} — משיב עלול להסתובב כאן בלי סוף`,
         });
         cycleReported = true;
         return;
@@ -435,7 +436,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         level: 'warning',
         code: 'unreachable',
         screenId: s.id,
-        message: `המסך "${s.id}" אינו נגיש מהמסך הראשון — אף משיב לא יגיע אליו`,
+        message: `אי אפשר להגיע למסך "${s.id}" מהמסך הראשון — אף משיב לא יראה אותו`,
       });
     }
   });
@@ -447,7 +448,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     issues.push({
       level: 'error',
       code: 'no-end-reachable',
-      message: 'אף מסך סיום אינו נגיש מהמסך הראשון',
+      message: 'אי אפשר להגיע מהמסך הראשון לאף מסך סיום — אין למשיב איך לסיים',
     });
   }
 
@@ -491,7 +492,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'warning',
           code: 'var-order',
           screenId: s.id,
-          message: `המסך "${s.id}" נשען על המשתנה "${leaf.var}", אבל כל המסכים שמציבים אותו באים אחריו בזרימה — התנאי ייבדק לפני שיש למשתנה ערך`,
+          message: `המסך "${s.id}" נשען על הסימון "${leaf.var}", אבל כל המסכים שקובעים אותו באים אחריו — כשהתנאי נבדק הסימון עדיין ריק`,
         });
       }
     }
@@ -516,7 +517,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         level: 'warning',
         code: 'var-totality',
         screenId: settingScreens[0].id,
-        message: `המשתנה "${varName}" מוצב רק בתנאי, בלי כלל משלים (תנאי + not(תנאי)) או כלל ללא תנאי — חזרה אחורה ושינוי תשובה עלולים להשאיר ערך ישן`,
+        message: `הסימון "${varName}" נקבע רק בתנאי, ואין כלל שתופס את שאר המקרים — משיב שיחזור אחורה וישנה תשובה עלול להישאר עם הערך הישן`,
       });
     }
   }

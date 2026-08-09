@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { duplicateScreen, insertScreen, uniqueId } from './edits';
+import { duplicateScreen, insertScreen, nextChoiceId, sameShape, uniqueId } from './edits';
 import { validateConfig } from '../engine/validate';
 import type { Screen, SurveyConfig } from '../engine/types';
 
@@ -129,5 +129,70 @@ describe('uniqueId', () => {
     expect(uniqueId('q_2', base)).toBe('q_2');
     expect(uniqueId('q1', base)).toBe('q1_2');
     expect(uniqueId('q1', [...base, info('q1_2'), info('q1_3')])).toBe('q1_4');
+  });
+});
+
+describe('nextChoiceId', () => {
+  const opts = (...ids: string[]) => ids.map((id) => ({ id }));
+
+  it('continues the series on a list that was never edited', () => {
+    expect(nextChoiceId('opt', opts('opt_1', 'opt_2'))).toBe('opt_3');
+    expect(nextChoiceId('item', [])).toBe('item_1');
+  });
+
+  it('skips a code that is still in use after a middle row was deleted', () => {
+    // opt_1..opt_3 minus opt_1: counting by length would hand back opt_3 again
+    expect(nextChoiceId('opt', opts('opt_2', 'opt_3'))).toBe('opt_4');
+  });
+
+  it('fills a gap rather than climbing forever', () => {
+    expect(nextChoiceId('opt', opts('opt_1', 'opt_3', 'opt_4'))).toBe('opt_5');
+    expect(nextChoiceId('opt', opts('opt_5', 'opt_6'))).toBe('opt_3');
+  });
+
+  it('ignores codes that are not part of the series', () => {
+    expect(nextChoiceId('opt', opts('active', 'past5', 'none'))).toBe('opt_4');
+  });
+});
+
+describe('sameShape', () => {
+  const screen = (opts: unknown[], prompt = 'a') => ({ id: 'q', type: 'single', prompt, options: opts });
+
+  it('treats typing in a field as the same shape', () => {
+    expect(sameShape(screen([{ id: 'o1', label: 'a' }]), screen([{ id: 'o1', label: 'ab' }]))).toBe(true);
+  });
+
+  it('treats adding or removing a row as a different shape', () => {
+    const one = screen([{ id: 'o1', label: '' }]);
+    const two = screen([{ id: 'o1', label: '' }, { id: 'o2', label: '' }]);
+    expect(sameShape(one, two)).toBe(false);
+    expect(sameShape(two, one)).toBe(false);
+  });
+
+  it('treats adding or removing an optional field as a different shape', () => {
+    expect(sameShape({ id: 'q', help: 'x' }, { id: 'q' })).toBe(false);
+    expect(sameShape({ id: 'q' }, { id: 'q', help: 'x' })).toBe(false);
+  });
+
+  it('treats a renamed field as a different shape', () => {
+    expect(sameShape({ min: 1 }, { max: 1 })).toBe(false);
+  });
+
+  it('treats a type swap on a leaf as a different shape', () => {
+    expect(sameShape({ v: 1 }, { v: '1' })).toBe(false);
+    expect(sameShape({ v: true }, { v: false })).toBe(true);
+  });
+
+  it('does not confuse null with an object or with undefined', () => {
+    expect(sameShape({ showIf: null }, { showIf: {} })).toBe(false);
+    expect(sameShape({ showIf: null }, { showIf: null })).toBe(true);
+  });
+
+  it('compares nested conditions structurally', () => {
+    const a = { showIf: { all: [{ q: 'x', op: 'eq', value: 'a' }] } };
+    const b = { showIf: { all: [{ q: 'x', op: 'eq', value: 'b' }] } };
+    const c = { showIf: { all: [{ q: 'x', op: 'eq', value: 'a' }, { q: 'y', op: 'eq', value: 'b' }] } };
+    expect(sameShape(a, b)).toBe(true);
+    expect(sameShape(a, c)).toBe(false);
   });
 });

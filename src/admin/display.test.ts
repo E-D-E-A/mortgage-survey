@@ -56,8 +56,8 @@ describe('screen naming', () => {
     expect(screenLabel(config.screens[3])).toBe('s_blank');
   });
 
-  it('distinguishes the three end variants', () => {
-    expect(screenKindLabel(config.screens[4])).toBe('סיום · סינון');
+  it('distinguishes the three end variants by what happened to the respondent', () => {
+    expect(screenKindLabel(config.screens[4])).toBe('מסך סיום · לא מתאים למחקר');
   });
 
   it('prefixes references with the position, so identical wording stays distinct', () => {
@@ -94,10 +94,19 @@ describe('value naming', () => {
 });
 
 describe('conditionSentence', () => {
-  it('writes a question leaf as wording, not ids', () => {
+  // הנושא הוא תמיד "התשובה" — לשון נקבה — כי התנאי בוחן את התשובה, לא את השאלה
+  it('writes a question leaf as the answer to its wording, not ids', () => {
     expect(conditionSentence(naming, { q: 's_status', op: 'eq', value: 'active' })).toBe(
-      '״מה מתאר את מצבך בנוגע למשכנתה?״ הוא קיימת כיום משכנתה',
+      'התשובה ל״מה מתאר את מצבך בנוגע למשכנתה?״ היא קיימת כיום משכנתה',
     );
+  });
+
+  it('says "the answer here" when the condition refers to the screen being edited', () => {
+    expect(
+      conditionSentence(naming, { q: 's_status', op: 'eq', value: 'active' }, false, {
+        selfId: 's_status',
+      }),
+    ).toBe('התשובה כאן היא קיימת כיום משכנתה');
   });
 
   it('writes a var leaf through varMeta', () => {
@@ -108,12 +117,12 @@ describe('conditionSentence', () => {
 
   it('lists every value of a list operator', () => {
     expect(conditionSentence(naming, { q: 's_status', op: 'in', value: ['active', 'none'] })).toBe(
-      '״מה מתאר את מצבך בנוגע למשכנתה?״ הוא אחד מאלה: קיימת כיום משכנתה / אף אחד מהמצבים',
+      'התשובה ל״מה מתאר את מצבך בנוגע למשכנתה?״ היא אחת מאלה: קיימת כיום משכנתה / אף אחד מהמצבים',
     );
   });
 
   it('drops the value for the answered operator', () => {
-    expect(conditionSentence(naming, { q: 's_age', op: 'answered' })).toBe('״מה גילך?״ — נענתה');
+    expect(conditionSentence(naming, { q: 's_age', op: 'answered' })).toBe('יש תשובה ל״מה גילך?״');
   });
 
   it('parenthesises a nested group so the joiner stays unambiguous', () => {
@@ -124,18 +133,18 @@ describe('conditionSentence', () => {
       ],
     };
     expect(conditionSentence(naming, cond)).toBe(
-      'מסלול המשיב הוא מסלול A — בעלי משכנתה וגם (״מה גילך?״ קטן מ־18 או ״מה גילך?״ גדול מ־90)',
+      'מסלול המשיב הוא מסלול A — בעלי משכנתה וגם (התשובה ל״מה גילך?״ קטנה מ־18 או התשובה ל״מה גילך?״ גדולה מ־90)',
     );
   });
 
   it('does not parenthesise at the top level', () => {
     const cond = { all: [{ q: 's_age', op: 'gte' as const, value: 18 }] };
-    expect(conditionSentence(naming, cond)).toBe('״מה גילך?״ גדול או שווה ל־18');
+    expect(conditionSentence(naming, cond)).toBe('התשובה ל״מה גילך?״ גדולה או שווה ל־18');
   });
 
   it('negates as a readable prefix', () => {
     expect(conditionSentence(naming, { not: { var: 'segment', op: 'eq', value: 'A' } })).toBe(
-      'לא (מסלול המשיב הוא מסלול A — בעלי משכנתה)',
+      'לא נכון ש: (מסלול המשיב הוא מסלול A — בעלי משכנתה)',
     );
   });
 

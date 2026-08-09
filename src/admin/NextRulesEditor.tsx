@@ -5,7 +5,7 @@ import type { GotoRule } from '../engine/types';
 import type { Naming } from './display';
 import { screenRef } from './display';
 import { OptionalCondition } from './ConditionBuilder';
-import { DownIcon, PlusIcon, TrashIcon, UpIcon } from './Icons';
+import { DownIcon, TrashIcon, UpIcon } from './Icons';
 
 interface Props {
   rules: GotoRule[];
@@ -31,28 +31,24 @@ export function NextRulesEditor({ rules, onChange, naming }: Props) {
 
   return (
     <div className="a-field">
-      <div className="a-field-head">
-        <span className="a-label">קפיצה למסך אחר (הכלל הראשון שמתקיים מנצח)</span>
-        <button
-          className="a-btn ghost small"
-          onClick={() => emit([...rules, { goto: screens[0]?.id ?? '' }])}
-        >
-          <PlusIcon /> הוספת כלל
-        </button>
-      </div>
       {rules.length === 0 && (
-        <p className="a-hint">בלי כללים — ממשיכים למסך הבא ברשימה שעובר את תנאי התצוגה שלו.</p>
+        <p className="ed-empty">
+          אין כללים, ולכן ממשיכים לפי הסדר — למסך הבא ברשימה שמתאים למשיב.
+        </p>
+      )}
+      {rules.length > 1 && (
+        <p className="a-hint">הכללים נבדקים מלמעלה למטה, והראשון שמתאים הוא זה שקורה.</p>
       )}
       {rules.map((rule, i) => (
         <div className="rule-card" key={i}>
           <div className="rule-head">
             <span className="rule-index">{i + 1}</span>
-            <span className="a-label">מעבר אל</span>
+            <span className="a-label">קפיצה אל</span>
             <select
               className="a-select"
               value={rule.goto}
               onChange={(e) => patch(i, { ...rule, goto: e.target.value })}
-              aria-label="מסך יעד"
+              aria-label="המסך שקופצים אליו"
               title={rule.goto}
             >
               {!screens.some((s) => s.id === rule.goto) && (
@@ -65,28 +61,28 @@ export function NextRulesEditor({ rules, onChange, naming }: Props) {
               ))}
             </select>
             <span className="rule-actions">
-              <button className="a-icon-btn" onClick={() => move(i, -1)} disabled={i === 0} aria-label="העלאת כלל">
+              <button className="a-icon-btn" onClick={() => move(i, -1)} disabled={i === 0} aria-label="הקדמת הכלל — ייבדק מוקדם יותר">
                 <UpIcon />
               </button>
               <button
                 className="a-icon-btn"
                 onClick={() => move(i, 1)}
                 disabled={i === rules.length - 1}
-                aria-label="הורדת כלל"
+                aria-label="איחור הכלל — ייבדק מאוחר יותר"
               >
                 <DownIcon />
               </button>
               <button
                 className="a-icon-btn danger"
                 onClick={() => emit(rules.filter((_, j) => j !== i))}
-                aria-label="מחיקת כלל"
+                aria-label="מחיקת הכלל"
               >
                 <TrashIcon />
               </button>
             </span>
           </div>
           <OptionalCondition
-            label="בתנאי ש…"
+            label="קופצים רק אם…"
             value={rule.if}
             onChange={(cond) => {
               const next: GotoRule = cond ? { if: cond, goto: rule.goto } : { goto: rule.goto };

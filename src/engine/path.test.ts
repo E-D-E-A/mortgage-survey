@@ -235,4 +235,17 @@ describe('the flow graph never lies by omission', () => {
     // 70 מסכים שרובם מותנים ייצרו 1,565 קשתות בגזירה הנאיבית
     expect(buildFlow(questionnaire).edges.length).toBeLessThan(150);
   });
+
+  it('states a reason on every edge that leaves a fork', () => {
+    // קשת שיוצאת מפיצול בלי תווית משאירה את האדמין לנחש למה הזרימה מתפצלת.
+    // קשת רציפה יחידה, לעומת זאת, מותר לה להיות שקטה.
+    const all = buildFlow(questionnaire).edges;
+    const outgoing = new Map<string, number>();
+    for (const e of all) outgoing.set(e.from, (outgoing.get(e.from) ?? 0) + 1);
+    for (const e of all) {
+      if ((outgoing.get(e.from) ?? 0) > 1) {
+        expect(e.label, `edge ${e.from} → ${e.to} leaves a fork without a reason`).not.toBe('');
+      }
+    }
+  });
 });

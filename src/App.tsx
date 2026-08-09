@@ -12,6 +12,8 @@ import {
   MatrixView,
   MultiChoiceView,
   NumberView,
+  SCREEN_TITLE_CLASS,
+  ScreenTitle,
   SingleChoiceView,
   TextView,
   type SubmitFn,
@@ -111,6 +113,43 @@ export default function App({ config }: { config: SurveyConfig }) {
     [config, state.current],
   );
 
+  function back() {
+    setState((prev) => {
+      const history = [...prev.history];
+      const last = history.pop();
+      if (!last) return prev;
+      return { ...prev, current: last, history };
+    });
+  }
+
+  /**
+   * כמה רשומות היסטוריה דחפנו בלשונית הזאת. השאלון הוא דף אחד, ולכן בלי זה
+   * לחיצה על "אחורה" במכשיר — התנועה הכי טבעית במובייל — נוטשת את השאלון
+   * כולו במקום לחזור שאלה אחת. אחרי רענון המונה מתאפס אף שיש מסכים בהיסטוריה
+   * הפנימית, ולכן הוא נבדק לפני שקוראים ל-history.back().
+   */
+  const depth = useRef(0);
+  const backRef = useRef(back);
+  backRef.current = back;
+
+  useEffect(() => {
+    window.history.replaceState({ sq: 0 }, '');
+    const onPop = (e: PopStateEvent) => {
+      const sq = (e.state as { sq?: number } | null)?.sq;
+      const to = typeof sq === 'number' ? sq : 0;
+      // רק אחורה. "קדימה" יצריך לשחזר מסלול שכבר נגזם, ולכן הוא לא מזיז מסך.
+      for (let i = depth.current - to; i > 0; i--) backRef.current();
+      depth.current = to;
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const goBack = () => {
+    if (depth.current > 0) window.history.back(); // popstate הוא שיבצע את החזרה
+    else back(); // רענון באמצע השאלון — אין רשומת היסטוריה משלנו לפתוח
+  };
+
   // מראה של state.attempts לאירוע ה-screen_view: הוא נורה מ-useEffect שתלוי
   // במסך בלבד (תלות ב-attempts הייתה מייצרת screen_view כפול על כל מענה),
   // ולכן הוא זקוק לערך עדכני בלי לעבור דרך תלות. מתעדכן ב-submit בלבד.
@@ -152,6 +191,10 @@ export default function App({ config }: { config: SurveyConfig }) {
     }
 
     const next = findNext(config, screen, ctx);
+    if (next) {
+      depth.current += 1;
+      window.history.pushState({ sq: depth.current }, '');
+    }
     let finished = state.finished;
     if (next && next.type === 'end' && !finished) {
       finished = true;
@@ -181,18 +224,20 @@ export default function App({ config }: { config: SurveyConfig }) {
     }));
   };
 
-  function back() {
-    setState((prev) => {
-      const history = [...prev.history];
-      const last = history.pop();
-      if (!last) return prev;
-      return { ...prev, current: last, history };
-    });
-  }
-
   const ctx: SurveyContext = { answers: state.answers, vars: state.vars };
   const percent = Math.round(state.maxProgress * 100);
   const shown = withInterpolation(screen, ctx);
+
+  /**
+   * מעבר מסך אינו טעינת דף: הכפתור שנלחץ נעלם, והמיקוד נופל ל-body. משתמש
+   * מקלדת נאלץ אז לטייל מחדש מראש הדף בכל שאלה, וקורא מסך שותק. העברת
+   * המיקוד לכותרת פותרת את שניהם — וגם מגלגלת את הדף לראש המסך החדש.
+   */
+  const cardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    cardRef.current?.querySelector<HTMLElement>(`.${SCREEN_TITLE_CLASS}`)?.focus();
+    window.scrollTo(0, 0);
+  }, [state.current]);
 
   return (
     <div className="app">
@@ -212,31 +257,18 @@ export default function App({ config }: { config: SurveyConfig }) {
           <div className="progress-fill" style={{ width: `${percent}%` }} />
         </div>
       )}
-      {/* מעבר בין מסכים אינו טעינת דף — בלי הכרזה קורא מסך שותק לגמרי.
-          בלי key בכוונה: אזור live מוכרז כשהתוכן שלו משתנה, ואילו החלפת
-          הצומת עצמו (key) לא תמיד מעוררת הכרזה */}
-      <p className="sr-only" aria-live="polite">{screenHeading(shown)}</p>
-      <main className="card" key={screen.id}>
+      {/* ההכרזה על המסך החדש נעשית בהעברת המיקוד לכותרת (ראו cardRef למעלה).
+          אזור live נוסף היה מקריא את אותה כותרת פעמיים */}
+      <main className="card" key={screen.id} ref={cardRef}>
         <ScreenView screen={shown} submit={submit} initial={state.answers[screen.id]} />
         {screen.type !== 'end' && screen.type !== 'info' && state.history.length > 0 && (
-          <button className="btn link" onClick={back}>
+          <button className="btn link" onClick={goBack}>
             → חזרה לשאלה הקודמת
           </button>
         )}
       </main>
     </div>
   );
-}
-
-function screenHeading(screen: Screen): string {
-  switch (screen.type) {
-    case 'info':
-    case 'consent':
-    case 'end':
-      return screen.title;
-    default:
-      return screen.prompt;
-  }
 }
 
 /** מחיל אינטרפולציה של משתנים ({price} וכד') על נוסחי המסך לפני רינדור. */
@@ -292,8 +324,10 @@ function ScreenView({
     case 'end':
       return (
         <div className="screen center">
-          <div className="end-icon">{screen.variant === 'complete' ? '✓' : 'ℹ'}</div>
-          <h1>{screen.title}</h1>
+          <div className="end-icon" aria-hidden="true">
+            {screen.variant === 'complete' ? '✓' : 'ℹ'}
+          </div>
+          <ScreenTitle>{screen.title}</ScreenTitle>
           <p>{screen.body}</p>
         </div>
       );

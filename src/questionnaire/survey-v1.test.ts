@@ -64,6 +64,22 @@ describe('config integrity', () => {
     const ids = config.screens.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  // הקונסולה קוראת שמות, לא קודים: לכל משתנה שהשאלון מציב חייבת להיות תווית
+  // בעברית, ולכל ערך שהוא מקבל — שם. בלי זה האדמין רואה "segment: A" על קשתות
+  // התרשים ובעורך — בדיוק הערפל שכבר קרה פעם אחת כשה-varMeta נמחק בטעות.
+  it('every mark the survey sets has a Hebrew display name for it and its values', () => {
+    for (const screen of config.screens) {
+      for (const rule of screen.onSubmit ?? []) {
+        const meta = config.varMeta?.[rule.var];
+        expect(meta?.label, `var "${rule.var}" (set in ${screen.id}) needs a label`).toBeTruthy();
+        expect(
+          meta?.values?.[String(rule.value)],
+          `value "${rule.value}" of "${rule.var}" (set in ${screen.id}) needs a label`,
+        ).toBeTruthy();
+      }
+    }
+  });
 });
 
 describe('the 15-question budget', () => {

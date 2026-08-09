@@ -9,15 +9,16 @@
 //   ריחוף על קשת → +       → הוספת מסך בתוך אותו מעבר
 //   ריחוף על צומת          → סרגל פעולות קטן: שכפול, מחיקה
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { Condition, Screen, SurveyConfig } from '../engine/types';
 import { validateConfig, type ValidationIssue } from '../engine/validate';
-import { buildFlow } from './graph';
+import { buildFlow, describeCondition } from './graph';
 import { duplicateScreen, uniqueId } from './edits';
 import { laneMembers } from './lanes';
 import { OptionalCondition } from './ConditionBuilder';
 import type { Naming } from './display';
-import { optionalConditionSentence, screenRef } from './display';
+import { screenRef } from './display';
 import { TYPE_LABELS } from './labels';
 import { CloseIcon, CopyIcon, PlusIcon, StopIcon, TrashIcon, TypeIcon } from './Icons';
 
@@ -131,13 +132,22 @@ const MAX_ZOOM = 2;
 /** שוליים מזעריים מעל התרשים כשהוא גבוה מהקנבס. */
 const FIT_PADDING = 16;
 
-// תוויות תנאי ארוכות ("segment: A וגם כן, ואף ביצעתי / כן, אך לא ביצעתי") לא
-// נקראות ממילא בגודל הזה, ורק מתנגשות זו בזו — מקצרים לתצוגה, הנוסח המלא
-// נשאר ב-tooltip ובעורך התנאי
-const LABEL_MAX_CHARS = 28;
+/** קפיצה אל צומת: מתחת לזום הזה אי אפשר לקרוא אותו, ולכן מגדילים אליו */
+const FOCUS_MIN_ZOOM = 0.7;
+/** ארוך מהמעבר של הפאנלים (0.32s), כדי שהפריים האחרון ינחת על פריסה שנחה */
+const FOCUS_MS = 420;
+
+/** שוליים בין החלונית הצפה לקצה הקנבס, ומרחקה מהעוגן שלה */
+const POPOVER_PAD = 12;
+const POPOVER_GAP = 14;
+
+// תוויות תנאי ארוכות במיוחד עדיין נחתכות — הנוסח המלא נשאר ב-tooltip ובעורך
+// התנאי — אבל הגבול נדיב: רוב התוויות ("איני מעורב/ת בהחלטות משכנתה של משק
+// הבית שלי") נכנסות בשלמותן, והקופסה גדלה עם הטקסט.
+const LABEL_MAX_CHARS = 46;
 const LABEL_H = 18;
 const shortLabel = (t: string) => (t.length > LABEL_MAX_CHARS ? `${t.slice(0, LABEL_MAX_CHARS - 1)}…` : t);
-const labelWidth = (t: string) => Math.min(200, shortLabel(t).length * 6.4 + 18);
+const labelWidth = (t: string) => Math.min(310, shortLabel(t).length * 6.4 + 18);
 
 interface Box {
   x: number;
@@ -232,13 +242,15 @@ interface Props {
   issues: ValidationIssue[];
   selectedId: string | null;
   naming: Naming;
-  /** מסלול ההרצה היבשה, לפי הסדר — null כשההרצה כבויה */
+  /** מסלול בדיקת המסלול, לפי הסדר — null כשההרצה כבויה */
   simPath: string[] | null;
+  /** בקשה מאחד הפאנלים להביא צומת אל מרכז המסך; המונה מאפשר בקשה חוזרת */
+  focusRequest: { id: string; nonce: number } | null;
   onSelect: (id: string | null) => void;
   onUpdate: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
 }
 
-export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelect, onUpdate }: Props) {
+export function FlowGraph({ config, issues, selectedId, naming, simPath, focusRequest, onSelect, onUpdate }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   /** רצפת הזום הידני; יורדת מ-COMFORT_MIN_ZOOM כשההתאמה נאלצת לרדת מתחתיה */
@@ -250,6 +262,19 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   const [popover, setPopover] = useState<Popover | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // אנימציית "קח אותי לצומת". המבט העדכני נשמר בהפניה כי האנימציה מתחילה
+  // מתוך אפקט, וכל נגיעה של העורך במבט (פאן, גלגלת) מבטלת אותה מיד.
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  });
+  const focusAnim = useRef<number | null>(null);
+  const cancelFocusAnim = useCallback(() => {
+    if (focusAnim.current !== null) cancelAnimationFrame(focusAnim.current);
+    focusAnim.current = null;
+  }, []);
+  useEffect(() => cancelFocusAnim, [cancelFocusAnim]);
 
   const errorIds = useMemo(
     () => new Set(issues.filter((i) => i.level === 'error' && i.screenId).map((i) => i.screenId!)),
@@ -659,7 +684,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
     return ids;
   }, [selectedId, layout, nodeById]);
 
-  // הרצה יבשה: המסלול שהמשיב הזה יעבור בפועל. הוא גובר על מיקוד הבחירה —
+  // בדיקת מסלול: המסלול שהמשיב הזה יעבור בפועל. הוא גובר על מיקוד הבחירה —
   // כשהאדמין מריץ תשובות, הסיפור הוא המסלול ולא השכנים של המסך הנבחר.
   const pathSet = useMemo(() => (simPath ? new Set(simPath) : null), [simPath]);
   const pathEdges = useMemo(() => {
@@ -698,6 +723,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   const fit = useCallback(() => {
     const el = containerRef.current;
     if (!el || layout.width === 0 || layout.height === 0) return;
+    cancelFocusAnim();
     const k = clamp(
       Math.min((el.clientWidth - 32) / layout.width, (el.clientHeight - 32) / layout.height),
       ABS_MIN_ZOOM,
@@ -712,7 +738,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
       k,
     });
     userMoved.current = false;
-  }, [layout.width, layout.height]);
+  }, [layout.width, layout.height, cancelFocusAnim]);
 
   const didFit = useRef(false);
   useEffect(() => {
@@ -721,6 +747,47 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
       fit();
     }
   }, [fit]);
+
+  /**
+   * הבאת צומת אל מרכז הקנבס. היעד מחושב מחדש בכל פריים ולא פעם אחת בהתחלה:
+   * הלחיצה שקוראת לכאן פותחת גם את מגירת העריכה, והקנבס מצטמצם תוך כדי —
+   * חישוב יחיד היה נוחת חצי מגירה מהמרכז.
+   */
+  const focusNode = useCallback(
+    (id: string) => {
+      const el = containerRef.current;
+      const n = nodeById.get(id);
+      if (!el || !n) return;
+      cancelFocusAnim();
+      // מכאן והלאה המבט "שייך לעורך" — ההתאמה האוטומטית לא תדרוס אותו
+      userMoved.current = true;
+      const from = viewRef.current;
+      const toK = clamp(Math.max(from.k, FOCUS_MIN_ZOOM), minZoom.current, MAX_ZOOM);
+      const cx = n.x + n.w / 2;
+      const cy = n.y + n.h / 2;
+      const start = performance.now();
+      const step = (now: number) => {
+        const p = Math.min(1, (now - start) / FOCUS_MS);
+        const e = 1 - Math.pow(1 - p, 3);
+        const k = from.k + (toK - from.k) * e;
+        const tx = el.clientWidth / 2 - cx * k;
+        const ty = el.clientHeight / 2 - cy * k;
+        setView({ k, x: from.x + (tx - from.x) * e, y: from.y + (ty - from.y) * e });
+        focusAnim.current = p < 1 ? requestAnimationFrame(step) : null;
+      };
+      focusAnim.current = requestAnimationFrame(step);
+    },
+    [nodeById, cancelFocusAnim],
+  );
+
+  // המונה ולא רק המזהה: בלעדיו כל שינוי פריסה (שמחליף את focusNode) היה
+  // מקפיץ את המבט שוב אל הבקשה האחרונה
+  const lastFocus = useRef(0);
+  useEffect(() => {
+    if (!focusRequest || focusRequest.nonce === lastFocus.current) return;
+    lastFocus.current = focusRequest.nonce;
+    focusNode(focusRequest.id);
+  }, [focusRequest, focusNode]);
 
   // שינוי גודל חלון, פתיחת/סגירת המגירה והסתרת רשימת המסכים משנים את רוחב
   // הקנבס בלי לגעת ב-view — התרשים היה נשאר במיקום לא נכון עד לחיצה ידנית על
@@ -731,11 +798,14 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   // ההשוואה הזו כל הוספה, מחיקה או סידור מחדש היו ממרכזים את המבט מחדש,
   // בדיוק מה שהפריסה היציבה נועדה למנוע.
   const lastSize = useRef<{ w: number; h: number } | null>(null);
+  // מידות הקנבס נדרשות גם לחלונית הצפה, שנצמדת אליהן כדי לא לצאת מהמסך
+  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
+      setCanvasSize((s) => (s.w === width && s.h === height ? s : { w: width, h: height }));
       const previous = lastSize.current;
       lastSize.current = { w: width, h: height };
       if (!previous || (previous.w === width && previous.h === height)) return;
@@ -745,14 +815,37 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
     return () => observer.disconnect();
   }, [fit]);
 
+  // מידות החלונית הצפה — נמדדות ולא מוערכות: הגובה משתנה עם התוכן (בונה
+  // תנאים שנפתח, טופס מסך חדש), ובלעדיהן אי אפשר להצמיד אותה לגבולות הקנבס
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popSize, setPopSize] = useState({ w: 340, h: 0 });
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+    const measure = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setPopSize((s) =>
+        Math.abs(s.w - width) < 0.5 && Math.abs(s.h - height) < 0.5 ? s : { w: width, h: height },
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [popover]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      // גלגלת בתוך החלונית הצפה גוללת את התוכן שלה, לא מזיזה את התרשים
+      if ((e.target as HTMLElement).closest('.fg-popover')) return;
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
+      cancelFocusAnim();
       userMoved.current = true;
       setView((v) => {
         const k = clamp(v.k * Math.exp(-e.deltaY * 0.0015), minZoom.current, MAX_ZOOM);
@@ -762,7 +855,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [cancelFocusAnim]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -792,6 +885,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
     // ה-contextmenu מהקשת אל הקנבס ותפריט הקשת לא נפתח
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('.fg-node-wrap, .fg-popover, .fg-toolbar, .fg-edge-label, .fg-insert-btn, .fg-stub')) return;
+    cancelFocusAnim();
     setPopover(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     panRef.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y, moved: false };
@@ -823,6 +917,8 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   function nodePointerDown(e: React.PointerEvent, id: string, kind: 'reorder' | 'connect') {
     if (e.button !== 0) return;
     e.stopPropagation();
+    // גרירה בזמן שהמבט עוד בתנועה — סמן היעד היה נגרר אחרי מבט שזז מתחתיו
+    cancelFocusAnim();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setDrag({ mode: 'maybe', kind, id, startX: e.clientX, startY: e.clientY });
   }
@@ -960,7 +1056,9 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   }
 
   function remove(id: string) {
-    if (!window.confirm(`למחוק את המסך "${id}"?`)) return;
+    // בשם ולא במזהה — זה מה שהעורך רואה בתרשים, ואישור מחיקה הוא בדיוק המקום
+    // שבו "s_status" גורם לו למחוק את המסך הלא נכון
+    if (!window.confirm(`למחוק את המסך ״${screenRef(naming, id)}״?`)) return;
     onUpdate((cfg) => ({ ...cfg, screens: cfg.screens.filter((s) => s.id !== id) }));
     setPopover(null);
   }
@@ -1036,7 +1134,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
   /* ---------- רינדור ---------- */
 
   if (layout.nodes.length === 0) {
-    return <div className="admin-empty subtle">אין מסכים להצגה</div>;
+    return <div className="admin-empty subtle">אין עדיין מסכים להציג</div>;
   }
 
   const connectSource = drag?.mode === 'connect' ? nodeById.get(drag.id) : null;
@@ -1054,7 +1152,29 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
     return n ? { x: n.x + n.w / 2, y: n.y } : { x: 0, y: 0 };
   }
 
+  /**
+   * מהעוגן שבעולם אל מיקום קבוע על הקנבס.
+   *
+   * החלונית ישבה בתוך השכבה המוגדלת וביטלה את ההגדלה בעצמה (scale(1/k)) —
+   * החישוב הכפול הזיז אותה מהעוגן ושינה את גודלה עם הזום, ובקצוות היא פשוט
+   * יצאה מהמסך. עכשיו היא חיה בקואורדינטות מסך: גודל אחד בכל זום, ותמיד
+   * בתוך הקנבס — מתחת לעוגן, ומעליו כשאין שם מקום.
+   */
+  function popoverScreenPos(a: Point): { left: number; top: number } {
+    const cw = canvasSize.w || containerRef.current?.clientWidth || 0;
+    const ch = canvasSize.h || containerRef.current?.clientHeight || 0;
+    const ax = view.x + a.x * view.k;
+    const ay = view.y + a.y * view.k;
+    const { w, h } = popSize;
+    let top = ay + POPOVER_GAP;
+    if (top + h > ch - POPOVER_PAD && ay - POPOVER_GAP - h >= POPOVER_PAD) top = ay - POPOVER_GAP - h;
+    const inside = (v: number, size: number, box: number) =>
+      Math.min(Math.max(v, POPOVER_PAD), Math.max(POPOVER_PAD, box - POPOVER_PAD - size));
+    return { left: inside(ax - w / 2, w, cw), top: inside(top, h, ch) };
+  }
+
   const popScreen = popover && 'screenId' in popover ? config.screens.find((s) => s.id === popover.screenId) : null;
+  const popPos = popover ? popoverScreenPos(popoverAnchor(popover)) : null;
 
   return (
     <div className="flow-graph">
@@ -1071,16 +1191,16 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
             });
           }}
         >
-          <PlusIcon /> מסך
+          <PlusIcon /> מסך חדש
         </button>
         <span className="fg-sep" />
-        <button className="a-icon-btn" onClick={() => zoomBy(1.25)} aria-label="הגדלה" title="הגדלה">
+        <button className="a-icon-btn" onClick={() => zoomBy(1.25)} aria-label="הגדלת התרשים" title="הגדלת התרשים">
           <ZoomIn />
         </button>
-        <button className="a-icon-btn" onClick={() => zoomBy(0.8)} aria-label="הקטנה" title="הקטנה">
+        <button className="a-icon-btn" onClick={() => zoomBy(0.8)} aria-label="הקטנת התרשים" title="הקטנת התרשים">
           <ZoomOut />
         </button>
-        <button className="a-icon-btn" onClick={fit} aria-label="התאמה למסך" title="התאמה למסך">
+        <button className="a-icon-btn" onClick={fit} aria-label="הצגת כל התרשים" title="הצגת כל התרשים">
           <FitIcon />
         </button>
         <span className="fg-zoom">{Math.round(view.k * 100)}%</span>
@@ -1096,7 +1216,15 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
       >
         <div
           className="fg-world"
-          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, width: layout.width, height: layout.height }}
+          // --fg-k מאפשר לפקדים שעל הצומת לבטל את ההקטנה ולהישאר בגודל לחיץ
+          style={
+            {
+              transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`,
+              width: layout.width,
+              height: layout.height,
+              '--fg-k': view.k,
+            } as CSSProperties
+          }
         >
           <svg key={geomSig} className="fg-edges" width={layout.width} height={layout.height} aria-hidden="true">
             <defs>
@@ -1170,7 +1298,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                   focusIds && selectedId !== e.from && selectedId !== e.to ? 'dim' : '',
                 ].join(' ')}
                 style={{ left: e.labelX, top: e.labelY }}
-                title={`${e.label} — לחיצה לעריכת התנאי`}
+                title={`${e.label} — לחצו כדי לערוך את התנאי`}
                 onContextMenu={(ev) => openEdgeMenu(ev, e.i)}
                 onClick={() =>
                   setPopover(
@@ -1205,8 +1333,8 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                   y: e.labelY,
                 });
               }}
-              title="הוספת מסך בתוך המעבר הזה"
-              aria-label="הוספת מסך בתוך המעבר הזה"
+              title="הוספת מסך חדש באמצע המעבר הזה"
+              aria-label="הוספת מסך חדש באמצע המעבר הזה"
             >
               <PlusIcon />
             </button>
@@ -1223,16 +1351,17 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                 simPath && !lane.ids.some((id) => simPath.includes(id)) ? 'off-path' : '',
               ].join(' ')}
               style={{ left: lane.x, top: lane.y - 26, width: NODE_W }}
-              title={`${lane.ids.length} מסכים בתנאי אחד — לחיצה לעריכת התנאי לכולם יחד`}
+              title={`${lane.ids.length} מסכים חולקים את התנאי הזה — לחצו כדי לערוך אותו לכולם יחד`}
               onClick={() => setPopover({ kind: 'showIf', screenId: lane.ids[0] })}
             >
               <span className="fg-lane-count">{lane.ids.length}</span>
               <span className="fg-lane-text">
+                {/* אותו ניסוח כמו על הקשתות: הערך בלבד, בלי "מסלול המשיב הוא" */}
                 {shortLabel(
-                  optionalConditionSentence(
-                    naming,
-                    config.screens.find((s) => s.id === lane.ids[0])?.showIf,
-                  ),
+                  (() => {
+                    const cond = config.screens.find((s) => s.id === lane.ids[0])?.showIf;
+                    return cond ? describeCondition(cond, config.screens, config.varMeta) : 'תמיד';
+                  })(),
                 )}
               </span>
             </button>
@@ -1248,7 +1377,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                 focusIds && selectedId !== st.sourceId ? 'dim' : '',
               ].join(' ')}
               style={{ left: st.x, top: st.y }}
-              title={`${st.label ? st.label + ' — ' : ''}מסיים כאן ועובר אל "${screenRef(naming, st.targetId)}". לחיצה לעריכת הכלל`}
+              title={`${st.label ? st.label + ' — ' : ''}מכאן קופצים אל "${screenRef(naming, st.targetId)}". לחצו כדי לערוך את הכלל`}
               onClick={() =>
                 st.ruleIndex === undefined
                   ? onSelect(st.targetId)
@@ -1343,7 +1472,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                 {inboundStubs.has(n.id) && (
                   <span
                     className="fg-stub-in"
-                    title={`${inboundStubs.get(n.id)!.length} מסלולים מסתיימים כאן: ${inboundStubs
+                    title={`קופצים לכאן מ-${inboundStubs.get(n.id)!.length} מקומות: ${inboundStubs
                       .get(n.id)!
                       .map((id) => screenRef(naming, id))
                       .join(' · ')}`}
@@ -1354,7 +1483,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                 )}
 
                 <span className="fg-node-toolbar">
-                  <button className="a-icon-btn" onClick={() => duplicate(n.id)} title="שכפול המסך" aria-label="שכפול המסך">
+                  <button className="a-icon-btn" onClick={() => duplicate(n.id)} title="יצירת עותק של המסך" aria-label="יצירת עותק של המסך">
                     <CopyIcon />
                   </button>
                   <button className="a-icon-btn danger" onClick={() => remove(n.id)} title="מחיקת המסך" aria-label="מחיקת המסך">
@@ -1368,8 +1497,8 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
                     onPointerDown={(e) => nodePointerDown(e, n.id, 'connect')}
                     onPointerMove={nodePointerMove}
                     onPointerUp={(e) => nodePointerUp(e, n.id)}
-                    title="גרירה אל מסך אחר ליצירת כלל ניתוב"
-                    aria-label="גרירה אל מסך אחר ליצירת כלל ניתוב"
+                    title="גררו אל מסך אחר כדי ליצור קפיצה אליו"
+                    aria-label="גררו אל מסך אחר כדי ליצור קפיצה אליו"
                   />
                 )}
               </div>
@@ -1382,143 +1511,141 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, onSelec
               style={{ left: drag.indicatorX, top: drag.indicatorY, width: drag.indicatorW }}
             />
           )}
+        </div>
 
-          {popover && (
-            <div
-              className="fg-popover"
-              style={{
-                left: popoverAnchor(popover).x,
-                top: popoverAnchor(popover).y + 14,
-                // מתקזז עם הזום של הקנבס — הטופס תמיד בגודל קריא
-                transform: `translateX(-50%) scale(${1 / view.k})`,
-                transformOrigin: 'top center',
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <div className="fg-popover-head">
-                <strong>
-                  {popover.kind === 'rule' && popScreen &&
-                    `קפיצה: ${screenRef(naming, popover.screenId)} ← ${screenRef(naming, (popScreen.next ?? [])[popover.ruleIndex]?.goto ?? '')}`}
-                  {popover.kind === 'showIf' && `מוצג רק כאשר — ${screenRef(naming, popover.screenId)}`}
-                  {(popover.kind === 'insert' || popover.kind === 'append') && 'מסך חדש'}
-                  {popover.kind === 'edgeMenu' &&
-                    (layout.edges[popover.edgeIndex]
-                      ? `${screenRef(naming, layout.edges[popover.edgeIndex].from)} ← ${screenRef(naming, layout.edges[popover.edgeIndex].to)}`
-                      : '')}
-                </strong>
-                <button className="a-icon-btn" onClick={() => setPopover(null)} aria-label="סגירה">
-                  <CloseIcon />
-                </button>
-              </div>
+        {/* מחוץ לשכבה המוגדלת בכוונה: החלונית חיה בקואורדינטות מסך, ולכן
+            גודלה קבוע בכל זום והיא נשארת בתוך הקנבס */}
+        {popover && popPos && (
+          <div
+            ref={popoverRef}
+            className="fg-popover"
+            style={{ left: popPos.left, top: popPos.top }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="fg-popover-head">
+              <strong>
+                {popover.kind === 'rule' && popScreen &&
+                  `קפיצה: ${screenRef(naming, popover.screenId)} ← ${screenRef(naming, (popScreen.next ?? [])[popover.ruleIndex]?.goto ?? '')}`}
+                {popover.kind === 'showIf' && `מתי מוצג — ${screenRef(naming, popover.screenId)}`}
+                {(popover.kind === 'insert' || popover.kind === 'append') && 'מסך חדש'}
+                {popover.kind === 'edgeMenu' &&
+                  (layout.edges[popover.edgeIndex]
+                    ? `${screenRef(naming, layout.edges[popover.edgeIndex].from)} ← ${screenRef(naming, layout.edges[popover.edgeIndex].to)}`
+                    : '')}
+              </strong>
+              <button className="a-icon-btn" onClick={() => setPopover(null)} aria-label="סגירה">
+                <CloseIcon />
+              </button>
+            </div>
 
-              {popover.kind === 'rule' && popScreen && (popScreen.next ?? [])[popover.ruleIndex] && (
-                <>
-                  <OptionalCondition
-                    label="מתבצע בתנאי ש… (בלי תנאי — תמיד)"
-                    value={(popScreen.next ?? [])[popover.ruleIndex].if}
-                    onChange={(cond) =>
-                      onUpdate((cfg) => ({
-                        ...cfg,
-                        screens: cfg.screens.map((s) => {
-                          if (s.id !== popover.screenId) return s;
-                          const rules = [...(s.next ?? [])];
-                          const rule = rules[popover.ruleIndex];
-                          rules[popover.ruleIndex] = cond ? { ...rule, if: cond } : { goto: rule.goto };
-                          return { ...s, next: rules } as Screen;
-                        }),
-                      }))
-                    }
-                    naming={naming}
-                  />
-                  <button
-                    className="a-btn danger-ghost small"
-                    onClick={() => removeRule(popover.screenId, popover.ruleIndex)}
-                  >
-                    <TrashIcon /> מחיקת הכלל
-                  </button>
-                </>
-              )}
-
-              {popover.kind === 'showIf' && popScreen && (
-                <>
-                  {laneOf(popover.screenId).length > 1 && (
-                    <p className="a-hint">
-                      התנאי הזה משותף ל-{laneOf(popover.screenId).length} מסכים ברצף. שינוי כאן
-                      מחיל אותו על כולם.
-                    </p>
-                  )}
-                  <OptionalCondition
-                    label="המסך מוצג רק כאשר…"
-                    value={popScreen.showIf}
-                    onChange={(cond) => {
-                      // כל הענף יחד: המסכים האלה מוגדרים ככאלה שחולקים תנאי,
-                      // ועריכה שמפצלת אותם היא כמעט תמיד תקלה ולא כוונה
-                      const targets = new Set(laneOf(popover.screenId));
-                      onUpdate((cfg) => ({
-                        ...cfg,
-                        screens: cfg.screens.map((s) =>
-                          targets.has(s.id) ? ({ ...s, showIf: cond } as Screen) : s,
-                        ),
-                      }));
-                    }}
-                    naming={naming}
-                  />
-                </>
-              )}
-
-              {(popover.kind === 'insert' || popover.kind === 'append') && (
-                <InsertForm
-                  screens={config.screens}
-                  onSubmit={(type, id) => insertScreen(popover, type, id)}
-                />
-              )}
-
-              {popover.kind === 'edgeMenu' &&
-                (() => {
-                  const e = layout.edges[popover.edgeIndex];
-                  if (!e) return null;
-                  if (e.kind === 'goto' && e.ruleIndex !== undefined) {
-                    const ruleIndex = e.ruleIndex;
-                    return (
-                      <div className="fg-edge-menu">
-                        <button
-                          className="a-btn ghost small"
-                          onClick={() => setPopover({ kind: 'rule', screenId: e.from, ruleIndex })}
-                        >
-                          עריכת התנאי
-                        </button>
-                        <button className="a-btn danger-ghost small" onClick={() => removeRule(e.from, ruleIndex)}>
-                          <TrashIcon /> מחיקת החיבור
-                        </button>
-                      </div>
-                    );
+            {popover.kind === 'rule' && popScreen && (popScreen.next ?? [])[popover.ruleIndex] && (
+              <>
+                <OptionalCondition
+                  label="הקפיצה מתבצעת רק אם…"
+                  value={(popScreen.next ?? [])[popover.ruleIndex].if}
+                  onChange={(cond) =>
+                    onUpdate((cfg) => ({
+                      ...cfg,
+                      screens: cfg.screens.map((s) => {
+                        if (s.id !== popover.screenId) return s;
+                        const rules = [...(s.next ?? [])];
+                        const rule = rules[popover.ruleIndex];
+                        rules[popover.ruleIndex] = cond ? { ...rule, if: cond } : { goto: rule.goto };
+                        return { ...s, next: rules } as Screen;
+                      }),
+                    }))
                   }
-                  const targetShowIf = config.screens.find((s) => s.id === e.to)?.showIf;
+                  naming={naming}
+                />
+                <button
+                  className="a-btn danger-ghost small"
+                  onClick={() => removeRule(popover.screenId, popover.ruleIndex)}
+                >
+                  <TrashIcon /> מחיקת הקפיצה
+                </button>
+              </>
+            )}
+
+            {popover.kind === 'showIf' && popScreen && (
+              <>
+                {laneOf(popover.screenId).length > 1 && (
+                  <p className="a-hint">
+                    התנאי הזה משותף ל-{laneOf(popover.screenId).length} מסכים שבאים ברצף, ושינוי
+                    כאן חל על כולם.
+                  </p>
+                )}
+                <OptionalCondition
+                  label="המסך מוצג רק אם…"
+                  value={popScreen.showIf}
+                  onChange={(cond) => {
+                    // כל הענף יחד: המסכים האלה מוגדרים ככאלה שחולקים תנאי,
+                    // ועריכה שמפצלת אותם היא כמעט תמיד תקלה ולא כוונה
+                    const targets = new Set(laneOf(popover.screenId));
+                    onUpdate((cfg) => ({
+                      ...cfg,
+                      screens: cfg.screens.map((s) =>
+                        targets.has(s.id) ? ({ ...s, showIf: cond } as Screen) : s,
+                      ),
+                    }));
+                  }}
+                  naming={naming}
+                />
+              </>
+            )}
+
+            {(popover.kind === 'insert' || popover.kind === 'append') && (
+              <InsertForm
+                screens={config.screens}
+                onSubmit={(type, id) => insertScreen(popover, type, id)}
+              />
+            )}
+
+            {popover.kind === 'edgeMenu' &&
+              (() => {
+                const e = layout.edges[popover.edgeIndex];
+                if (!e) return null;
+                if (e.kind === 'goto' && e.ruleIndex !== undefined) {
+                  const ruleIndex = e.ruleIndex;
                   return (
                     <div className="fg-edge-menu">
-                      {targetShowIf && (
-                        <button
-                          className="a-btn ghost small"
-                          onClick={() => setPopover({ kind: 'showIf', screenId: e.to })}
-                        >
-                          עריכת תנאי התצוגה
-                        </button>
-                      )}
-                      <p className="a-hint">
-                        זהו המשך רגיל לפי סדר המסכים — אין כלל למחוק. כדי לשנות את הזרימה גררו את
-                        המסך למקום אחר ברצף או צרו כלל ניתוב מנקודת החיבור.
-                      </p>
+                      <button
+                        className="a-btn ghost small"
+                        onClick={() => setPopover({ kind: 'rule', screenId: e.from, ruleIndex })}
+                      >
+                        עריכת התנאי לקפיצה
+                      </button>
+                      <button className="a-btn danger-ghost small" onClick={() => removeRule(e.from, ruleIndex)}>
+                        <TrashIcon /> מחיקת הקפיצה
+                      </button>
                     </div>
                   );
-                })()}
-            </div>
-          )}
-        </div>
+                }
+                const targetShowIf = config.screens.find((s) => s.id === e.to)?.showIf;
+                return (
+                  <div className="fg-edge-menu">
+                    {targetShowIf && (
+                      <button
+                        className="a-btn ghost small"
+                        onClick={() => setPopover({ kind: 'showIf', screenId: e.to })}
+                      >
+                        עריכת התנאי שמחליט מתי המסך מוצג
+                      </button>
+                    )}
+                    <p className="a-hint">
+                      זהו המשך רגיל לפי סדר המסכים, ולכן אין כאן כלל שאפשר למחוק. כדי לשנות את
+                      הזרימה, גררו את המסך למקום אחר ברצף, או צרו קפיצה מנקודת החיבור שבתחתית המסך.
+                    </p>
+                  </div>
+                );
+              })()}
+          </div>
+        )}
       </div>
     </div>
   );
 
   function zoomBy(f: number) {
+    cancelFocusAnim();
     userMoved.current = true;
     setView((v) => {
       const el = containerRef.current;
@@ -1549,7 +1676,7 @@ function InsertForm({ screens, onSubmit }: { screens: Screen[]; onSubmit: (type:
         if (idValid) onSubmit(type, trimmed);
       }}
     >
-      <select className="a-select" value={type} onChange={(e) => setType(e.target.value as Screen['type'])} aria-label="סוג מסך">
+      <select className="a-select" value={type} onChange={(e) => setType(e.target.value as Screen['type'])} aria-label="סוג המסך החדש">
         {NEW_TYPES.map((t) => (
           <option key={t} value={t}>
             {TYPE_LABELS[t]}
@@ -1560,12 +1687,14 @@ function InsertForm({ screens, onSubmit }: { screens: Screen[]; onSubmit: (type:
         className="a-input"
         value={id}
         onChange={(e) => setId(e.target.value)}
-        aria-label="קוד לקובץ הנתונים"
+        aria-label="קוד המסך לקובץ הנתונים"
         dir="ltr"
       />
       {trimmed && !idValid && (
         <p className="a-hint error-text">
-          {idTaken ? 'הקוד כבר קיים' : 'קוד חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות'}
+          {idTaken
+            ? 'הקוד הזה כבר תפוס על ידי מסך אחר'
+            : 'הקוד צריך להתחיל באות אנגלית, ולהמשיך באותיות אנגליות, ספרות או קו תחתון'}
         </p>
       )}
       <button className="a-btn primary small" type="submit" disabled={!idValid}>

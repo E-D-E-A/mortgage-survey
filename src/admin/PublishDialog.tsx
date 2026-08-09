@@ -1,4 +1,4 @@
-// דיאלוג פרסום: מסכם ולידציה, מפרסם גרסה קבועה חדשה ומציג את מספרה.
+// דיאלוג פרסום: מסכם את בדיקת התקינות, מפרסם גרסה קבועה חדשה ומציג את מספרה.
 // פרסום לא נוגע במשיבים באמצע שאלון — הגרסה שלהם מוצמדת לסשן.
 
 import { useState } from 'react';
@@ -21,7 +21,12 @@ type Phase =
   | { step: 'saving' }
   | { step: 'publishing' }
   | { step: 'done'; version: string; warnings: ValidationIssue[] }
-  | { step: 'failed'; message: string };
+  /**
+   * `found` — מה שהשרת מצא, כשהוא מצא משהו קונקרטי. `retry` כבוי כשניסיון
+   * חוזר על אותו תוכן בדיוק יחזיר בוודאות את אותה תשובה; כפתור שלא יכול
+   * להצליח גרוע מהיעדרו.
+   */
+  | { step: 'failed'; message: string; found?: ValidationIssue[]; retry?: boolean };
 
 export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ step: 'confirm' });
@@ -38,7 +43,7 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
   async function saveThenPublish() {
     setPhase({ step: 'saving' });
     if (!(await onSave())) {
-      setPhase({ step: 'failed', message: 'השמירה נכשלה — הפרסום בוטל, כדי לא לפרסם גרסה ישנה' });
+      setPhase({ step: 'failed', message: 'השמירה נכשלה, ולכן הפרסום בוטל — אחרת הייתה מתפרסמת הגרסה הישנה' });
       return;
     }
     await doPublish();
@@ -51,14 +56,21 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
       if (status === 200 && data.version) {
         setPhase({ step: 'done', version: data.version, warnings: data.warnings ?? [] });
       } else if (status === 422) {
-        setPhase({ step: 'failed', message: 'הוולידציה בשרת מצאה שגיאות — רעננו ותקנו לפני פרסום' });
+        // 422 = הבדיקה בשרת מצאה מה שהבדיקה כאן פספסה. השגיאות עצמן מגיעות
+        // בתשובה, ובלעדיהן העורך נשלח לחפש בעצמו מה בדיוק לא בסדר.
+        setPhase({
+          step: 'failed',
+          message: 'הבדיקה בשרת מצאה שגיאות שלא מופיעות כאן, ולכן הגרסה לא פורסמה. רעננו את הדף כדי לראות את המצב העדכני, תקנו ופרסמו שוב.',
+          found: data.errors,
+          retry: false,
+        });
       } else if (status === 404) {
-        setPhase({ step: 'failed', message: 'אין טיוטה לפרסם' });
+        setPhase({ step: 'failed', message: 'אין טיוטה לפרסם — לשאלון הזה עוד לא נשמר תוכן', retry: false });
       } else {
-        setPhase({ step: 'failed', message: `הפרסום נכשל (${status}) — נסו שוב` });
+        setPhase({ step: 'failed', message: `הפרסום נכשל (קוד ${status}) — נסו שוב` });
       }
     } catch {
-      setPhase({ step: 'failed', message: 'שגיאת רשת — נסו שוב' });
+      setPhase({ step: 'failed', message: 'אין תקשורת עם השרת — בדקו את החיבור ונסו שוב' });
     }
   }
 
@@ -78,14 +90,15 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
           <>
             {dirty && (
               <p className="dialog-note warning-note">
-                <WarningIcon width={14} height={14} /> יש שינויים שלא נשמרו — הפרסום מפרסם את הטיוטה
-                השמורה בשרת, לא את מה שעל המסך. "שמירה ופרסום" ישמור אותם קודם.
+                <WarningIcon width={14} height={14} /> יש כאן שינויים שלא נשמרו. הפרסום לוקח את
+                הטיוטה השמורה בשרת ולא את מה שעל המסך, ולכן הכפתור ישמור קודם ורק אחר כך יפרסם.
               </p>
             )}
             {errors.length > 0 ? (
               <div className="dialog-note error-note">
                 <p>
-                  <ErrorIcon width={14} height={14} /> אי אפשר לפרסם — {errors.length} שגיאות ולידציה:
+                  <ErrorIcon width={14} height={14} /> אי אפשר לפרסם. צריך לתקן קודם{' '}
+                  {errors.length === 1 ? 'שגיאה אחת' : `${errors.length} שגיאות`}:
                 </p>
                 <ul>
                   {errors.map((e, i) => (
@@ -98,7 +111,9 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
                 {warnings.length > 0 && (
                   <div className="dialog-note warning-note">
                     <p>
-                      <WarningIcon width={14} height={14} /> {warnings.length} אזהרות (לא חוסמות):
+                      <WarningIcon width={14} height={14} />{' '}
+                      {warnings.length === 1 ? 'אזהרה אחת' : `${warnings.length} אזהרות`} — אפשר לפרסם
+                      גם בלי לתקן:
                     </p>
                     <ul>
                       {warnings.map((w, i) => (
@@ -108,7 +123,7 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
                   </div>
                 )}
                 <label className="a-field">
-                  <span className="a-label">תווית לגרסה (אופציונלי, באנגלית)</span>
+                  <span className="a-label">כינוי לגרסה, שיעזור לזהות אותה אחר כך (לא חובה, באנגלית)</span>
                   <input
                     className="a-input"
                     value={label}
@@ -118,8 +133,8 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
                   />
                 </label>
                 <p className="dialog-note">
-                  משיבים שכבר התחילו לענות לא יושפעו — הגרסה שלהם מוצמדת לסשן. רק סשנים חדשים
-                  יקבלו את הגרסה החדשה.
+                  מי שכבר התחיל לענות ימשיך בגרסה שהתחיל בה ולא יראה שינוי. רק מי שייכנס מעכשיו
+                  יקבל את הגרסה החדשה.
                 </p>
               </>
             )}
@@ -138,14 +153,14 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
           </>
         )}
 
-        {phase.step === 'saving' && <p className="dialog-note">שומר את הטיוטה…</p>}
-        {phase.step === 'publishing' && <p className="dialog-note">מפרסם…</p>}
+        {phase.step === 'saving' && <p className="dialog-note">שומרים את הטיוטה…</p>}
+        {phase.step === 'publishing' && <p className="dialog-note">מפרסמים…</p>}
 
         {phase.step === 'done' && (
           <>
             <p className="dialog-note success-note">
-              <CheckIcon width={14} height={14} /> פורסמה גרסה <bdi dir="ltr">{phase.version}</bdi>.
-              סשנים חדשים יקבלו אותה מעכשיו (עד דקה בגלל cache).
+              <CheckIcon width={14} height={14} /> גרסה <bdi dir="ltr">{phase.version}</bdi> פורסמה.
+              מי שייכנס לשאלון מעכשיו יקבל אותה — ייתכן עיכוב של עד דקה.
             </p>
             <footer className="dialog-actions">
               <button className="a-btn primary" onClick={onClose}>
@@ -157,19 +172,30 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
 
         {phase.step === 'failed' && (
           <>
-            <p className="dialog-note error-note">
-              <ErrorIcon width={14} height={14} /> {phase.message}
-            </p>
+            <div className="dialog-note error-note">
+              <p>
+                <ErrorIcon width={14} height={14} /> {phase.message}
+              </p>
+              {phase.found && phase.found.length > 0 && (
+                <ul>
+                  {phase.found.map((e, i) => (
+                    <li key={i}>{e.message}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <footer className="dialog-actions">
-              <button className="a-btn ghost" onClick={onClose}>
+              <button className={`a-btn ${phase.retry === false ? 'primary' : 'ghost'}`} onClick={onClose}>
                 סגירה
               </button>
-              <button
-                className="a-btn primary"
-                onClick={() => void (dirty ? saveThenPublish() : doPublish())}
-              >
-                ניסיון נוסף
-              </button>
+              {phase.retry !== false && (
+                <button
+                  className="a-btn primary"
+                  onClick={() => void (dirty ? saveThenPublish() : doPublish())}
+                >
+                  ניסיון נוסף
+                </button>
+              )}
             </footer>
           </>
         )}

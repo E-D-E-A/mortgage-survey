@@ -14,6 +14,51 @@ export function uniqueId(base: string, screens: Screen[]): string {
 }
 
 /**
+ * האם שתי גרסאות של הקונפיג חולקות בדיוק את אותו מבנה — אותם מפתחות בכל רמה,
+ * אותם אורכי מערך — ונבדלות רק בערך של עלה.
+ *
+ * זה מה שמבדיל הקלדה בשדה (אותו מבנה, תו נוסף) מפעולה מבנית (הוספת אפשרות,
+ * מחיקת שורה, הסרת תנאי). היסטוריית ה-undo מאחדת עריכות צפופות כדי שהקלדה
+ * לא תייצר צעד undo לכל תו — אבל בלי הבחנה הזאת גם שתי לחיצות כפתור בתוך
+ * שנייה התאחדו, וביטול אחד ביטל כמה פעולות נפרדות שהעורך ביצע בכוונה.
+ */
+export function sameShape(a: unknown, b: unknown): boolean {
+  if (a === null || b === null) return a === b;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameShape(x, b[i]))
+    );
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const keys = Object.keys(a as object);
+    if (keys.length !== Object.keys(b as object).length) return false;
+    return keys.every(
+      (k) =>
+        k in (b as object) &&
+        sameShape((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+    );
+  }
+  // עלה: גם החלפת טיפוס (מספר ↔ מחרוזת) היא שינוי מבני ולא הקלדה
+  return typeof a === typeof b;
+}
+
+/**
+ * הקוד הפנוי הבא לאפשרות או לשורת מטריצה.
+ *
+ * ספירה לפי אורך הרשימה מייצרת קוד כפול ברגע שנמחקה שורה באמצע: opt_1..opt_3,
+ * מוחקים את opt_1, ו"הוספת אפשרות" מייצרת opt_3 שכבר קיים. הוולידציה אמנם
+ * מתריעה, אבל השגיאה נולדת מלחיצה על כפתור תקין — ובניתוח שתי שורות עם אותו
+ * קוד אינן ניתנות להפרדה.
+ */
+export function nextChoiceId(prefix: string, taken: readonly { id: string }[]): string {
+  const used = new Set(taken.map((t) => t.id));
+  for (let n = taken.length + 1; ; n++) {
+    const id = `${prefix}_${n}`;
+    if (!used.has(id)) return id;
+  }
+}
+
+/**
  * היכן להכניס מסך חדש.
  *
  * הוספה לסוף המערך נחתה אחרי מסכי הסיום: כל הוספה ייצרה מיד אזהרת "אינו נגיש

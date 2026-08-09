@@ -103,7 +103,7 @@ export function describeCondition(cond: Condition, screens: Screen[], meta: VarM
   const screen = isQ ? screens.find((s) => s.id === ref) : undefined;
   const subject = isQ ? '' : varName(meta, ref);
 
-  if (cond.op === 'answered') return isQ ? 'נענתה' : `${subject} קיים`;
+  if (cond.op === 'answered') return isQ ? 'יש תשובה' : `${subject} נקבע`;
   if (cond.op in NUMERIC_OPS) return `${isQ ? '' : subject + ' '}${NUMERIC_OPS[cond.op]} ${cond.value}`;
 
   const v = isQ
@@ -113,8 +113,14 @@ export function describeCondition(cond: Condition, screens: Screen[], meta: VarM
       : varValue(meta, ref, cond.value);
   switch (cond.op) {
     case 'eq':
-    case 'in':
-      return isQ ? v : `${subject}: ${v}`;
+    case 'in': {
+      if (isQ) return v;
+      // ערך עם שם מוצג ("יש או הייתה משכנתה") מדבר בעד עצמו — שם הסימון
+      // כקידומת רק מעמיס. קוד גולמי בלי שם עדיין מקבל את הקידומת להקשר.
+      const vals = Array.isArray(cond.value) ? cond.value : [cond.value];
+      const allNamed = vals.every((x) => meta[ref]?.values?.[String(x)] !== undefined);
+      return allNamed ? v : `${subject}: ${v}`;
+    }
     case 'ne':
       return isQ ? (complement(screen, cond.value) ?? `≠ ${v}`) : `${subject} ≠ ${v}`;
     case 'includes':
@@ -177,15 +183,22 @@ export function buildFlow(config: SurveyConfig): Flow {
     // את תנאי המקור ובלי כפילויות בתוך ענף. הראשונה היא ההמשך הרגיל; היתר
     // מוצגות מעומעמות כדי לשמור על קריאות בלי להסתיר מסלולים אמיתיים.
     fallThroughTargets(screens, i).forEach((target, k) => {
+      // בתוך ענף: מעבר בין שני מסכים עם אותו תנאי בדיוק הוא ודאי — תווית
+      // "מסלול המשיב הוא X" על כל קשת פנימית בענף היא רעש, לא מידע.
+      const sameLane =
+        target.showIf !== undefined &&
+        JSON.stringify(target.showIf) === JSON.stringify(screen.showIf);
       edges.push({
         from: screen.id,
         to: target.id,
-        label: target.showIf
-          ? describeCondition(target.showIf, screens, meta)
-          : rules.length > 0
-            ? 'אחרת'
-            : '',
-        conditional: Boolean(target.showIf) || rules.length > 0,
+        label: sameLane
+          ? ''
+          : target.showIf
+            ? describeCondition(target.showIf, screens, meta)
+            : rules.length > 0 || k > 0
+              ? 'אחרת' // הענף האחרון של פיצול — גם כשהפיצול נובע מ-showIf בלבד
+              : '',
+        conditional: !sameLane && (Boolean(target.showIf) || rules.length > 0 || k > 0),
         kind: k === 0 ? 'primary' : 'skip',
       });
     });

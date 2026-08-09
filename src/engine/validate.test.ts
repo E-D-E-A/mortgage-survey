@@ -265,7 +265,7 @@ describe('validateConfig · content integrity', () => {
     ]);
     const issue = errors(c).find((i) => i.code === 'unknown-option');
     expect(issue?.message).toContain('maybe');
-    expect(issue?.message).toContain('הענף לעולם לא יופעל');
+    expect(issue?.message).toContain('המסלול הזה לעולם לא ייפתח');
   });
 
   it('checks every member of an "in" list, and reports ne as always-true', () => {
@@ -277,7 +277,7 @@ describe('validateConfig · content integrity', () => {
     ]);
     const found = validateConfig(c).filter((i) => i.code === 'unknown-option');
     expect(found).toHaveLength(2);
-    expect(found[1].message).toContain('התנאי יתקיים תמיד');
+    expect(found[1].message).toContain('התנאי יתקיים אצל כל משיב');
   });
 
   it('does not flag conditions against screens that have no options', () => {

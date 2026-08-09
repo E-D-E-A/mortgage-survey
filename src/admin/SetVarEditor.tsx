@@ -3,14 +3,14 @@
 //
 // האדמין לא כותב כאן שמות משתנים ולא קודי ערכים — הוא בוחר מרשימה, ויוצר
 // חדשים דרך טופס שמבקש קודם תווית בעברית ורק אחריה את הקוד לאנליזה.
-// אזהרת הטוטאליות (ערך ישן אחרי ניווט אחורה) מוצגת בפאנל הוולידציה.
+// אזהרת הטוטאליות (ערך ישן אחרי ניווט אחורה) מוצגת בפאנל השגיאות.
 
 import { useState } from 'react';
 import type { SetVarRule } from '../engine/types';
 import type { Naming } from './display';
 import { varLabel, varValueLabel } from './display';
 import { OptionalCondition } from './ConditionBuilder';
-import { PencilIcon, PlusIcon, TrashIcon } from './Icons';
+import { PencilIcon, TrashIcon } from './Icons';
 
 interface Props {
   rules: SetVarRule[];
@@ -35,18 +35,10 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
 
   return (
     <div className="a-field">
-      <div className="a-field-head">
-        <span className="a-label">סימון המשיב אחרי המענה</span>
-        <button
-          className="a-btn ghost small"
-          onClick={() => emit([...rules, { var: naming.vars[0] ?? '', value: '' }])}
-        >
-          <PlusIcon /> הוספת סימון
-        </button>
-      </div>
       {rules.length === 0 && (
-        <p className="a-hint">
-          סימון נשמר על המשיב וממשיך איתו הלאה — מסכים מאוחרים יכולים להיפתח לפיו.
+        <p className="ed-empty">
+          המסך הזה לא מסמן דבר. סימון נשאר על המשיב לכל אורך השאלון, ומסכים
+          שבאים אחריו יכולים להופיע רק למי שמסומן כך.
         </p>
       )}
       {rules.map((rule, i) => {
@@ -63,7 +55,7 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                   if (e.target.value === NEW) return setCreating({ index: i, field: 'var' });
                   patch(i, { ...rule, var: e.target.value, value: '' });
                 }}
-                aria-label="הסימון"
+                aria-label="הסימון שנקבע כאן"
                 title={rule.var}
               >
                 {!naming.vars.includes(rule.var) && (
@@ -74,13 +66,13 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                     {varLabel(naming, v)}
                   </option>
                 ))}
-                <option value={NEW}>+ סימון חדש…</option>
+                <option value={NEW}>+ יצירת סימון חדש…</option>
               </select>
               <button
                 className="a-icon-btn"
                 onClick={() => setCreating({ index: i, field: 'var', renaming: rule.var })}
-                title="שינוי השם המוצג של הסימון"
-                aria-label="שינוי השם המוצג של הסימון"
+                title="שינוי השם שמוצג לסימון"
+                aria-label="שינוי השם שמוצג לסימון"
                 disabled={!rule.var}
               >
                 <PencilIcon />
@@ -93,24 +85,24 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                   if (e.target.value === NEW) return setCreating({ index: i, field: 'value' });
                   patch(i, { ...rule, value: e.target.value });
                 }}
-                aria-label="ערך"
+                aria-label="הערך שנקבע לסימון"
                 title={current}
               >
                 {!values.some(([id]) => id === current) && (
-                  <option value={current}>{current ? varValueLabel(naming, rule.var, current) : '— בחירת ערך —'}</option>
+                  <option value={current}>{current ? varValueLabel(naming, rule.var, current) : '— בחרו ערך —'}</option>
                 )}
                 {values.map(([id, label]) => (
                   <option key={id} value={id}>
                     {label}
                   </option>
                 ))}
-                <option value={NEW}>+ ערך חדש…</option>
+                <option value={NEW}>+ יצירת ערך חדש…</option>
               </select>
               <button
                 className="a-icon-btn"
                 onClick={() => setCreating({ index: i, field: 'value', renaming: current })}
-                title="שינוי השם המוצג של הערך"
-                aria-label="שינוי השם המוצג של הערך"
+                title="שינוי השם שמוצג לערך"
+                aria-label="שינוי השם שמוצג לערך"
                 disabled={!current}
               >
                 <PencilIcon />
@@ -118,7 +110,7 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
               <button
                 className="a-icon-btn danger"
                 onClick={() => emit(rules.filter((_, j) => j !== i))}
-                aria-label="מחיקת סימון"
+                aria-label="מחיקת הסימון הזה"
               >
                 <TrashIcon />
               </button>
@@ -159,7 +151,7 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
             )}
 
             <OptionalCondition
-              label="בתנאי ש…"
+              label="מסמנים רק אם…"
               value={rule.if}
               onChange={(cond) => {
                 const next: SetVarRule = { var: rule.var, value: rule.value };
@@ -216,7 +208,9 @@ function DefineForm({
       }}
     >
       <label className="a-field">
-        <span className="a-label">{kind === 'var' ? 'שם הסימון (מה שיוצג)' : 'הערך (מה שיוצג)'}</span>
+        <span className="a-label">
+          {kind === 'var' ? 'שם הסימון — כך הוא ייראה בקונסולה' : 'שם הערך — כך הוא ייראה בקונסולה'}
+        </span>
         <input
           className="a-input"
           value={label}
@@ -234,7 +228,7 @@ function DefineForm({
           dir="ltr"
           aria-invalid={!codeValid}
           disabled={renaming}
-          title={renaming ? 'הקוד קבוע — שינוי שלו היה מנתק את הנתונים שכבר נאספו' : undefined}
+          title={renaming ? 'הקוד קבוע — שינוי שלו היה מנתק אותו מהנתונים שכבר נאספו' : undefined}
         />
       </label>
       <div className="define-actions">
@@ -245,7 +239,11 @@ function DefineForm({
           ביטול
         </button>
       </div>
-      {!codeValid && <p className="a-hint error-text">קוד חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות</p>}
+      {!codeValid && (
+        <p className="a-hint error-text">
+          הקוד צריך להתחיל באות אנגלית, ולהמשיך באותיות אנגליות, ספרות או קו תחתון
+        </p>
+      )}
     </form>
   );
 }

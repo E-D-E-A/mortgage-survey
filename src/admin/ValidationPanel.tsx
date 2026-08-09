@@ -1,4 +1,4 @@
-// פאנל הוולידציה: שגיאות (חוסמות פרסום) ואזהרות, בזמן אמת על כל שינוי.
+// פאנל השגיאות: שגיאות (חוסמות פרסום) ואזהרות, בזמן אמת על כל שינוי.
 // לחיצה על ממצא בוחרת את המסך הרלוונטי.
 
 import type { ValidationIssue } from '../engine/validate';
@@ -16,7 +16,7 @@ export function ValidationPanel({ issues, naming, onSelectScreen }: Props) {
   if (issues.length === 0) {
     return (
       <div className="validation-panel ok" role="status">
-        <CheckIcon width={14} height={14} /> השאלון תקין — אפשר לפרסם
+        <CheckIcon width={14} height={14} /> הכול תקין — אפשר לפרסם
       </div>
     );
   }

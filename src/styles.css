@@ -137,6 +137,23 @@ h1 {
   font-weight: 650;
 }
 
+/* הכותרת מקבלת מיקוד בכל מעבר מסך (App.tsx) כדי להכריז עליו ולהחזיר את
+   משתמש המקלדת לראש המסך. זו תנועה יזומה של התוכנה ולא של המשתמש, ולכן
+   בלי טבעת מיקוד — היא הייתה נראית כשגיאה */
+.screen-title:focus {
+  outline: none;
+}
+
+/* טבעת מיקוד אחידה וברורה לכל פקד. בלי הגדרה מפורשת הטבעת המובנית של
+   הדפדפן כמעט נבלעת בטורקיז של המותג */
+.option:focus-visible,
+.scale-btn:focus-visible,
+.btn:focus-visible,
+.input:focus-visible {
+  outline: 3px solid var(--text);
+  outline-offset: 2px;
+}
+
 .help {
   color: var(--muted);
   font-size: 0.9rem;
@@ -170,9 +187,13 @@ h1 {
   font-weight: 600;
 }
 
-/* מכסת בחירות מלאה — האפשרויות שנותרו מעומעמות במקום להתעלם בשקט מהלחיצה */
+/* מכסת בחירות מלאה — האפשרויות שנותרו מעומעמות במקום להתעלם בשקט מהלחיצה.
+   ⚠ לא opacity על כל הכפתור: המשיב עדיין צריך לקרוא את האפשרויות שאינו יכול
+   לבחור כרגע, כדי להחליט אם כדאי לו לבטל בחירה קיימת. מעומעמת המסגרת, לא הטקסט. */
 .option:disabled {
-  opacity: 0.4;
+  border-color: rgba(169, 214, 205, 0.5);
+  background: #f7fbfa;
+  color: var(--muted);
   cursor: default;
 }
 
@@ -240,8 +261,12 @@ h1 {
   box-shadow: none;
 }
 
+/* "המשך" חסום הוא המצב שהמשיב רואה הכי הרבה — לפני שענה. ב-opacity: 0.35
+   הכיתוב כמעט נעלם ונראה כתקלה; כאן הכפתור מובחן ככבוי אבל הכיתוב נשאר קריא. */
 .btn.primary:disabled {
-  opacity: 0.35;
+  background: #e6eceb;
+  color: var(--muted);
+  box-shadow: none;
   cursor: default;
 }
 

@@ -1,22 +1,26 @@
-// "איך מגיעים לכאן ולאן ממשיכים" — הקריאה של הזרימה, לא העריכה שלה.
+// "המקום בזרימה" — הקריאה של הזרימה, לא העריכה שלה.
 //
 // שלושת המנגנונים (showIf, next, onSubmit) יושבים בשלושה שדות נפרדים, וכל אחד
 // מהם נכון בפני עצמו ולא אומר כלום על הסדר בפועל. הפאנל הזה מחשב את התשובה
-// מהקונפיג המלא ומציג אותה במשפטים — כולל המעבר הנפוץ ביותר, "פשוט המסך הבא",
-// שאין לו שום ייצוג בעורך כי הוא היעדר של כלל.
+// מהקונפיג המלא ומציג אותה בארבע קבוצות קבועות, כל אחת עונה על שאלה אחת:
+// מגיעים לכאן · מוצג רק כאשר · ממשיכים מכאן · נקבע כאן.
+//
+// שני כללי ניסוח הופכים את זה לקריא:
+// 1. תנאי שמפנה למסך הזה עצמו נכתב "התשובה כאן", לא ציטוט השאלה לעצמה.
+// 2. זוג כללים משלימים (תנאי + השלילה שלו, כמו שמציב את segment) מוצג
+//    כ"אחרת ←", לא כמשפט השלילה המלא.
 
-import type { Screen, SurveyConfig } from '../engine/types';
+import type { Condition, Screen, SetVarRule, SurveyConfig } from '../engine/types';
 import type { Naming } from './display';
 import {
   conditionSentence,
   conditionVars,
-  optionalConditionSentence,
   screenLabel,
   varLabel,
   varValueLabel,
 } from './display';
 import { fallThroughSources, fallThroughTargets } from './reachability';
-import { ArrowIcon, BranchIcon, EyeIcon, VarIcon } from './Icons';
+import { ArrowIcon, BranchIcon, VarIcon } from './Icons';
 
 interface Props {
   config: SurveyConfig;
@@ -25,9 +29,17 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
+/** כלל שתנאו הוא בדיוק השלילה של קודמו, על אותו סימון — מוצג כ"אחרת". */
+function isOtherwise(prev: SetVarRule, rule: SetVarRule): boolean {
+  if (prev.var !== rule.var || !prev.if || !rule.if) return false;
+  const negated = rule.if as { not?: Condition };
+  return negated.not !== undefined && JSON.stringify(negated.not) === JSON.stringify(prev.if);
+}
+
 export function FlowContext({ config, screen, naming, onSelect }: Props) {
   const screens = config.screens;
   const index = screens.findIndex((s) => s.id === screen.id);
+  const here = { selfId: screen.id };
 
   const jumpsIn = screens.flatMap((s) =>
     (s.next ?? [])
@@ -44,109 +56,148 @@ export function FlowContext({ config, screen, naming, onSelect }: Props) {
   const setHere = screen.onSubmit ?? [];
   const readers = setHere.length > 0 ? screensReading(screens, setHere.map((r) => r.var)) : [];
 
+  const jumpsOut = screen.next ?? [];
+
   return (
     <section className="flow-context">
-      <h3 className="flow-context-title">איך מגיעים לכאן, ולאן ממשיכים</h3>
+      <h3 className="flow-context-title">המקום בזרימה</h3>
 
-      {index === 0 && <p className="flow-line">זהו המסך הראשון — כל משיב מתחיל כאן.</p>}
-
-      {jumpsIn.map(({ from, rule, i }) => (
-        <p className="flow-line" key={`${from.id}-${i}`}>
-          <BranchIcon width={13} height={13} />
-          <span>
-            קפיצה מ<Ref naming={naming} id={from.id} onSelect={onSelect} /> — {optionalConditionSentence(naming, rule.if)}
-          </span>
-        </p>
-      ))}
-
-      {fallIn.map((s, i) => (
-        <p className="flow-line" key={s.id}>
-          <ArrowIcon width={13} height={13} />
-          <span>
-            ברצף, אחרי <Ref naming={naming} id={s.id} onSelect={onSelect} />
-            {i > 0 && ' (כשהמסכים שביניהם מדולגים)'}
-          </span>
-        </p>
-      ))}
-
-      {index > 0 && jumpsIn.length === 0 && fallIn.length === 0 && (
-        <p className="flow-line warn">אף מסך לא מוביל לכאן — המסך הזה לא ייראה לאף משיב.</p>
-      )}
-
-      <p className="flow-line strong">
-        <EyeIcon width={13} height={13} />
-        <span>
-          {screen.showIf
-            ? `מוצג רק כאשר: ${conditionSentence(naming, screen.showIf)}`
-            : 'מוצג לכל מי שמגיע לכאן'}
-        </span>
-      </p>
-
-      {dependsOn.map((v) => {
-        const source = screens.find((s) => (s.onSubmit ?? []).some((r) => r.var === v));
-        const sourceIndex = source ? screens.indexOf(source) : -1;
-        if (!source) {
-          return (
-            <p className="flow-line warn" key={v}>
-              ״{varLabel(naming, v)}״ לא נקבע באף מסך — התנאי לעולם לא יתקיים.
-            </p>
-          );
-        }
-        return (
-          <p className={`flow-line${sourceIndex > index ? ' warn' : ''}`} key={v}>
-            <VarIcon width={13} height={13} />
+      <div className="flow-group">
+        <h4 className="flow-group-title">מגיעים לכאן</h4>
+        {index === 0 && <p className="flow-line">כל משיב מתחיל כאן — זה המסך הראשון.</p>}
+        {fallIn.map((s, i) => (
+          <p className="flow-line" key={s.id}>
+            <ArrowIcon width={13} height={13} />
             <span>
-              ״{varLabel(naming, v)}״ נקבע ב<Ref naming={naming} id={source.id} onSelect={onSelect} />
-              {sourceIndex > index && ' — שיושב אחרי המסך הזה, ולכן הסימון עדיין ריק כאן'}
+              {i === 0 ? 'בא אחרי ' : 'או, אם דילגו על אותו מסך: אחרי '}
+              <Ref naming={naming} id={s.id} onSelect={onSelect} />
             </span>
           </p>
-        );
-      })}
+        ))}
+        {jumpsIn.map(({ from, rule, i }) => (
+          <p className="flow-line" key={`${from.id}-${i}`}>
+            <BranchIcon width={13} height={13} />
+            <span>
+              בקפיצה מ<Ref naming={naming} id={from.id} onSelect={onSelect} />
+              {rule.if &&
+                ` — אם ${conditionSentence(naming, rule.if, false, { selfId: from.id, selfText: 'התשובה שם' })}`}
+            </span>
+          </p>
+        ))}
+        {index > 0 && jumpsIn.length === 0 && fallIn.length === 0 && (
+          <p className="flow-line warn">אף מסך לא מוביל לכאן, ולכן אף משיב לא יראה את המסך הזה.</p>
+        )}
+      </div>
 
-      {screen.type === 'end' ? (
-        <p className="flow-line strong">כאן השאלון נגמר.</p>
-      ) : (
-        <>
-          {(screen.next ?? []).map((rule, i) => (
-            <p className="flow-line" key={i}>
-              <BranchIcon width={13} height={13} />
-              <span>
-                {rule.if ? conditionSentence(naming, rule.if) : 'תמיד'} ← קפיצה אל{' '}
-                <Ref naming={naming} id={rule.goto} onSelect={onSelect} />
-              </span>
-            </p>
-          ))}
-          {fallOut.map((s, i) => (
-            <p className="flow-line" key={s.id}>
-              <ArrowIcon width={13} height={13} />
-              <span>
-                {i === 0 ? 'אחר כך: ' : 'אם הוא מדולג: '}
-                <Ref naming={naming} id={s.id} onSelect={onSelect} />
-                {s.showIf && ` — רק אם ${conditionSentence(naming, s.showIf)}`}
-              </span>
-            </p>
-          ))}
-          {fallOut.length === 0 && (screen.next ?? []).length === 0 && (
-            <p className="flow-line warn">אין המשך — זה המסך האחרון, והמשיב ייתקע בלי מסך סיום.</p>
-          )}
-        </>
+      {screen.showIf && (
+        <div className="flow-group">
+          <h4 className="flow-group-title">מוצג רק כאשר</h4>
+          <p className="flow-line">{conditionSentence(naming, screen.showIf, false, here)}</p>
+          {dependsOn.map((v) => {
+            const source = screens.find((s) => (s.onSubmit ?? []).some((r) => r.var === v));
+            const sourceIndex = source ? screens.indexOf(source) : -1;
+            if (!source) {
+              return (
+                <p className="flow-line warn" key={v}>
+                  אף מסך לא קובע את ״{varLabel(naming, v)}״, ולכן התנאי הזה לעולם לא יתקיים.
+                </p>
+              );
+            }
+            return (
+              <p className={`flow-line muted${sourceIndex > index ? ' warn' : ''}`} key={v}>
+                <VarIcon width={13} height={13} />
+                <span>
+                  ״{varLabel(naming, v)}״ נקבע ב<Ref naming={naming} id={source.id} onSelect={onSelect} />
+                  {sourceIndex > index && ' — שבא אחרי המסך הזה, ולכן הסימון עדיין ריק כאן'}
+                </span>
+              </p>
+            );
+          })}
+        </div>
       )}
 
-      {setHere.map((rule, i) => (
-        <p className="flow-line" key={i}>
-          <VarIcon width={13} height={13} />
-          <span>
-            כאן נקבע: ״{varLabel(naming, rule.var)}״ = {varValueLabel(naming, rule.var, rule.value)}
-            {rule.if && ` — כאשר ${conditionSentence(naming, rule.if)}`}
-          </span>
-        </p>
-      ))}
+      <div className="flow-group">
+        <h4 className="flow-group-title">ממשיכים מכאן</h4>
+        {screen.type === 'end' ? (
+          <p className="flow-line">כאן השאלון נגמר.</p>
+        ) : (
+          <>
+            {jumpsOut.map((rule, i) => (
+              <p className="flow-line" key={i}>
+                <BranchIcon width={13} height={13} />
+                <span>
+                  {rule.if
+                    ? `אם ${conditionSentence(naming, rule.if, false, here)} — `
+                    : 'תמיד — '}
+                  קפיצה אל <Ref naming={naming} id={rule.goto} onSelect={onSelect} />
+                </span>
+              </p>
+            ))}
+            {fallOut.length === 1 && !fallOut[0].showIf ? (
+              <p className="flow-line">
+                <ArrowIcon width={13} height={13} />
+                <span>
+                  {jumpsOut.length > 0 ? 'אחרת — אל ' : 'אל '}
+                  <Ref naming={naming} id={fallOut[0].id} onSelect={onSelect} />
+                </span>
+              </p>
+            ) : fallOut.length > 0 ? (
+              <>
+                <p className="flow-line muted">
+                  {jumpsOut.length > 0
+                    ? 'אחרת — אל הראשון מבין אלה שמתאים למשיב:'
+                    : 'אל הראשון מבין אלה שמתאים למשיב:'}
+                </p>
+                <ol className="flow-cascade">
+                  {fallOut.map((s) => (
+                    <li key={s.id}>
+                      <Ref naming={naming} id={s.id} onSelect={onSelect} />
+                      {s.showIf
+                        ? ` — אם ${conditionSentence(naming, s.showIf, false, here)}`
+                        : ' — תמיד'}
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : null}
+            {fallOut.length === 0 && jumpsOut.length === 0 && (
+              <p className="flow-line warn">אין מכאן המשך — המשיב ייתקע כאן בלי להגיע למסך סיום.</p>
+            )}
+          </>
+        )}
+      </div>
 
-      {readers.length > 0 && (
-        <p className="flow-line muted">
-          תלויים בסימון הזה: {readers.length} מסכים
-          {readers.some((s) => screens.indexOf(s) < index) && ' — חלקם לפני המסך הזה, ושם הסימון עוד ריק'}
-        </p>
+      {setHere.length > 0 && (
+        <div className="flow-group">
+          <h4 className="flow-group-title">נקבע כאן</h4>
+          {setHere.map((rule, i) => {
+            const prev = setHere[i - 1];
+            const otherwise = prev !== undefined && isOtherwise(prev, rule);
+            return (
+              <p className="flow-line" key={i}>
+                <VarIcon width={13} height={13} />
+                <span>
+                  {otherwise ? (
+                    <>אחרת — ״{varLabel(naming, rule.var)}״ = ״{varValueLabel(naming, rule.var, rule.value)}״</>
+                  ) : (
+                    <>
+                      ״{varLabel(naming, rule.var)}״ = ״{varValueLabel(naming, rule.var, rule.value)}״
+                      {rule.if && ` — אם ${conditionSentence(naming, rule.if, false, here)}`}
+                    </>
+                  )}
+                </span>
+              </p>
+            );
+          })}
+          {readers.length > 0 && (
+            <p className="flow-line muted">
+              {readers.length === 1 ? 'מסך אחד בהמשך נשען' : `${readers.length} מסכים בהמשך נשענים`}{' '}
+              על הסימון הזה
+              {readers.some((s) => screens.indexOf(s) < index) &&
+                ' — וגם מסכים שבאים לפניו, ושם הוא עדיין ריק'}
+            </p>
+          )}
+        </div>
       )}
     </section>
   );
@@ -163,7 +214,7 @@ function screensReading(screens: Screen[], vars: string[]): Screen[] {
 
 function Ref({ naming, id, onSelect }: { naming: Naming; id: string; onSelect: (id: string) => void }) {
   const screen = naming.screens.find((s) => s.id === id);
-  if (!screen) return <span className="flow-ref missing">״{id}״ (מסך שנמחק)</span>;
+  if (!screen) return <span className="flow-ref missing">״{id}״ — מסך שנמחק</span>;
   return (
     <button className="flow-ref" onClick={() => onSelect(id)} title={id}>
       {naming.screens.indexOf(screen) + 1} · {screenLabel(screen)}

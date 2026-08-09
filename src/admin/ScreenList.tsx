@@ -129,8 +129,8 @@ function SortableItem({
         className="drag-handle"
         {...attributes}
         {...listeners}
-        aria-label={`גרירת המסך ${screen.id} לשינוי מיקומו`}
-        title="גרירה לשינוי סדר"
+        aria-label={`גרירת המסך ״${screenLabel(screen)}״ לשינוי מיקומו`}
+        title="גרירה כדי להזיז את המסך ברצף"
       >
         <GripIcon />
       </button>
@@ -142,12 +142,12 @@ function SortableItem({
           </span>
           <span className="screen-type-label">{screenKindLabel(screen)}</span>
           {hasError && (
-            <span className="badge badge-error" title="שגיאות ולידציה">
+            <span className="badge badge-error" title="יש כאן שגיאה שחוסמת פרסום">
               <ErrorIcon width={12} height={12} />
             </span>
           )}
           {!hasError && hasWarning && (
-            <span className="badge badge-warning" title="אזהרות ולידציה">
+            <span className="badge badge-warning" title="יש כאן אזהרה — כדאי לבדוק, אבל אפשר לפרסם">
               <WarningIcon width={12} height={12} />
             </span>
           )}
@@ -156,22 +156,23 @@ function SortableItem({
         {(screen.showIf || gotos.length > 0 || incoming.length > 0 || vars.length > 0) && (
           <span className="screen-badges">
             {screen.showIf && (
-              <span className="badge" title="מוצג בתנאי">
-                <EyeIcon width={12} height={12} /> מותנה
+              <span className="badge" title="המסך מוצג רק למי שעונה על תנאי מסוים">
+                <EyeIcon width={12} height={12} /> מוצג בתנאי
               </span>
             )}
             {gotos.length > 0 && (
               <span className="badge" title={`קופץ אל: ${gotos.map((g) => label(g)).join(' · ')}`}>
-                <BranchIcon width={12} height={12} /> {gotos.length} קפיצות החוצה
+                <BranchIcon width={12} height={12} />{' '}
+                {gotos.length === 1 ? 'קפיצה אחת מכאן' : `${gotos.length} קפיצות מכאן`}
               </span>
             )}
             {incoming.length > 0 && (
-              <span className="badge" title={`מגיעים מ: ${incoming.map((g) => label(g)).join(' · ')}`}>
-                ← {incoming.length} קפיצות פנימה
+              <span className="badge" title={`קופצים לכאן מ: ${incoming.map((g) => label(g)).join(' · ')}`}>
+                ← {incoming.length === 1 ? 'קפיצה אחת לכאן' : `${incoming.length} קפיצות לכאן`}
               </span>
             )}
             {vars.map((v) => (
-              <span key={v} className="badge" title="מסמן את המשיב כאן">
+              <span key={v} className="badge" title="המסך הזה מסמן כאן את המשיב">
                 <VarIcon width={12} height={12} /> {varName(v)}
               </span>
             ))}
@@ -232,7 +233,7 @@ function AddScreenForm({ screens, onAdd }: { screens: Screen[]; onAdd: ListProps
         ביטול
       </button>
       <details className="add-screen-code" open={touched}>
-        <summary>קוד לקובץ הנתונים</summary>
+        <summary>קוד המסך לקובץ הנתונים</summary>
         <input
           className="a-input"
           value={id}
@@ -241,11 +242,13 @@ function AddScreenForm({ screens, onAdd }: { screens: Screen[]; onAdd: ListProps
             setId(e.target.value);
           }}
           dir="ltr"
-          aria-label="קוד המסך"
+          aria-label="קוד המסך לקובץ הנתונים"
         />
         {trimmed && !idValid && (
           <p className="a-hint error-text">
-            {idTaken ? 'הקוד כבר קיים' : 'קוד חוקי: אותיות אנגליות, ספרות וקו תחתון, מתחיל באות'}
+            {idTaken
+              ? 'הקוד הזה כבר תפוס על ידי מסך אחר'
+              : 'הקוד צריך להתחיל באות אנגלית, ולהמשיך באותיות אנגליות, ספרות או קו תחתון'}
           </p>
         )}
       </details>

@@ -4,7 +4,7 @@
 // שתי הבחנות שהמסך מקפיד עליהן, כי טעות בהן עולה בנתונים:
 //   • טיוטה ≠ מה שמשיבים רואים. שאלון בלי גרסה שפורסמה — הקישור שלו לא
 //     יעבוד, ולכן נאמר כך במפורש ולא מוצג קישור לחיצה.
-//   • ארכוב ≠ מחיקה. ארכוב מפסיק לקבל משיבים חדשים ושומר הכל; מחיקה
+//   • ארכיון ≠ מחיקה. העברה לארכיון מפסיקה לקבל משיבים חדשים ושומרת הכל; מחיקה
 //     אפשרית רק לשאלון שלא פורסם מעולם ולכן אין לו נתונים.
 
 import { useMemo, useState, type ReactNode } from 'react';
@@ -49,7 +49,7 @@ export function SurveyList({ surveys, onOpen }: Props) {
         <div>
           <h2>השאלונים</h2>
           <p className="a-hint">
-            לכל שאלון טיוטה משלו וקישור משלו. הקישור מתחיל לעבוד רק אחרי פרסום גרסה ראשונה.
+            לכל שאלון יש טיוטה משלו וקישור משלו. הקישור מתחיל לעבוד רק אחרי שמפרסמים גרסה ראשונה.
           </p>
         </div>
         <button className="a-btn primary" onClick={() => setCreating(true)}>
@@ -57,11 +57,11 @@ export function SurveyList({ surveys, onOpen }: Props) {
         </button>
       </div>
 
-      {surveys.phase === 'loading' && <p className="a-hint">טוען שאלונים…</p>}
+      {surveys.phase === 'loading' && <p className="a-hint">טוענים את השאלונים…</p>}
 
       {surveys.phase === 'error' && (
         <div className="admin-empty subtle">
-          <p>טעינת רשימת השאלונים נכשלה.</p>
+          <p>לא הצלחנו לטעון את רשימת השאלונים.</p>
           <button className="a-btn primary" onClick={() => void surveys.reload()}>
             ניסיון נוסף
           </button>
@@ -70,7 +70,7 @@ export function SurveyList({ surveys, onOpen }: Props) {
 
       {surveys.phase === 'ready' && active.length === 0 && archived.length === 0 && (
         <div className="admin-empty subtle">
-          <p>עדיין אין שאלונים. אפשר ליצור את הראשון עכשיו.</p>
+          <p>עדיין אין כאן שאלונים. אפשר ליצור את הראשון עכשיו.</p>
           <button className="a-btn primary" onClick={() => setCreating(true)}>
             <PlusIcon /> שאלון חדש
           </button>
@@ -96,8 +96,8 @@ export function SurveyList({ surveys, onOpen }: Props) {
           {showArchived && (
             <>
               <p className="a-hint">
-                שאלונים מאורכבים לא מקבלים משיבים חדשים. הנתונים והגרסאות שפורסמו נשמרים, ומשיב
-                שכבר התחיל לענות יכול לסיים.
+                שאלון בארכיון לא מקבל משיבים חדשים. כל הנתונים והגרסאות שפורסמו נשמרים, ומי שכבר
+                התחיל לענות יכול לסיים.
               </p>
               {archived.map((s) => (
                 <SurveyCard
@@ -179,7 +179,7 @@ function SurveyCard({
           ) : published ? (
             <span className="chip chip-live">פעיל</span>
           ) : (
-            <span className="chip">טרם פורסם</span>
+            <span className="chip">עוד לא פורסם</span>
           )}
         </div>
 
@@ -193,7 +193,7 @@ function SurveyCard({
             </>
           ) : (
             <span className="a-hint">
-              <bdi dir="ltr">{url}</bdi> — יעבוד אחרי פרסום הגרסה הראשונה
+              <bdi dir="ltr">{url}</bdi> — יתחיל לעבוד אחרי פרסום הגרסה הראשונה
             </span>
           )}
         </div>
@@ -201,20 +201,20 @@ function SurveyCard({
         <p className="a-hint survey-meta">
           {published ? (
             <>
-              גרסה אחרונה <bdi dir="ltr">{survey.latest_version}</bdi> ({when(
+              הגרסה שפעילה עכשיו: <bdi dir="ltr">{survey.latest_version}</bdi>, פורסמה ב-{when(
                 survey.latest_published_at,
-              )}) · {survey.versions} גרסאות
+              )} · {survey.versions === 1 ? 'גרסה אחת בסך הכול' : `${survey.versions} גרסאות בסך הכול`}
             </>
           ) : (
             'עדיין לא פורסמה אף גרסה'
           )}
-          {survey.draft_updated_at && <> · טיוטה עודכנה {when(survey.draft_updated_at)}</>}
+          {survey.draft_updated_at && <> · הטיוטה עודכנה לאחרונה ב-{when(survey.draft_updated_at)}</>}
         </p>
       </div>
 
       <div className="survey-card-actions">
         <button className="a-btn primary small" onClick={() => onOpen(survey.slug)}>
-          עריכה
+          פתיחת העורך
         </button>
         <button className="a-btn ghost small" onClick={onRename} disabled={surveys.busy}>
           שינוי שם
@@ -225,16 +225,16 @@ function SurveyCard({
             onClick={() => void surveys.setArchived(survey.slug, false)}
             disabled={surveys.busy}
           >
-            החזרה מהארכיון
+            הוצאה מהארכיון
           </button>
         ) : (
           <button
             className="a-btn ghost small"
             onClick={() => void surveys.setArchived(survey.slug, true)}
             disabled={surveys.busy}
-            title="מפסיק לקבל משיבים חדשים; הנתונים נשמרים"
+            title="השאלון יפסיק לקבל משיבים חדשים. כל הנתונים נשמרים, ואפשר להוציא אותו מהארכיון בכל רגע"
           >
-            ארכוב
+            העברה לארכיון
           </button>
         )}
         {!published && (
@@ -242,7 +242,7 @@ function SurveyCard({
             className="a-btn danger-ghost small"
             onClick={onDelete}
             disabled={surveys.busy}
-            title="אפשר למחוק רק שאלון שלא פורסם מעולם"
+            title="אפשר למחוק רק שאלון שלא פורסם מעולם, ולכן אין לו תשובות"
           >
             <TrashIcon /> מחיקה
           </button>
@@ -269,7 +269,7 @@ function CopyLinkButton({ url }: { url: string }) {
         );
       }}
     >
-      <CopyIcon /> {copied ? 'הועתק ✓' : 'העתקת הקישור'}
+      <CopyIcon /> {copied ? 'הקישור הועתק ✓' : 'העתקת הקישור'}
     </button>
   );
 }
@@ -338,7 +338,7 @@ function CreateDialog({
   return (
     <Dialog title="שאלון חדש" onClose={onClose} busy={surveys.busy}>
       <label className="a-field">
-        <span className="a-label">שם השאלון (לתצוגה בקונסולה)</span>
+        <span className="a-label">שם השאלון — לשימוש שלכם בקונסולה בלבד</span>
         <input
           className="a-input"
           value={name}
@@ -349,7 +349,7 @@ function CreateDialog({
       </label>
 
       <label className="a-field">
-        <span className="a-label">מזהה בקישור (אנגלית, אותיות קטנות ומקפים)</span>
+        <span className="a-label">המזהה שיופיע בקישור (אותיות אנגליות קטנות, ספרות ומקפים)</span>
         <input
           className="a-input"
           value={effectiveSlug}
@@ -370,13 +370,14 @@ function CreateDialog({
       )}
       {effectiveSlug && !slugOk && (
         <p className="dialog-note error-note">
-          המזהה יכול להכיל אותיות אנגליות קטנות, ספרות ומקפים בלבד, ולא להתחיל או להסתיים במקף.
+          המזהה יכול להכיל אותיות אנגליות קטנות, ספרות ומקפים בלבד, והוא לא יכול להתחיל או להסתיים
+          במקף.
         </p>
       )}
       {duplicate && <p className="dialog-note error-note">כבר יש שאלון עם המזהה הזה.</p>}
       <p className="dialog-note">
-        המזהה קבוע — הוא מופיע בקישור שמחלקים למשיבים, ולכן אי אפשר לשנות אותו אחר כך. את השם אפשר
-        לשנות תמיד.
+        שימו לב: המזהה קבוע. הוא מופיע בקישור שמחלקים למשיבים, ולכן אי אפשר לשנות אותו אחר כך. את
+        השם אפשר לשנות מתי שרוצים.
       </p>
 
       <footer className="dialog-actions">
@@ -384,7 +385,7 @@ function CreateDialog({
           ביטול
         </button>
         <button className="a-btn primary" onClick={() => void submit()} disabled={!canSubmit}>
-          {surveys.busy ? 'יוצר…' : 'יצירה ומעבר לעורך'}
+          {surveys.busy ? 'יוצרים…' : 'יצירה ומעבר לעורך'}
         </button>
       </footer>
     </Dialog>
@@ -415,8 +416,8 @@ function RenameDialog({
         />
       </label>
       <p className="dialog-note">
-        המזהה בקישור (<bdi dir="ltr">{survey.slug}</bdi>) לא משתנה — הקישורים שכבר חולקו ימשיכו
-        לעבוד.
+        המזהה שבקישור (<bdi dir="ltr">{survey.slug}</bdi>) לא משתנה, ולכן כל הקישורים שכבר חולקו
+        ימשיכו לעבוד.
       </p>
       <footer className="dialog-actions">
         <button className="a-btn ghost" onClick={onClose} disabled={surveys.busy}>
@@ -448,15 +449,15 @@ function DeleteDialog({
   return (
     <Dialog title="מחיקת שאלון" onClose={onClose} busy={surveys.busy}>
       <p className="dialog-note error-note">
-        המחיקה מוחקת את השאלון "{survey.name}" ואת הטיוטה שלו לצמיתות. אין ביטול.
+        המחיקה תמחק את השאלון ״{survey.name}״ ואת הטיוטה שלו לצמיתות. אי אפשר לבטל אותה.
       </p>
       <p className="dialog-note">
-        השאלון הזה לא פורסם מעולם ולכן אין לו תשובות. לשאלון שכבר פורסם המחיקה חסומה — שם ארכוב הוא
-        הפעולה הנכונה.
+        השאלון הזה לא פורסם מעולם, ולכן אין לו תשובות. שאלון שכבר פורסם אי אפשר למחוק — שם הפעולה
+        הנכונה היא העברה לארכיון.
       </p>
       <label className="a-field">
         <span className="a-label">
-          לאישור, הקלידו את המזהה <bdi dir="ltr">{survey.slug}</bdi>
+          כדי לאשר, הקלידו כאן את המזהה <bdi dir="ltr">{survey.slug}</bdi>
         </span>
         <input
           className="a-input"

@@ -1,8 +1,9 @@
 // קונסולת הניהול (/admin): שער כניסה (Supabase Auth, first-edea.com בלבד),
 // ואחריו שני מסכים — רשימת השאלונים (/admin) ועורך של שאלון אחד
-// (/admin/<slug>): רשימת מסכים עם גרירה, עורך מסך, ולידציה חיה, שמירה ופרסום.
+// (/admin/<slug>): רשימת מסכים עם גרירה, עורך מסך, בדיקת תקינות חיה, שמירה ופרסום.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { Answers, Screen, SurveyConfig } from '../engine/types';
 import { simulatePath } from '../engine/path';
 import { validateConfig } from '../engine/validate';
@@ -10,7 +11,7 @@ import { isValidSlug, surveyPath } from '../data/surveys';
 import { useDraft } from './useDraft';
 import { useSurveys } from './useSurveys';
 import { insertScreen } from './edits';
-import { makeNaming } from './display';
+import { makeNaming, screenLabel } from './display';
 import { LoginScreen } from './LoginScreen';
 import { SurveyList } from './SurveyList';
 import { supabase } from './supabaseClient';
@@ -19,6 +20,7 @@ import { ScreenEditor } from './ScreenEditor';
 import { FlowGraph } from './FlowGraph';
 import { Simulator } from './Simulator';
 import { ValidationPanel } from './ValidationPanel';
+import { PanelResizer } from './PanelResizer';
 import { PublishDialog } from './PublishDialog';
 import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, RedoIcon, UndoIcon, WarningIcon } from './Icons';
 import './admin.css';
@@ -31,6 +33,39 @@ const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
  * הערך תואם לנקודת השבירה של .admin-body ב-admin.css.
  */
 const MIN_CONSOLE_WIDTH = 900;
+
+/* ---------- רוחב הפאנלים ---------- */
+
+const SIDEBAR_KEY = 'admin:sidebar-width';
+const DRAWER_KEY = 'admin:drawer-width';
+const SIDEBAR_DEFAULT = 320;
+const DRAWER_DEFAULT = 440;
+const PANEL_MIN = 240;
+const PANEL_MAX = 680;
+/** התרשים הוא המשטח הראשי — הפאנלים לא מורשים לבלוע אותו */
+const GRAPH_MIN = 360;
+
+const clampWidth = (w: number, max: number) => Math.min(Math.max(w, PANEL_MIN), Math.max(PANEL_MIN, max));
+
+/** רוחב שנשמר על מסך רחב לא יבלע את התרשים כשפותחים את הקונסולה על מסך צר */
+function readWidth(key: string, fallback: number): number {
+  let stored = fallback;
+  try {
+    const raw = Number(localStorage.getItem(key));
+    if (Number.isFinite(raw) && raw > 0) stored = raw;
+  } catch {
+    /* אחסון חסום — נשארים עם ברירת המחדל */
+  }
+  return clampWidth(stored, Math.min(PANEL_MAX, window.innerWidth - GRAPH_MIN));
+}
+
+function saveWidth(key: string, w: number) {
+  try {
+    localStorage.setItem(key, String(w));
+  } catch {
+    /* מצב פרטי / אחסון חסום — הרוחב פשוט לא ייזכר */
+  }
+}
 
 function useTooNarrow(): boolean {
   const [tooNarrow, setTooNarrow] = useState(
@@ -73,7 +108,7 @@ export default function AdminApp() {
     return (
       <div className="admin-app">
         <div className="login-screen">
-          <p className="a-hint">בודק הרשאות…</p>
+          <p className="a-hint">בודקים הרשאות…</p>
         </div>
       </div>
     );
@@ -155,8 +190,8 @@ function ConsoleTopbar({ email }: { email: string }) {
         <button
           className="a-icon-btn"
           onClick={() => void supabase.auth.signOut()}
-          aria-label="יציאה"
-          title="יציאה"
+          aria-label="יציאה מהחשבון"
+          title="יציאה מהחשבון"
         >
           <LogoutIcon />
         </button>
@@ -209,8 +244,10 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [publishOpen, setPublishOpen] = useState(false);
-  // null = ההרצה היבשה כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
+  // null = בדיקת המסלול כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
   const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
+  const [sidebarW, setSidebarW] = useState(() => readWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT));
+  const [drawerW, setDrawerW] = useState(() => readWidth(DRAWER_KEY, DRAWER_DEFAULT));
 
   // חזרה לרשימה עם שינויים לא שמורים מאבדת אותם — אותה אזהרה כמו ביציאה מהדף
   const leave = useCallback(() => {
@@ -218,9 +255,20 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
     onBack();
   }, [draft.dirty, onBack]);
 
-  // בחירת מסך מכל מקום (תרשים, רשימה, פאנל ולידציה) פותחת את מגירת העריכה
+  // בחירת מסך מכל מקום (תרשים, רשימה, פאנל השגיאות) פותחת את מגירת העריכה
   const selectScreen = useCallback((id: string | null) => {
     setSelectedId(id);
+  }, []);
+
+  // בחירה מחוץ לתרשים (רשימה, פאנל השגיאות, הקשר במגירה, בדיקת מסלול) היא גם בקשה
+  // "קח אותי לשם": בשאלון עם 70 מסכים סימון צומת שנמצא מחוץ למסך לא עוזר.
+  // מונה ולא רק מזהה — לחיצה חוזרת על אותו קישור מחזירה את המבט אליו.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
+  const focusNonce = useRef(0);
+  const revealScreen = useCallback((id: string) => {
+    setSelectedId(id);
+    focusNonce.current += 1;
+    setFocusRequest({ id, nonce: focusNonce.current });
   }, []);
 
   const config = draft.config;
@@ -229,6 +277,43 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
   const warningCount = issues.length - errorCount;
 
   const selected = config?.screens.find((s) => s.id === selectedId) ?? null;
+
+  // הגבול נקבע מול מה שכבר תפוס: מתחת ל-1280 המגירה צפה מעל התרשים ולא
+  // גוזלת ממנו רוחב, ולכן שם היא לא נכנסת לחשבון
+  const takenBy = (w: number) => (window.innerWidth > 1280 ? w : 0);
+  const clampSidebar = useCallback(
+    (w: number) => clampWidth(w, Math.min(PANEL_MAX, window.innerWidth - GRAPH_MIN - takenBy(selected ? drawerW : 0))),
+    [selected, drawerW],
+  );
+  const clampDrawer = useCallback(
+    (w: number) => clampWidth(w, Math.min(PANEL_MAX, window.innerWidth - GRAPH_MIN - takenBy(sidebarOpen ? sidebarW : 0))),
+    [sidebarOpen, sidebarW],
+  );
+
+  // הרוחבים השמורים נאכפים רק בזמן גרירה — אבל חלון שהוצר אחרי הטעינה (או
+  // שני פאנלים שנשמרו רחבים) הופך את הגריד לרחב מהחלון, וב-RTL העודף נשפך
+  // שמאלה: המגירה נחתכת בקצה המסך. לכן הרוחב בפועל מחושב מחדש בכל רינדור
+  // מול רוחב החלון: המגירה נסוגה ראשונה, אחריה הרשימה, והתרשים שומר על
+  // המינימום שלו.
+  const [viewportW, setViewportW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setViewportW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  let sidebarEff = sidebarW;
+  let drawerEff = drawerW;
+  if (viewportW > 1280) {
+    const room = viewportW - GRAPH_MIN;
+    let overflow = (sidebarOpen ? sidebarW : 0) + (selected ? drawerW : 0) - room;
+    if (overflow > 0 && selected) {
+      const shrink = Math.min(overflow, Math.max(0, drawerW - PANEL_MIN));
+      drawerEff = drawerW - shrink;
+      overflow -= shrink;
+    }
+    if (overflow > 0 && sidebarOpen) sidebarEff = Math.max(PANEL_MIN, sidebarW - overflow);
+  }
 
   const simPath = useMemo(
     () => (config && simAnswers ? simulatePath(config, simAnswers).map((s) => s.screen.id) : null),
@@ -370,12 +455,14 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
         <div className="topbar-status">
           {errorCount > 0 && (
             <span className="chip chip-error">
-              <ErrorIcon width={13} height={13} /> {errorCount} שגיאות
+              <ErrorIcon width={13} height={13} />{' '}
+              {errorCount === 1 ? 'שגיאה אחת' : `${errorCount} שגיאות`}
             </span>
           )}
           {warningCount > 0 && (
             <span className="chip chip-warning">
-              <WarningIcon width={13} height={13} /> {warningCount} אזהרות
+              <WarningIcon width={13} height={13} />{' '}
+              {warningCount === 1 ? 'אזהרה אחת' : `${warningCount} אזהרות`}
             </span>
           )}
           {draft.dirty && <span className="chip chip-dirty">שינויים לא שמורים</span>}
@@ -394,8 +481,8 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
             className="a-icon-btn"
             onClick={draft.redo}
             disabled={!draft.canRedo}
-            aria-label="ביצוע מחדש"
-            title={`ביצוע מחדש (${isMac ? '⌘⇧Z' : 'Ctrl+Y'})`}
+            aria-label="ביצוע הפעולה מחדש"
+            title={`ביצוע הפעולה מחדש (${isMac ? '⌘⇧Z' : 'Ctrl+Y'})`}
           >
             <RedoIcon />
           </button>
@@ -410,18 +497,18 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
             className={`a-btn ${simAnswers ? 'primary' : 'secondary'}`}
             onClick={() => setSimAnswers((a) => (a ? null : {}))}
             disabled={draft.phase !== 'ready'}
-            title="לענות כמו משיב ולראות את המסלול שנוצר"
+            title="לענות כמו משיב, ולראות בדיוק לאילו מסכים הוא יגיע"
           >
-            הרצה יבשה
+            בדיקת מסלול
           </button>
           <a
             className="a-btn secondary"
             href={surveyPath(slug)}
             target="_blank"
             rel="noreferrer"
-            title="פתיחת השאלון כפי שהמשיבים רואים אותו (הגרסה שפורסמה)"
+            title="פתיחת השאלון כפי שהמשיבים רואים אותו — הגרסה האחרונה שפורסמה"
           >
-            צפייה
+            צפייה בשאלון
           </a>
           <button
             className="a-btn primary"
@@ -444,7 +531,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
         </div>
       </header>
 
-      {draft.phase === 'loading' && <div className="admin-empty">טוען טיוטה…</div>}
+      {draft.phase === 'loading' && <div className="admin-empty">טוענים את הטיוטה…</div>}
 
       {draft.phase === 'error' && (
         <div className="admin-empty">
@@ -471,47 +558,66 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
         <div className="admin-empty">
           <p>לשאלון הזה עדיין אין טיוטה. אפשר להתחיל משאלון הדגמה ולערוך אותו.</p>
           <button className="a-btn primary" onClick={() => void draft.createFromDemo()} disabled={draft.saving}>
-            יצירת טיוטה מהדמו
+            התחלה משאלון הדגמה
           </button>
         </div>
       )}
 
       {draft.phase === 'ready' && config && (
-        <div className={`admin-body${sidebarOpen ? '' : ' sidebar-closed'}${selected ? ' drawer-open' : ''}`}>
+        <div
+          className={`admin-body${sidebarOpen ? '' : ' sidebar-closed'}${selected ? ' drawer-open' : ''}`}
+          style={{ '--sidebar-w': `${sidebarEff}px`, '--drawer-w': `${drawerEff}px` } as CSSProperties}
+        >
           <aside className="admin-sidebar">
-            <ScreenList
-              screens={config.screens}
-              naming={naming}
-              selectedId={selectedId}
-              issues={issues}
-              onSelect={selectScreen}
-              onReorder={(from, to) =>
-                guardedUpdate((cfg) => {
-                  const screens = [...cfg.screens];
-                  const [moved] = screens.splice(from, 1);
-                  screens.splice(to, 0, moved);
-                  return { ...cfg, screens };
-                })
-              }
-              onAdd={(type, id) => {
-                // מסך חדש לא יכול ליצור מעגל, ולכן update ישיר ולא guardedUpdate
-                draft.update((cfg) => ({
-                  ...cfg,
-                  screens: insertScreen(cfg.screens, newScreen(type, id), selectedId),
-                }));
-                selectScreen(id);
+            <div className="admin-sidebar-scroll">
+              <ScreenList
+                screens={config.screens}
+                naming={naming}
+                selectedId={selectedId}
+                issues={issues}
+                onSelect={revealScreen}
+                onReorder={(from, to) =>
+                  guardedUpdate((cfg) => {
+                    const screens = [...cfg.screens];
+                    const [moved] = screens.splice(from, 1);
+                    screens.splice(to, 0, moved);
+                    return { ...cfg, screens };
+                  })
+                }
+                onAdd={(type, id) => {
+                  // מסך חדש לא יכול ליצור מעגל, ולכן update ישיר ולא guardedUpdate
+                  draft.update((cfg) => ({
+                    ...cfg,
+                    screens: insertScreen(cfg.screens, newScreen(type, id), selectedId),
+                  }));
+                  selectScreen(id);
+                }}
+              />
+            </div>
+            <PanelResizer
+              edge="sidebar"
+              width={sidebarEff}
+              label="שינוי רוחב רשימת המסכים"
+              clampWidth={clampSidebar}
+              onWidth={(w, done) => {
+                setSidebarW(w);
+                if (done) saveWidth(SIDEBAR_KEY, w);
+              }}
+              onReset={() => {
+                setSidebarW(SIDEBAR_DEFAULT);
+                saveWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT);
               }}
             />
           </aside>
           <main className="admin-main">
-            <ValidationPanel issues={issues} naming={naming} onSelectScreen={selectScreen} />
+            <ValidationPanel issues={issues} naming={naming} onSelectScreen={revealScreen} />
             {simAnswers && (
               <Simulator
                 config={config}
                 naming={naming}
                 answers={simAnswers}
                 onAnswers={setSimAnswers}
-                onSelect={selectScreen}
+                onSelect={revealScreen}
                 onClose={() => setSimAnswers(null)}
               />
             )}
@@ -521,12 +627,27 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
               selectedId={selectedId}
               naming={naming}
               simPath={simPath}
+              focusRequest={focusRequest}
               onSelect={selectScreen}
               onUpdate={guardedUpdate}
             />
           </main>
           {selected && (
-            <aside className="editor-drawer" aria-label={`עריכת המסך ${selected.id}`}>
+            <aside className="editor-drawer" aria-label={`עריכת המסך ״${screenLabel(selected)}״`}>
+              <PanelResizer
+                edge="drawer"
+                width={drawerEff}
+                label="שינוי רוחב חלון העריכה"
+                clampWidth={clampDrawer}
+                onWidth={(w, done) => {
+                  setDrawerW(w);
+                  if (done) saveWidth(DRAWER_KEY, w);
+                }}
+                onReset={() => {
+                  setDrawerW(DRAWER_DEFAULT);
+                  saveWidth(DRAWER_KEY, DRAWER_DEFAULT);
+                }}
+              />
               <div className="drawer-head">
                 <strong>עריכת מסך</strong>
                 <button className="a-icon-btn" onClick={() => setSelectedId(null)} aria-label="סגירת העורך" title="סגירה">
@@ -538,7 +659,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
                 config={config}
                 screen={selected}
                 naming={naming}
-                onSelect={selectScreen}
+                onSelect={revealScreen}
                 onDefineVar={defineVar}
                 onDefineVarValue={defineVarValue}
                 onChange={(next) => updateScreen(selected.id, next)}
@@ -552,7 +673,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
                   }));
                 }}
                 onDelete={() => {
-                  if (!window.confirm(`למחוק את המסך "${selected.id}"?`)) return;
+                  if (!window.confirm(`למחוק את המסך ״${screenLabel(selected)}״?`)) return;
                   guardedUpdate((cfg) => ({
                     ...cfg,
                     screens: cfg.screens.filter((s) => s.id !== selected.id),
@@ -581,7 +702,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
             <div className="cycle-toast" role="alert">
               <ErrorIcon width={16} height={16} />
               <div>
-                <strong>הפעולה נחסמה — היא הייתה יוצרת לולאה אינסופית</strong>
+                <strong>הפעולה בוטלה — היא הייתה יוצרת לולאה שהמשיב לא יוכל לצאת ממנה</strong>
                 <p>{cycleBlock}</p>
               </div>
               <button
@@ -629,7 +750,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
               העורך בנוי למסך רחב: תרשים הזרימה, רשימת המסכים ומגירת העריכה עובדים זה לצד זה
               וזקוקים לרוחב של {MIN_CONSOLE_WIDTH} פיקסלים לפחות.
             </p>
-            <p>אפשר לפתוח אותו במחשב, או להרחיב את החלון — העבודה שלכם נשמרת בינתיים.</p>
+            <p>אפשר לפתוח אותו במחשב, או להרחיב את החלון — מה שערכתם נשאר פתוח כאן בינתיים.</p>
             <button className="a-btn secondary" onClick={leave}>
               → חזרה לרשימת השאלונים
             </button>
@@ -639,17 +760,17 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
 
       {draft.conflict && config && (
         <div className="dialog-backdrop">
-          <div className="dialog" role="alertdialog" aria-modal="true" aria-label="התנגשות שמירה">
+          <div className="dialog" role="alertdialog" aria-modal="true" aria-label="מישהו אחר שמר את הטיוטה">
             <header className="dialog-head">
-              <h2>הטיוטה עודכנה במקביל</h2>
+              <h2>מישהו אחר שמר את הטיוטה</h2>
             </header>
             <p className="dialog-note">
-              מישהו אחר שמר את הטיוטה מאז שנטענה. כדי לא לדרוס את השינויים שלו — נטען מחדש את
-              הגרסה העדכנית. השינויים שלא נשמרו כאן יאבדו.
+              מאז שהטיוטה נטענה כאן, מישהו אחר שמר גרסה חדשה שלה. כדי לא למחוק את העבודה שלו,
+              נטען עכשיו את הגרסה העדכנית — והשינויים שלא נשמרו כאן יאבדו.
             </p>
             <p className="dialog-note">
-              לפני הטעינה מחדש אפשר להעתיק את הגרסה שעל המסך, כדי להשוות אליה או לשחזר ממנה
-              ידנית אחר כך.
+              לפני הטעינה מחדש אפשר להעתיק את הגרסה שעל המסך, כדי להשוות אליה או להעתיק ממנה
+              חלקים בחזרה.
             </p>
             <footer className="dialog-actions">
               <CopyConfigButton config={config} />
@@ -689,9 +810,9 @@ function CopyConfigButton({ config }: { config: SurveyConfig }) {
   }
 
   const labels = {
-    idle: 'העתקת ה-JSON שלי',
-    copied: 'הועתק ✓',
-    downloaded: 'הורד כקובץ ✓',
+    idle: 'העתקת הגרסה שעל המסך',
+    copied: 'הועתקה ללוח ✓',
+    downloaded: 'ירדה כקובץ ✓',
   };
   return (
     <button className="a-btn ghost" onClick={() => void rescue()}>

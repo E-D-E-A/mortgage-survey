@@ -8,7 +8,7 @@
 import type { Condition, Op, Screen } from '../engine/types';
 import type { Naming } from './display';
 import { conditionSentence, screenRef, varLabel } from './display';
-import { LIST_OPS, OP_LABELS } from './labels';
+import { LIST_OPS, OP_LABELS_ANSWER, OP_LABELS_MARK } from './labels';
 import { CloseIcon, PlusIcon } from './Icons';
 
 type Kind = 'q' | 'var' | 'all' | 'any' | 'not';
@@ -20,12 +20,15 @@ function kindOf(cond: Condition): Kind {
   return 'q' in cond ? 'q' : 'var';
 }
 
+// "סימון" ולא "משתנה" — אותו שם שהמסכים האחרים משתמשים בו לאותו מושג.
+// הקבוצות נכתבות כמשפט שלם ("כל התנאים מתקיימים") ולא כשם הפעולה הלוגית:
+// "וגם / או / לא" מחייבים את הקורא לתרגם, והתרגום הזה הוא בדיוק מה שנשבר.
 const KIND_LABELS: Record<Kind, string> = {
-  q: 'תשובה לשאלה',
-  var: 'משתנה',
-  all: 'כל התנאים (וגם)',
-  any: 'לפחות אחד (או)',
-  not: 'לא (שלילה)',
+  q: 'לפי תשובה לשאלה',
+  var: 'לפי סימון על המשיב',
+  all: 'כל התנאים שבפנים מתקיימים',
+  any: 'לפחות תנאי אחד שבפנים מתקיים',
+  not: 'ההפך — התנאי שבפנים לא מתקיים',
 };
 
 /** מסכים שאפשר להתנות עליהם — למסך מידע ולמסך סיום אין תשובה. */
@@ -114,7 +117,7 @@ export function ConditionBuilder({ value, onChange, onRemove, naming }: BuilderP
           className="a-select cond-kind"
           value={kind}
           onChange={(e) => switchKind(e.target.value as Kind)}
-          aria-label="סוג תנאי"
+          aria-label="על מה התנאי מסתכל"
         >
           {(Object.keys(KIND_LABELS) as Kind[]).map((k) => (
             <option key={k} value={k}>
@@ -123,7 +126,7 @@ export function ConditionBuilder({ value, onChange, onRemove, naming }: BuilderP
           ))}
         </select>
         {onRemove && (
-          <button className="a-icon-btn" onClick={onRemove} aria-label="הסרת תנאי" title="הסרת תנאי">
+          <button className="a-icon-btn" onClick={onRemove} aria-label="הסרת התנאי הזה" title="הסרת התנאי הזה">
             <CloseIcon />
           </button>
         )}
@@ -152,6 +155,9 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
   const needsValue = leaf.op !== 'answered';
   const isList = LIST_OPS.includes(leaf.op);
   const options = knownValues(naming, leaf);
+  // הרשימה מנוסחת כהמשך של הנושא, ולכן היא תלויה בו: "התשובה היא…" מול
+  // "מסלול המשיב הוא…"
+  const opLabels = isQ ? OP_LABELS_ANSWER : OP_LABELS_MARK;
 
   function patch(p: Partial<Leaf>) {
     const base = isQ
@@ -183,7 +189,7 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
           className="a-select cond-subject"
           value={leaf.q}
           onChange={(e) => patch({ q: e.target.value, value: '' })}
-          aria-label="שאלה"
+          aria-label="השאלה שהתנאי בודק"
           title={leaf.q}
         >
           {!questionScreens(naming).some((s) => s.id === leaf.q) && (
@@ -200,7 +206,7 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
           className="a-select cond-subject"
           value={leaf.var}
           onChange={(e) => patch({ var: e.target.value, value: '' })}
-          aria-label="משתנה"
+          aria-label="הסימון שהתנאי בודק"
           title={leaf.var}
         >
           {!naming.vars.includes(leaf.var ?? '') && (
@@ -218,11 +224,11 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
         className="a-select"
         value={leaf.op}
         onChange={(e) => changeOp(e.target.value as Op)}
-        aria-label="אופרטור"
+        aria-label={isQ ? 'מה בודקים בתשובה' : 'מה בודקים בסימון'}
       >
-        {(Object.keys(OP_LABELS) as Op[]).map((op) => (
+        {(Object.keys(opLabels) as Op[]).map((op) => (
           <option key={op} value={op}>
-            {OP_LABELS[op]}
+            {opLabels[op]}
           </option>
         ))}
       </select>
@@ -248,8 +254,8 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
                   : parseScalar(raw),
               });
             }}
-            placeholder={isList ? 'ערכים מופרדים בפסיק' : 'ערך'}
-            aria-label="ערך"
+            placeholder={isList ? 'כמה ערכים, מופרדים בפסיק' : 'הערך להשוואה'}
+            aria-label="הערך להשוואה"
           />
         ))}
     </div>
@@ -279,10 +285,10 @@ function ValuePicker({
         className="a-select cond-value"
         value={current}
         onChange={(e) => onChange(e.target.value)}
-        aria-label="ערך"
+        aria-label="התשובה להשוואה"
       >
         {!options.some(([id]) => id === current) && (
-          <option value={current}>{current || '— בחירת תשובה —'}</option>
+          <option value={current}>{current || '— בחרו תשובה —'}</option>
         )}
         {options.map(([id, label]) => (
           <option key={id} value={id}>
@@ -365,7 +371,7 @@ export function OptionalCondition({
         <span className="a-label">{label}</span>
         {value ? (
           <button className="a-btn ghost small" onClick={() => onChange(undefined)}>
-            הסרת התנאי (תמיד)
+            הסרת התנאי — יקרה תמיד
           </button>
         ) : (
           <button className="a-btn ghost small" onClick={() => onChange(defaultLeaf(naming))}>

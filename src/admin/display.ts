@@ -24,10 +24,12 @@ export function makeNaming(config: SurveyConfig): Naming {
 
 const MAX_LABEL = 70;
 
+// מה קרה למשיב שהגיע לכאן, ולא שם הקטגוריה ("סינון") — ההבדל בין השלושה הוא
+// כל מה שמבדיל מסך סיום אחד ממשנהו, והוא צריך להיקרא בלי לדעת את המילון.
 const END_VARIANT_LABELS: Record<'complete' | 'screenout' | 'quotafull', string> = {
-  complete: 'השלמה',
-  screenout: 'סינון',
-  quotafull: 'מכסה מלאה',
+  complete: 'ענה על הכול',
+  screenout: 'לא מתאים למחקר',
+  quotafull: 'המכסה כבר מלאה',
 };
 
 const CONSENT_ANSWERS: Record<string, string> = {
@@ -92,8 +94,24 @@ export function varValueLabel(naming: Naming, name: string, value: unknown): str
   return naming.varMeta[name]?.values?.[raw] ?? raw;
 }
 
-/** מקף מחבר בסוף הביטוי = נצמד לערך ("קטן מ־18"); כל השאר מופרד ברווח. */
-const OP_PHRASES: Record<Op, string> = {
+/** מקף מחבר בסוף הביטוי = נצמד לערך ("קטנה מ־18"); כל השאר מופרד ברווח. */
+
+// נושא המשפט בעלה-שאלה הוא תמיד "התשובה" — לשון נקבה.
+const OP_PHRASES_ANSWER: Record<Op, string> = {
+  eq: 'היא',
+  ne: 'אינה',
+  lt: 'קטנה מ־',
+  lte: 'קטנה או שווה ל־',
+  gt: 'גדולה מ־',
+  gte: 'גדולה או שווה ל־',
+  in: 'היא אחת מאלה:',
+  includes: 'כוללת את',
+  includesAny: 'כוללת לפחות אחד מאלה:',
+  answered: '', // מנוסח בנפרד — "יש תשובה"
+};
+
+// סימונים ("מסלול המשיב") נשארים בלשון זכר סתמית.
+const OP_PHRASES_VAR: Record<Op, string> = {
   eq: 'הוא',
   ne: 'אינו',
   lt: 'קטן מ־',
@@ -103,20 +121,44 @@ const OP_PHRASES: Record<Op, string> = {
   in: 'הוא אחד מאלה:',
   includes: 'כולל את',
   includesAny: 'כולל לפחות אחד מאלה:',
-  answered: 'נענתה',
+  answered: 'נקבע',
 };
 
 type Leaf = { q?: string; var?: string; op: Op; value?: unknown };
 
-function leafSentence(naming: Naming, leaf: Leaf): string {
+/**
+ * מי "העצמי" במשפט: כשהתנאי מפנה למסך שבו העורך עומד, אין טעם לצטט לו את
+ * השאלה של עצמו — כותבים "התשובה כאן" (או נוסח אחר שהקורא מספק, כמו "התשובה שם").
+ */
+export interface SentenceOpts {
+  selfId?: string;
+  selfText?: string;
+}
+
+/** ערכים בתוך משפט נחתכים קצר מכותרות — שניים-שלושה מהם יושבים באותה שורה. */
+const MAX_VALUE = 45;
+
+function leafSentence(naming: Naming, leaf: Leaf, opts?: SentenceOpts): string {
   const isQ = leaf.q !== undefined;
-  const subject = isQ ? `״${screenLabel(findScreen(naming, leaf.q!))}״` : varLabel(naming, leaf.var!);
-  if (leaf.op === 'answered') return `${subject} — נענתה`;
+  const self = isQ && opts?.selfId !== undefined && leaf.q === opts.selfId;
+  // נושא המשפט: בשאלה — תמיד "התשובה", כי על התשובה מדובר, לא על נוסח השאלה
+  const subject = self
+    ? (opts?.selfText ?? 'התשובה כאן')
+    : isQ
+      ? `התשובה ל״${screenLabel(findScreen(naming, leaf.q!))}״`
+      : varLabel(naming, leaf.var!);
+  if (leaf.op === 'answered') {
+    if (!isQ) return `${subject} נקבע`;
+    return self
+      ? 'יש תשובה כאן'
+      : `יש תשובה ל״${screenLabel(findScreen(naming, leaf.q!))}״`;
+  }
   const values = Array.isArray(leaf.value) ? leaf.value : [leaf.value];
   const text = values
     .map((v) => (isQ ? answerLabel(naming, leaf.q!, v) : varValueLabel(naming, leaf.var!, v)))
+    .map((t) => (t.length > MAX_VALUE ? `${t.slice(0, MAX_VALUE - 1)}…` : t))
     .join(' / ');
-  const phrase = OP_PHRASES[leaf.op];
+  const phrase = (isQ ? OP_PHRASES_ANSWER : OP_PHRASES_VAR)[leaf.op];
   return `${subject} ${phrase}${phrase.endsWith('־') ? '' : ' '}${text}`.trim();
 }
 
@@ -128,27 +170,37 @@ function findScreen(naming: Naming, id: string): Screen {
  * התנאי כמשפט אחד בעברית. הבנייה הרקורסיבית מסגרת קבוצות מקוננות בסוגריים —
  * בלי זה "א וגם ב או ג" קריא אבל דו-משמעי, וזו בדיוק הטעות שעולה ביוקר.
  */
-export function conditionSentence(naming: Naming, cond: Condition, nested = false): string {
+export function conditionSentence(
+  naming: Naming,
+  cond: Condition,
+  nested = false,
+  opts?: SentenceOpts,
+): string {
   if ('all' in cond || 'any' in cond) {
     const parts = 'all' in cond ? cond.all : cond.any;
     const joiner = 'all' in cond ? ' וגם ' : ' או ';
     if (parts.length === 0) return nested ? '(תמיד)' : 'תמיד';
-    if (parts.length === 1) return conditionSentence(naming, parts[0], nested);
-    const body = parts.map((c) => conditionSentence(naming, c, true)).join(joiner);
+    if (parts.length === 1) return conditionSentence(naming, parts[0], nested, opts);
+    const body = parts.map((c) => conditionSentence(naming, c, true, opts)).join(joiner);
     return nested ? `(${body})` : body;
   }
+  // "לא נכון ש" ולא "לא" לבדו: השלילה נקראת כמשפט ולא כסימן מתמטי.
   // תמיד בסוגריים: "לא א וגם ב" נקרא בשתי דרכים, ו-nested=false מבטיח זוג אחד
-  if ('not' in cond) return `לא (${conditionSentence(naming, cond.not)})`;
-  return leafSentence(naming, cond as Leaf);
+  if ('not' in cond) return `לא נכון ש: (${conditionSentence(naming, cond.not, false, opts)})`;
+  return leafSentence(naming, cond as Leaf, opts);
 }
 
 /** התנאי כמשפט, או "תמיד" כשאין תנאי — כדי שקורא לא יצטרך לטפל ב-undefined. */
-export function optionalConditionSentence(naming: Naming, cond: Condition | undefined): string {
-  return cond ? conditionSentence(naming, cond) : 'תמיד';
+export function optionalConditionSentence(
+  naming: Naming,
+  cond: Condition | undefined,
+  opts?: SentenceOpts,
+): string {
+  return cond ? conditionSentence(naming, cond, false, opts) : 'תמיד';
 }
 
 /**
- * הודעות הוולידציה נכתבות במנוע — משותף לשרת — ולכן הן מצטטות מזהים. במקום
+ * הודעות בדיקת התקינות נכתבות במנוע — משותף לשרת — ולכן הן מצטטות מזהים. במקום
  * לשכפל את הנוסח לקונסולה, כל מזהה מוכר בתוך מרכאות מוחלף כאן בשם שלו.
  * מה שאינו מוכר (ערך אפשרות, מספר) נשאר כמו שהוא — עדיף מזהה גלוי מהחלפה שגויה.
  */

@@ -1,4 +1,4 @@
-// הרצה יבשה: האדמין עונה על השאלות שמנתבות, ורואה בדיוק לאן זה מוביל.
+// בדיקת מסלול: האדמין עונה על השאלות שמנתבות, ורואה בדיוק לאן זה מוביל.
 //
 // זה הכלי שהופך שאלון מסועף מ"אוסף תנאים" ל"מסלול" — כי הוא לא מסביר את
 // הכללים אלא מריץ אותם. המנוע הוא אותו simulatePath שנבדק מול ההרצה האמיתית,
@@ -50,18 +50,18 @@ export function Simulator({ config, naming, answers, onAnswers, onSelect, onClos
   const set = (id: string, value: AnswerValue) => onAnswers({ ...answers, [id]: value });
 
   return (
-    <aside className="simulator" aria-label="הרצה יבשה">
+    <aside className="simulator" aria-label="בדיקת מסלול">
       <div className="simulator-head">
-        <strong>הרצה יבשה</strong>
-        <span className="a-hint">עונים כמו משיב — התרשים מסמן את המסלול</span>
-        <button className="a-icon-btn" onClick={onClose} aria-label="סגירת ההרצה">
+        <strong>בדיקת מסלול</strong>
+        <span className="a-hint">ענו כמו משיב, והתרשים יסמן לאן הוא מגיע</span>
+        <button className="a-icon-btn" onClick={onClose} aria-label="סגירת בדיקת המסלול">
           <CloseIcon />
         </button>
       </div>
 
       <div className="simulator-answers">
         {questions.length === 0 && (
-          <p className="a-hint">אין בשאלון תנאים שתלויים בתשובות — כל המשיבים עוברים אותו מסלול.</p>
+          <p className="a-hint">אין בשאלון תנאי שתלוי בתשובה — כל המשיבים עוברים אותו מסלול.</p>
         )}
         {questions.map((screen) => (
           <div className="sim-question" key={screen.id}>
@@ -73,15 +73,15 @@ export function Simulator({ config, naming, answers, onAnswers, onSelect, onClos
         ))}
         {Object.keys(answers).length > 0 && (
           <button className="a-btn ghost small" onClick={() => onAnswers({})}>
-            ניקוי התשובות
+            ניקוי כל התשובות
           </button>
         )}
       </div>
 
       <div className="simulator-path">
         <div className="sim-summary">
-          המסלול: {steps.length} מסכים
-          {last && <> · מסתיים ב״{screenLabel(last.screen)}״</>}
+          המשיב הזה יראה {steps.length} מסכים
+          {last && <> · ויסיים ב״{screenLabel(last.screen)}״</>}
         </div>
         <ol className="sim-steps">
           {steps.map(({ screen, vars }, i) => {
@@ -120,7 +120,7 @@ function AnswerPicker({
   if (screen.type === 'consent') {
     return (
       <select className="a-select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
-        <option value="">— לא נענתה —</option>
+        <option value="">— בלי תשובה —</option>
         <option value="agreed">{screen.agreeLabel}</option>
         <option value="declined">{screen.declineLabel}</option>
       </select>
@@ -130,7 +130,7 @@ function AnswerPicker({
   if (screen.type === 'single') {
     return (
       <select className="a-select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
-        <option value="">— לא נענתה —</option>
+        <option value="">— בלי תשובה —</option>
         {screen.options.map((o) => (
           <option key={o.id} value={o.id}>
             {o.label.trim() || o.id}
@@ -180,7 +180,7 @@ function AnswerPicker({
       className="a-input"
       value={typeof value === 'string' ? value : ''}
       onChange={(e) => onChange(e.target.value)}
-      placeholder="תשובה"
+      placeholder="תשובת המשיב"
     />
   );
 }
