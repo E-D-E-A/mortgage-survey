@@ -56,7 +56,8 @@
   padding: var(--space-2) var(--space-4);
   background: #03071e;
   color: var(--text);
-  /* נשמר גבול 1px — גבהי ה-sticky בהמשך מחושבים לפי 49px */
+  /* הגובה בפועל נמדד ב-AdminApp ומוזן כ---topbar-h — פאנלים דביקים
+     שמחושבים לפי קבוע היו נחתכים בתחתית המסך בכל פעם שהסרגל גדל בפיקסל */
   border-block-end: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -186,9 +187,9 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 .editor-drawer {
   border-inline-start: 1px solid var(--border);
   background: var(--card);
-  height: calc(100dvh - 49px);
+  height: calc(100dvh - var(--topbar-h, 49px));
   position: sticky;
-  top: 49px;
+  top: var(--topbar-h, 49px);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -219,7 +220,7 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 
   .editor-drawer {
     position: fixed;
-    top: 49px;
+    top: var(--topbar-h, 49px);
     inset-inline-end: 0;
     width: min(var(--drawer-w), 92vw);
     z-index: 30;
@@ -236,9 +237,9 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 .admin-sidebar {
   border-inline-end: 1px solid var(--border);
   background: var(--card);
-  height: calc(100dvh - 49px);
+  height: calc(100dvh - var(--topbar-h, 49px));
   position: sticky;
-  top: 49px;
+  top: var(--topbar-h, 49px);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -261,7 +262,7 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 .admin-sidebar-scroll > * { direction: rtl; }
 
 .admin-main {
-  height: calc(100dvh - 49px);
+  height: calc(100dvh - var(--topbar-h, 49px));
   padding: var(--space-4);
   display: flex;
   flex-direction: column;

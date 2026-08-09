@@ -3,7 +3,7 @@
 // (/admin/<slug>): רשימת מסכים עם גרירה, עורך מסך, בדיקת תקינות חיה, שמירה ופרסום.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import type { Answers, Screen, SurveyConfig } from '../engine/types';
 import { simulatePath } from '../engine/path';
 import { validateConfig } from '../engine/validate';
@@ -65,6 +65,30 @@ function saveWidth(key: string, w: number) {
   } catch {
     /* מצב פרטי / אחסון חסום — הרוחב פשוט לא ייזכר */
   }
+}
+
+/**
+ * מודד את הגובה האמיתי של הסרגל העליון ומזין אותו ל-CSS כ---topbar-h.
+ * הפאנלים הדביקים (רשימה, תרשים, מגירה) מחשבים את גובהם ממנו — קבוע קשיח
+ * (49px) נשבר בכל פעם שהסרגל גדל בפיקסל, וכל הפאנלים חרגו מתחתית המסך.
+ */
+function useMeasuredTopbar(): {
+  appRef: RefObject<HTMLDivElement | null>;
+  topbarRef: RefObject<HTMLElement | null>;
+} {
+  const appRef = useRef<HTMLDivElement | null>(null);
+  const topbarRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const app = appRef.current;
+    const bar = topbarRef.current;
+    if (!app || !bar) return;
+    const apply = () => app.style.setProperty('--topbar-h', `${bar.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
+  return { appRef, topbarRef };
 }
 
 function useTooNarrow(): boolean {
@@ -275,6 +299,7 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
   const issues = useMemo(() => (config ? validateConfig(config) : []), [config]);
   const errorCount = issues.filter((i) => i.level === 'error').length;
   const warningCount = issues.length - errorCount;
+  const { appRef, topbarRef } = useMeasuredTopbar();
 
   const selected = config?.screens.find((s) => s.id === selectedId) ?? null;
 
@@ -432,8 +457,8 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
   );
 
   return (
-    <div className="admin-app">
-      <header className="topbar">
+    <div className="admin-app" ref={appRef}>
+      <header className="topbar" ref={topbarRef}>
         <div className="topbar-title">
           <button
             className="a-icon-btn"
