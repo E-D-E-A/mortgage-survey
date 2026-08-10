@@ -58,4 +58,23 @@ describe('fall-through neighbours', () => {
     // מ-a3 (segment=A) אי אפשר לנחות על b1 (segment=B)
     expect(ids(fallThroughTargets(screens, 3))).not.toContain('b1');
   });
+
+  // נמצא בבדיקת ההגרלה ב-flow-fidelity.test.ts: קפיצת goto אינה בודקת את
+  // showIf של היעד, ולכן מסך שהוא יעד goto אינו מבטיח את תנאי התצוגה של
+  // עצמו — ואי אפשר לגזום לפיו. גיזום כזה הסתיר מעבר שקורה בפועל.
+  it('keeps contradicting branches when the source can be jumped into by a goto', () => {
+    const jumped = [
+      info('intro', { next: [{ if: inB, goto: 'a1' }] }),
+      info('a1', { showIf: inA }),
+      info('b1', { showIf: inB }),
+      info('demog'),
+    ];
+    // a1 הוצג אף שה-segment הוא B (קפיצה מפורשת), ולכן b1 הוא המשך אמיתי
+    expect(ids(fallThroughTargets(jumped, 1))).toEqual(['b1', 'demog']);
+  });
+
+  it('still prunes by the source condition when nothing jumps into it', () => {
+    const noJump = [info('intro'), info('a1', { showIf: inA }), info('b1', { showIf: inB }), info('demog')];
+    expect(ids(fallThroughTargets(noJump, 1))).toEqual(['demog']);
+  });
 });

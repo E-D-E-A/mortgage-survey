@@ -1,49 +1,10 @@
 // קצה כתיבה יחיד לאירועי השאלון. הדפדפן שולח לכאן — בלי שום מפתח.
 // המפתחות (service_role) חיים רק בסביבת השרת של Netlify ולעולם לא נשלחים ללקוח.
-// service_role עוקף RLS, ולכן כל האכיפה נמצאת כאן: whitelist שדות, enum, מגבלות גודל.
+//
+// חוזה השורה עצמו (whitelist שדות, enum, מגבלות גודל) יושב ב-lib/event-schema.ts,
+// כדי שהבדיקות יוכלו להריץ את השורות שהדפדפן מייצר דרך אותו קוד בדיוק.
 
-// ⚠ חייב להישאר מסונכרן עם EventType ב-src/data/events.ts ועם ה-check על
-// survey_events ב-supabase/schema.sql — סוג חסר כאן מפיל אצווה שלמה ל-400.
-const EVENT_TYPES = new Set([
-  'session_start',
-  'screen_view',
-  'answer',
-  'complete',
-  'screenout',
-  'quotafull',
-]);
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_BATCH = 20;
-const MAX_BODY_BYTES = 200_000;
-const MAX_PAYLOAD_CHARS = 50_000;
-
-interface EventRow {
-  event_uid: string;
-  session_id: string;
-  survey_version: string;
-  event_type: string;
-  screen_id: string | null;
-  payload: Record<string, unknown>;
-  client_ts: string;
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-// מחזיר שורה נקייה (רק השדות המוכרים) או null אם השורה פסולה.
-function sanitizeRow(raw: unknown): EventRow | null {
-  if (!isPlainObject(raw)) return null;
-  const { event_uid, session_id, survey_version, event_type, screen_id, payload, client_ts } = raw;
-  if (typeof event_uid !== 'string' || !UUID_RE.test(event_uid)) return null;
-  if (typeof session_id !== 'string' || !UUID_RE.test(session_id)) return null;
-  if (typeof survey_version !== 'string' || survey_version.length === 0 || survey_version.length > 100) return null;
-  if (typeof event_type !== 'string' || !EVENT_TYPES.has(event_type)) return null;
-  if (screen_id !== null && (typeof screen_id !== 'string' || screen_id.length > 200)) return null;
-  if (!isPlainObject(payload) || JSON.stringify(payload).length > MAX_PAYLOAD_CHARS) return null;
-  if (typeof client_ts !== 'string' || Number.isNaN(Date.parse(client_ts))) return null;
-  return { event_uid, session_id, survey_version, event_type, screen_id, payload, client_ts };
-}
+import { MAX_BATCH, MAX_BODY_BYTES, sanitizeRow, type EventRow } from './lib/event-schema';
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {

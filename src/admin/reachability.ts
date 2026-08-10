@@ -88,6 +88,18 @@ function alwaysJumps(screen: Screen): boolean {
 }
 
 /**
+ * האם אפשר להגיע למסך בקפיצת goto מפורשת.
+ *
+ * ⚠ קפיצת goto *אינה* בודקת את showIf של היעד (ראו findNext): המנוע מחזיר את
+ * המסך המבוקש כמו שהוא. לכן במסך שהוא יעד goto אסור להניח שתנאי התצוגה שלו
+ * מתקיים, וההקשר לסריקה קדימה נופל — אחרת נגזמות נחיתות אמיתיות והתרשים
+ * מסתיר מעבר שיקרה בפועל.
+ */
+function isGotoTarget(screens: Screen[], id: string): boolean {
+  return screens.some((s) => (s.next ?? []).some((r) => r.goto === id));
+}
+
+/**
  * המסכים שהמנוע יכול לנחות עליהם כשהוא ממשיך מ-`index` ברצף, לפי הסדר.
  * הראשון הוא ההמשך הרגיל; השאר הם החלופות אם הוא מדולג.
  */
@@ -95,7 +107,7 @@ export function fallThroughTargets(screens: Screen[], index: number): Screen[] {
   const source = screens[index];
   if (!source || source.type === 'end' || alwaysJumps(source)) return [];
 
-  const context = usableContext(source);
+  const context = isGotoTarget(screens, source.id) ? [] : usableContext(source);
   const out: Screen[] = [];
   let j = index + 1;
   while (j < screens.length) {

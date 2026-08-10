@@ -51,11 +51,20 @@ node qa/graph-touch.mjs    # צביטה ופאן בתרשים הזרימה
 
 ## מה לא מכוסה
 
-- צינור האירועים בפרודקשן (תור ב-localStorage, retry, `flush` ב-`pagehide`) —
-  בפיתוח האירועים נכתבים לקונסול בלבד.
-- `config-get` והצמדת גרסה לסשן — פעילים רק ב-`import.meta.env.PROD`.
-- זרימת ה-OAuth האמיתית מול Google ואכיפת הדומיין בשרת (`lib/session.ts`).
-- ה-Netlify Functions עצמן — הן מוחלפות בסטאבים.
+**כאן** לא מכוסים הדברים האלה — אבל `npm test` כן מכסה אותם (ראו סעיף "בדיקות"
+ב-README הראשי), ולכן זה חלוקת עבודה ולא חור:
+
+- צינור האירועים בפרודקשן (תור ב-localStorage, retry, אצוות) — כאן האירועים
+  נכתבים לקונסול בלבד; ב-`src/data/journey.test.tsx` הוא נבדק מקצה לקצה.
+- `config-get` והצמדת גרסה לסשן — פעילים רק ב-`import.meta.env.PROD`;
+  נבדקים ב-`src/data/config-pinning.test.ts` ובבדיקות הפונקציות.
+- ה-Netlify Functions עצמן — כאן הן סטאבים; הן נבדקות ב-`netlify/functions/__tests__/`.
+
+ומה שלא מכוסה בשום מקום:
+
+- זרימת ה-OAuth האמיתית מול Google (אכיפת הדומיין בשרת כן נבדקת —
+  `netlify/functions/__tests__/session.test.ts`).
+- הרצה של `supabase/schema.sql` מול Postgres אמיתי.
 - **גרירת צמתים וחיבור קשתות בתרשים במסך מגע.** הם בנויים על pointer events
   ולכן אמורים לעבוד, אבל `graph-touch.mjs` בודק רק צביטה ופאן. הבדיקה גם
   מנטרלת את `setPointerCapture` — היא מאמתת את הלוגיקה, לא את הדפדפן סביבה.
