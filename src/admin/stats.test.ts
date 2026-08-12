@@ -2,6 +2,7 @@
 // הערכים הצפויים מחושבים ביד — לא נגזרים מהקוד הנבדק.
 import { describe, expect, it } from 'vitest';
 import {
+  binNumbers,
   formatCount,
   formatDuration,
   formatPercent,
@@ -214,6 +215,115 @@ describe('questionCards', () => {
     // בגרסה בודדת אין מה להעיר
     const single = questionCards(distRows, distFunnel, distVersions, 'v2');
     expect(single[0].spansVersions).toBeNull();
+  });
+});
+
+// ─── מטריצה והיסטוגרמה (ENG-17) ─────────────────────────────────────────────
+
+const mxConfig = {
+  version: 'm1',
+  screens: [
+    {
+      id: 'trust',
+      type: 'matrix' as const,
+      prompt: 'עד כמה סומכים?',
+      items: [
+        { id: 'bank', label: 'הבנק' },
+        { id: 'advisor', label: 'יועץ' },
+      ],
+      scaleMin: 1,
+      scaleMax: 5,
+      minLabel: 'כלל לא',
+      maxLabel: 'מאוד',
+      naLabel: 'לא רלוונטי',
+    },
+    { id: 'budget', type: 'number' as const, prompt: 'תקציב?' },
+    { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+  ],
+};
+const mxVersions = [{ version: 'm1', published_at: '2026-08-01', config: mxConfig }];
+const mxDist = [
+  { screen_id: 'trust', item_id: 'bank', answer_key: '4', n: 1 },
+  { screen_id: 'trust', item_id: 'bank', answer_key: '5', n: 3 },
+  { screen_id: 'trust', item_id: 'advisor', answer_key: '2', n: 2 },
+  { screen_id: 'trust', item_id: 'advisor', answer_key: 'na', n: 1 },
+  { screen_id: 'trust', item_id: 'old_item', answer_key: '3', n: 1 },
+  { screen_id: 'budget', item_id: null, answer_key: '400000', n: 3 },
+  { screen_id: 'budget', item_id: null, answer_key: '650000', n: 1 },
+  { screen_id: 'budget', item_id: null, answer_key: '2250000', n: 2 },
+];
+const mxFunnel = [
+  { screen_id: 'trust', viewed: 6, answered: 5, dropped_here: 0, median_ms: 9000 },
+  { screen_id: 'budget', viewed: 6, answered: 6, dropped_here: 0, median_ms: 7000 },
+];
+
+describe('questionCards — matrix', () => {
+  const matrix = () => questionCards(mxDist, mxFunnel, mxVersions, 'all')[0].matrix!;
+
+  it('shapes per-item counts in config order, appending items that left the config', () => {
+    const m = matrix();
+    expect(m.scaleMin).toBe(1);
+    expect(m.scaleMax).toBe(5);
+    expect(m.items.map((i) => [i.id, i.label, i.retiredItem ?? false])).toEqual([
+      ['bank', 'הבנק', false],
+      ['advisor', 'יועץ', false],
+      ['old_item', 'old_item', true],
+    ]);
+    expect(m.items[0].counts).toEqual({ '4': 1, '5': 3 });
+  });
+
+  it('computes the mean over numeric answers only — na is its own count, never averaged', () => {
+    const [bank, advisor] = matrix().items;
+    expect(bank.mean).toBeCloseTo(4.75); // (4·1 + 5·3) / 4
+    expect(bank.n).toBe(4);
+    expect(bank.na).toBe(0);
+    expect(advisor.mean).toBeCloseTo(2);
+    expect(advisor.n).toBe(2);
+    expect(advisor.na).toBe(1);
+  });
+});
+
+describe('questionCards — number values', () => {
+  it('parses numeric atoms sorted ascending', () => {
+    const budget = questionCards(mxDist, mxFunnel, mxVersions, 'all')[1];
+    expect(budget.numberValues).toEqual([
+      { value: 400000, count: 3 },
+      { value: 650000, count: 1 },
+      { value: 2250000, count: 2 },
+    ]);
+  });
+});
+
+describe('binNumbers', () => {
+  it('picks a clean bin width and aligned edges (hand-computed: span 1.85M → width 500K)', () => {
+    const bins = binNumbers(
+      [
+        { value: 400000, count: 3 },
+        { value: 650000, count: 1 },
+        { value: 2250000, count: 2 },
+      ],
+      7,
+    );
+    expect(bins.map((b) => b.count)).toEqual([3, 1, 0, 0, 2]);
+    expect(bins[0]).toMatchObject({ from: 0, to: 500000 });
+    expect(bins[4]).toMatchObject({ from: 2000000, to: 2500000 });
+  });
+
+  it('handles small integer spans with width 1', () => {
+    const bins = binNumbers(
+      [
+        { value: 7, count: 2 },
+        { value: 12, count: 1 },
+      ],
+      7,
+    );
+    expect(bins[0]).toMatchObject({ from: 7, to: 8, count: 2 });
+    expect(bins[bins.length - 1]).toMatchObject({ from: 12, to: 13, count: 1 });
+  });
+
+  it('a single distinct value gets a single bin; no values, no bins', () => {
+    expect(binNumbers([{ value: 40, count: 5 }], 7)).toEqual([{ from: 40, to: 41, count: 5 }]);
+    expect(binNumbers([], 7)).toEqual([]);
   });
 });
 

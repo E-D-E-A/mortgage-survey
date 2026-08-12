@@ -136,6 +136,29 @@ export interface ChoiceBar {
 
 export type ClosedType = 'single' | 'multi' | 'matrix' | 'number';
 
+export interface MatrixItemModel {
+  id: string;
+  label: string;
+  /** ספירה לפי מפתח ציון ('1'..'5'); na אינו כאן */
+  counts: Record<string, number>;
+  na: number;
+  /** מספר העונים המספריים (בלי na) */
+  n: number;
+  /** ממוצע הציונים המספריים; null כשאין אף ציון */
+  mean: number | null;
+  /** פריט שקיים בנתונים אך לא בקונפיג הנוכחי */
+  retiredItem?: boolean;
+}
+
+export interface MatrixCardModel {
+  scaleMin: number;
+  scaleMax: number;
+  minLabel: string;
+  maxLabel: string;
+  naLabel?: string;
+  items: MatrixItemModel[];
+}
+
 export interface QuestionCardModel {
   screenId: string;
   label: string;
@@ -144,9 +167,13 @@ export interface QuestionCardModel {
   base: number;
   /** מספר הגרסאות המשולבות כשסט התשובות שונה ביניהן; null = אין מה להעיר */
   spansVersions: number | null;
-  /** single/multi בלבד; מטריצות ומספרים נבנים מ-atoms בכרטיסים שלהם */
+  /** single/multi בלבד */
   bars?: ChoiceBar[];
-  /** האטומים הגולמיים של המסך — למטריצה ולהיסטוגרמה */
+  /** מטריצה בלבד */
+  matrix?: MatrixCardModel;
+  /** number בלבד: ערכים מספריים ממוינים — ה-binning קורה בהיסטוגרמה */
+  numberValues?: { value: number; count: number }[];
+  /** האטומים הגולמיים של המסך */
   atoms: DistStat[];
 }
 
@@ -231,7 +258,109 @@ export function questionCards(
       }
     }
 
-    cards.push({ screenId: screen.id, label: screenLabel(screen), type, base, spansVersions, bars, atoms });
+    let matrix: MatrixCardModel | undefined;
+    if (screen.type === 'matrix') {
+      const byItem = new Map<string, DistStat[]>();
+      for (const a of atoms) {
+        if (a.item_id === null) continue;
+        const list = byItem.get(a.item_id) ?? [];
+        list.push(a);
+        byItem.set(a.item_id, list);
+      }
+      const buildItem = (id: string, label: string, retiredItem?: boolean): MatrixItemModel => {
+        const counts: Record<string, number> = {};
+        let na = 0;
+        let n = 0;
+        let sum = 0;
+        for (const a of byItem.get(id) ?? []) {
+          const score = Number(a.answer_key);
+          if (Number.isFinite(score)) {
+            counts[a.answer_key] = a.n;
+            n += a.n;
+            sum += score * a.n;
+          } else {
+            na += a.n;
+          }
+        }
+        return { id, label, counts, na, n, mean: n > 0 ? sum / n : null, retiredItem };
+      };
+      const items = screen.items.map((i) => buildItem(i.id, i.label));
+      const known = new Set(screen.items.map((i) => i.id));
+      for (const id of [...byItem.keys()].sort()) {
+        if (!known.has(id)) items.push(buildItem(id, id, true));
+      }
+      matrix = {
+        scaleMin: screen.scaleMin,
+        scaleMax: screen.scaleMax,
+        minLabel: screen.minLabel,
+        maxLabel: screen.maxLabel,
+        naLabel: screen.naLabel,
+        items,
+      };
+    }
+
+    let numberValues: { value: number; count: number }[] | undefined;
+    if (screen.type === 'number') {
+      numberValues = atoms
+        .map((a) => ({ value: Number(a.answer_key), count: a.n }))
+        .filter((v) => Number.isFinite(v.value))
+        .sort((a, b) => a.value - b.value);
+    }
+
+    cards.push({
+      screenId: screen.id,
+      label: screenLabel(screen),
+      type,
+      base,
+      spansVersions,
+      bars,
+      matrix,
+      numberValues,
+      atoms,
+    });
   }
   return cards;
+}
+
+// ─── היסטוגרמה (ENG-17) ─────────────────────────────────────────────────────
+
+export interface NumberBin {
+  from: number;
+  to: number;
+  count: number;
+}
+
+/** רוחב-סל "נקי": 1/2/5 × 10^k — הקרוב מלמעלה לרוחב הגולמי */
+function niceWidth(raw: number): number {
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const frac = raw / pow;
+  const step = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+/**
+ * חלוקת ערכים לסלים בגבולות עגולים: הרוחב נבחר כך שמספר הסלים ≤ target,
+ * והקצוות מיושרים לכפולות הרוחב — "0–500,000" ולא "400,123–723,456".
+ */
+export function binNumbers(
+  values: { value: number; count: number }[],
+  targetBins: number,
+): NumberBin[] {
+  if (values.length === 0) return [];
+  const min = values[0].value;
+  const max = values[values.length - 1].value;
+  if (min === max) return [{ from: min, to: min + 1, count: values.reduce((s, v) => s + v.count, 0) }];
+
+  const width = niceWidth((max - min) / targetBins);
+  const start = Math.floor(min / width) * width;
+  const binCount = Math.floor((max - start) / width) + 1;
+  const bins: NumberBin[] = Array.from({ length: binCount }, (_, i) => ({
+    from: start + i * width,
+    to: start + (i + 1) * width,
+    count: 0,
+  }));
+  for (const v of values) {
+    bins[Math.min(Math.floor((v.value - start) / width), binCount - 1)].count += v.count;
+  }
+  return bins;
 }
