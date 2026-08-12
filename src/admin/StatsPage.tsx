@@ -13,13 +13,20 @@ import {
 } from './api';
 import {
   binNumbers,
+  binNumbersByDim,
+  chosenConfig,
+  dimensionLegend,
+  dimensionOptions,
   formatCount,
   formatDuration,
   formatPercent,
   orderFunnel,
   overviewTiles,
   questionCards,
+  UNKNOWN_DIM_KEY,
+  type DimensionLegend,
   type QuestionCardModel,
+  type SplitSpec,
 } from './stats';
 import { LogoutIcon } from './Icons';
 import { supabase } from './supabaseClient';
@@ -42,12 +49,13 @@ type Load =
 export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError }: Props) {
   const [version, setVersion] = useState<string>('all');
   const [includeTest, setIncludeTest] = useState(false);
+  const [by, setBy] = useState('');
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
 
   const fetchNow = useCallback(async () => {
     setLoad({ phase: 'loading' });
     try {
-      const bundle = await getStats(slug, { version, includeTest });
+      const bundle = await getStats(slug, { version, includeTest, by: by || undefined });
       setLoad({ phase: 'ready', bundle });
     } catch (e) {
       if (e instanceof UnauthorizedError || e instanceof ForbiddenError) {
@@ -56,7 +64,7 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
       }
       setLoad({ phase: 'error', status: e instanceof ApiError ? e.status : undefined });
     }
-  }, [slug, version, includeTest, onAuthError]);
+  }, [slug, version, includeTest, by, onAuthError]);
 
   useEffect(() => {
     void fetchNow();
@@ -110,6 +118,23 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
                 ))}
               </select>
             </label>
+            <label className="stats-control">
+              פילוח לפי
+              <select
+                className="a-input"
+                value={by}
+                onChange={(e) => setBy(e.target.value)}
+                disabled={!bundle || bundle.versions.length === 0}
+              >
+                <option value="">בלי פילוח</option>
+                {bundle &&
+                  dimensionOptions(bundle.versions, version).map((d) => (
+                    <option key={d.key} value={d.key}>
+                      {d.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <label className="stats-control stats-toggle" title="סשנים שנפתחו מקישור עם ?test=1">
               <input
                 type="checkbox"
@@ -144,7 +169,7 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
               {bundle.overview.total_sessions > 0 && (
                 <>
                   <FunnelSection bundle={bundle} version={version} />
-                  <DistributionsSection bundle={bundle} version={version} />
+                  <DistributionsSection bundle={bundle} version={version} by={by} />
                 </>
               )}
             </>
@@ -200,22 +225,54 @@ function FunnelSection({ bundle, version }: { bundle: StatsBundle; version: stri
   );
 }
 
-function DistributionsSection({ bundle, version }: { bundle: StatsBundle; version: string }) {
-  const cards = questionCards(bundle.distributions, bundle.funnel, bundle.versions, version);
+function DistributionsSection({
+  bundle,
+  version,
+  by,
+}: {
+  bundle: StatsBundle;
+  version: string;
+  by: string;
+}) {
+  // הפילוח פעיל רק אם השרת באמת החזיר את המימד הזה (bundle.by) — אחרת
+  // הנתונים שביד הם ללא פילוח והמקרא היה משקר
+  const active = by !== '' && bundle.by === by;
+  const legend: DimensionLegend | null = active
+    ? dimensionLegend(bundle.distributions, by, chosenConfig(bundle.versions, version))
+    : null;
+  const split: SplitSpec | undefined =
+    legend && legend.mode === 'ok' ? { legend, bases: bundle.bases } : undefined;
+  const cards = questionCards(bundle.distributions, bundle.funnel, bundle.versions, version, split);
   if (cards.length === 0) return null;
   return (
     <section aria-label="התפלגויות תשובות">
       <h2 className="stats-section-title">מה ענו — שאלה אחר שאלה</h2>
+      {legend?.mode === 'refused' && (
+        <p className="a-hint">
+          למימד הזה יש {formatCount(legend.distinct)} ערכים שונים — יותר מדי בשביל תרשים קריא
+          (המקסימום 12). ההתפלגויות מוצגות בלי פילוח.
+        </p>
+      )}
+      {split && (
+        <div className="dim-legend" role="list" aria-label="מקרא הפילוח">
+          {split.legend.values.map((v) => (
+            <span key={v.key ?? '∅'} className="dim-chip" role="listitem">
+              <span className="dim-swatch" style={{ background: v.color }} />
+              {v.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="q-cards">
         {cards.map((card) => (
-          <QuestionCard key={card.screenId} card={card} />
+          <QuestionCard key={card.screenId} card={card} split={split} />
         ))}
       </div>
     </section>
   );
 }
 
-function QuestionCard({ card }: { card: QuestionCardModel }) {
+function QuestionCard({ card, split }: { card: QuestionCardModel; split?: SplitSpec }) {
   return (
     <article className="q-card">
       <header className="q-card-head">
@@ -235,11 +292,11 @@ function QuestionCard({ card }: { card: QuestionCardModel }) {
       {card.base === 0 ? (
         <p className="a-hint">אף אחד עוד לא ענה על השאלה הזאת.</p>
       ) : card.bars ? (
-        <ChoiceBars card={card} />
+        <ChoiceBars card={card} split={split} />
       ) : card.matrix ? (
-        <MatrixChart matrix={card.matrix} />
+        <MatrixChart matrix={card.matrix} split={split} />
       ) : card.numberValues ? (
-        <NumberHistogram values={card.numberValues} />
+        <NumberHistogram card={card} split={split} />
       ) : null}
       {card.type === 'multi' && card.base > 0 && (
         <p className="a-hint q-note">אחוז מהעונים; אפשר לבחור כמה אפשרויות, ולכן הסכום עשוי לעבור 100%.</p>
@@ -252,7 +309,8 @@ function QuestionCard({ card }: { card: QuestionCardModel }) {
  * עמודות אופקיות ב-RTL: הבסיס בצד ימין (inline-start), הקצה המעוגל בקצה
  * הנתון בלבד; הערך יושב בקצה כל עמודה — טקסט בטוקן טקסט, לא בצבע הסדרה.
  */
-function ChoiceBars({ card }: { card: QuestionCardModel }) {
+function ChoiceBars({ card, split }: { card: QuestionCardModel; split?: SplitSpec }) {
+  if (split) return <GroupedChoiceBars card={card} split={split} />;
   const max = Math.max(...card.bars!.map((b) => b.ratio ?? 0), 0.0001);
   return (
     <div className="q-bars" role="img" aria-label={`התפלגות: ${card.label}`}>
@@ -271,6 +329,48 @@ function ChoiceBars({ card }: { card: QuestionCardModel }) {
             {formatCount(bar.count)}
             {bar.ratio !== null && <span className="q-bar-pct"> · {formatPercent(bar.ratio)}</span>}
           </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * מצב פילוח: לכל אפשרות תת-עמודה לכל ערך מימד, בסדר ובצבעי המקרא. האחוז של
+ * כל קבוצה מחושב מתוך העונים באותה קבוצה (stats_bases) — לא מתוך כלל העונים.
+ */
+function GroupedChoiceBars({ card, split }: { card: QuestionCardModel; split: SplitSpec }) {
+  const max = Math.max(
+    ...card.bars!.flatMap((b) => (b.groups ?? []).map((g) => g.ratio ?? 0)),
+    0.0001,
+  );
+  return (
+    <div className="q-bars grouped" role="img" aria-label={`התפלגות מפולחת: ${card.label}`}>
+      {card.bars!.map((bar) => (
+        <div key={bar.id} className="q-group">
+          <span className={`q-bar-label${bar.retiredOption ? ' retired' : ''}`} title={bar.label}>
+            {bar.retiredOption ? <code dir="ltr">{bar.id}</code> : bar.label}
+          </span>
+          {(bar.groups ?? []).map((g, i) => (
+            <div key={g.key ?? '∅'} className="q-bar-row slim">
+              <span className="q-bar-track slim">
+                <span
+                  className="q-bar-fill slim"
+                  style={{
+                    inlineSize: `${((g.ratio ?? 0) / max) * 100}%`,
+                    background: split.legend.values[i].color,
+                  }}
+                  title={`${split.legend.values[i].label}: ${formatCount(g.count)}`}
+                />
+              </span>
+              <span className="q-bar-value">
+                {formatCount(g.count)}
+                {g.ratio !== null && (
+                  <span className="q-bar-pct"> · {formatPercent(g.ratio)}</span>
+                )}
+              </span>
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -299,9 +399,53 @@ function scaleColor(idx: number, steps: number): string {
   return `#${[ch(r1, r2), ch(g1, g2), ch(b1, b2)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-function MatrixChart({ matrix }: { matrix: NonNullable<QuestionCardModel['matrix']> }) {
+function MatrixChart({
+  matrix,
+  split,
+}: {
+  matrix: NonNullable<QuestionCardModel['matrix']>;
+  split?: SplitSpec;
+}) {
   const steps = matrix.scaleMax - matrix.scaleMin + 1;
   const keys = Array.from({ length: steps }, (_, i) => String(matrix.scaleMin + i));
+
+  const track = (counts: Record<string, number>, na: number) => {
+    const total = Object.values(counts).reduce((s, c) => s + c, 0) + na;
+    if (total === 0) return <span className="a-hint">—</span>;
+    return (
+      <>
+        {keys.map((k, i) => {
+          const count = counts[k] ?? 0;
+          if (count === 0) return null;
+          return (
+            <span
+              key={k}
+              className="mx-seg"
+              style={{ inlineSize: `${(count / total) * 100}%`, background: scaleColor(i, steps) }}
+              title={`${k}: ${formatCount(count)}`}
+            />
+          );
+        })}
+        {na > 0 && (
+          <span
+            className="mx-seg"
+            style={{ inlineSize: `${(na / total) * 100}%`, background: NA_COLOR }}
+            title={`${matrix.naLabel ?? 'na'}: ${formatCount(na)}`}
+          />
+        )}
+      </>
+    );
+  };
+
+  const meanCell = (mean: number | null) =>
+    mean !== null ? (
+      <>
+        ממוצע <span className="q-bar-pct">{formatMean(mean)}</span>
+      </>
+    ) : (
+      '—'
+    );
+
   return (
     <div className="mx-chart">
       <div className="mx-legend" aria-hidden="true">
@@ -317,50 +461,33 @@ function MatrixChart({ matrix }: { matrix: NonNullable<QuestionCardModel['matrix
           </>
         )}
       </div>
-      {matrix.items.map((item) => {
-        const total = item.n + item.na;
-        return (
+      {matrix.items.map((item) =>
+        split && item.variants ? (
+          <div key={item.id} className="mx-item-block">
+            <span className={`q-bar-label${item.retiredItem ? ' retired' : ''}`} title={item.label}>
+              {item.retiredItem ? <code dir="ltr">{item.id}</code> : item.label}
+            </span>
+            {item.variants.map((variant, i) => (
+              <div key={variant.key ?? '∅'} className="mx-row slim">
+                <span className="mx-dim-label" title={split.legend.values[i].label}>
+                  <span className="dim-swatch" style={{ background: split.legend.values[i].color }} />
+                  {split.legend.values[i].label}
+                </span>
+                <span className="mx-track slim">{track(variant.counts, variant.na)}</span>
+                <span className="q-bar-value">{meanCell(variant.mean)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
           <div key={item.id} className="mx-row">
             <span className={`q-bar-label${item.retiredItem ? ' retired' : ''}`} title={item.label}>
               {item.retiredItem ? <code dir="ltr">{item.id}</code> : item.label}
             </span>
-            <span className="mx-track">
-              {total === 0 ? (
-                <span className="a-hint">—</span>
-              ) : (
-                keys.map((k, i) => {
-                  const count = item.counts[k] ?? 0;
-                  if (count === 0) return null;
-                  return (
-                    <span
-                      key={k}
-                      className="mx-seg"
-                      style={{ inlineSize: `${(count / total) * 100}%`, background: scaleColor(i, steps) }}
-                      title={`${k}: ${formatCount(count)}`}
-                    />
-                  );
-                })
-              )}
-              {item.na > 0 && (
-                <span
-                  className="mx-seg"
-                  style={{ inlineSize: `${(item.na / total) * 100}%`, background: NA_COLOR }}
-                  title={`${matrix.naLabel ?? 'na'}: ${formatCount(item.na)}`}
-                />
-              )}
-            </span>
-            <span className="q-bar-value">
-              {item.mean !== null ? (
-                <>
-                  ממוצע <span className="q-bar-pct">{formatMean(item.mean)}</span>
-                </>
-              ) : (
-                '—'
-              )}
-            </span>
+            <span className="mx-track">{track(item.counts, item.na)}</span>
+            <span className="q-bar-value">{meanCell(item.mean)}</span>
           </div>
-        );
-      })}
+        ),
+      )}
     </div>
   );
 }
@@ -368,12 +495,54 @@ function MatrixChart({ matrix }: { matrix: NonNullable<QuestionCardModel['matrix
 const formatMean = (mean: number): string =>
   new Intl.NumberFormat('he-IL', { maximumFractionDigits: 1 }).format(mean);
 
-function NumberHistogram({ values }: { values: { value: number; count: number }[] }) {
-  const bins = binNumbers(values, 7);
-  if (bins.length === 0) return <p className="a-hint">אין ערכים מספריים.</p>;
-  const max = Math.max(...bins.map((b) => b.count));
+function NumberHistogram({ card, split }: { card: QuestionCardModel; split?: SplitSpec }) {
+  const values = card.numberValues!;
   const total = values.reduce((s, v) => s + v.count, 0);
+  if (total === 0) return <p className="a-hint">אין ערכים מספריים.</p>;
   const mean = values.reduce((s, v) => s + v.value * v.count, 0) / total;
+
+  if (split) {
+    // אותם סלים לכל הקבוצות — השוואה דורשת צירים זהים; עמודה צמודה לכל קבוצה
+    const bins = binNumbersByDim(card.atoms, 7);
+    const max = Math.max(
+      ...bins.flatMap((b) => Object.values(b.counts)),
+      1,
+    );
+    return (
+      <div className="nh-chart">
+        <div className="nh-plot" dir="ltr">
+          {bins.map((bin) => (
+            <div
+              key={bin.from}
+              className="nh-col-slot cluster"
+              title={`${formatCount(bin.from)}–${formatCount(bin.to)}`}
+            >
+              <span className="nh-cluster">
+                {split.legend.values.map((v) => {
+                  const count = bin.counts[v.key ?? UNKNOWN_DIM_KEY] ?? 0;
+                  return (
+                    <span
+                      key={v.key ?? '∅'}
+                      className="nh-col slim"
+                      style={{ blockSize: `${(count / max) * 100}%`, background: v.color }}
+                      title={`${v.label}: ${formatCount(count)}`}
+                    />
+                  );
+                })}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="nh-axis" dir="ltr">
+          <span>{formatCount(bins[0].from)}</span>
+          <span>{formatCount(bins[bins.length - 1].to)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const bins = binNumbers(values, 7);
+  const max = Math.max(...bins.map((b) => b.count));
   return (
     <div className="nh-chart">
       {/* ציר מספרי קוראים משמאל לימין גם בעברית */}

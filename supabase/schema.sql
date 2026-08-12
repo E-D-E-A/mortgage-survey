@@ -369,27 +369,40 @@ grant select on public.final_answers to service_role;
 --   מערך (רב-ברירה)     → אטום לכל אפשרות שנבחרה
 --   אובייקט (מטריצה)    → אטום לכל פריט, item_id = הפריט, המפתח = הציון/na
 --   null (דילוג מכוון)   → לא אטום; נספר בסטטיסטיקות התשובות הפתוחות בלבד
--- התוצאה: ספירות גולמיות לפי (מסך, פריט, מפתח) — תוויות ואחוזים בדפדפן.
+-- פילוח (p_by): שם משתנה סשן אפקטיבי, או ‎_outcome‎ לתוצאת הסשן. סשן בלי
+-- ערך למימד מקבל dim_value=null — "לא ידוע" בתצוגה, לעולם לא נזרק.
+-- התוצאה: ספירות גולמיות לפי (מסך, פריט, מפתח, מימד) — תוויות ואחוזים בדפדפן.
 drop function if exists public.stats_distributions(text, text, boolean);
-create function public.stats_distributions(p_survey text, p_version text, p_include_test boolean)
+drop function if exists public.stats_distributions(text, text, boolean, text);
+create function public.stats_distributions(
+  p_survey text, p_version text, p_include_test boolean, p_by text default null
+)
 returns table (
   screen_id  text,
   item_id    text,
   answer_key text,
+  dim_value  text,
   n          int
 )
 language sql stable
 set search_path = public
 as $$
   with s as (
-    select session_id from session_stats
+    select session_id,
+           case
+             when p_by is null then null
+             when p_by = '_outcome' then coalesce(outcome,
+               case when answered_any then 'abandoned_mid' else 'abandoned_bounce' end)
+             else vars ->> p_by
+           end as dim_value
+    from session_stats
     where survey_id = p_survey
       and started_at is not null
       and (p_version is null or survey_version = p_version)
       and (p_include_test or not is_test)
   ),
   fa as (
-    select f.screen_id, f.value
+    select f.screen_id, f.value, s.dim_value
     from final_answers f
     join s using (session_id)
     where (p_version is null or f.survey_version = p_version)
@@ -397,24 +410,64 @@ as $$
       and jsonb_typeof(f.value) <> 'null'
   ),
   atoms as (
-    select fa.screen_id, null::text as item_id, fa.value #>> '{}' as answer_key
+    select fa.screen_id, null::text as item_id, fa.value #>> '{}' as answer_key, fa.dim_value
     from fa where jsonb_typeof(fa.value) in ('string', 'number', 'boolean')
     union all
-    select fa.screen_id, null, elem.val
+    select fa.screen_id, null, elem.val, fa.dim_value
     from fa, lateral jsonb_array_elements_text(fa.value) elem(val)
     where jsonb_typeof(fa.value) = 'array'
     union all
-    select fa.screen_id, kv.key, kv.value #>> '{}'
+    select fa.screen_id, kv.key, kv.value #>> '{}', fa.dim_value
     from fa, lateral jsonb_each(fa.value) kv
     where jsonb_typeof(fa.value) = 'object'
   )
-  select atoms.screen_id, atoms.item_id, atoms.answer_key, count(*)::int
+  select atoms.screen_id, atoms.item_id, atoms.answer_key, atoms.dim_value, count(*)::int
   from atoms
-  group by atoms.screen_id, atoms.item_id, atoms.answer_key
+  group by atoms.screen_id, atoms.item_id, atoms.answer_key, atoms.dim_value
 $$;
 
-revoke execute on function public.stats_distributions(text, text, boolean) from public, anon, authenticated;
-grant execute on function public.stats_distributions(text, text, boolean) to service_role;
+revoke execute on function public.stats_distributions(text, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.stats_distributions(text, text, boolean, text) to service_role;
+
+-- בסיסי אחוזים לפילוח: כמה סשנים ענו (תשובה סופית שאינה null) על כל מסך,
+-- בכל ערך מימד — המכנה של אחוזי-מהעונים בקבוצה. אותם פילטרים כמו למעלה.
+drop function if exists public.stats_bases(text, text, boolean, text);
+create function public.stats_bases(
+  p_survey text, p_version text, p_include_test boolean, p_by text default null
+)
+returns table (
+  screen_id text,
+  dim_value text,
+  answered  int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id,
+           case
+             when p_by is null then null
+             when p_by = '_outcome' then coalesce(outcome,
+               case when answered_any then 'abandoned_mid' else 'abandoned_bounce' end)
+             else vars ->> p_by
+           end as dim_value
+    from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  )
+  select f.screen_id, s.dim_value, count(distinct f.session_id)::int
+  from final_answers f
+  join s using (session_id)
+  where (p_version is null or f.survey_version = p_version)
+    and f.value is not null
+    and jsonb_typeof(f.value) <> 'null'
+  group by f.screen_id, s.dim_value
+$$;
+
+revoke execute on function public.stats_bases(text, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.stats_bases(text, text, boolean, text) to service_role;
 
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com

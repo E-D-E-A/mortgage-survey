@@ -2077,3 +2077,67 @@ a.a-btn { text-decoration: none; }
   color: var(--muted);
   margin-block-start: 2px;
 }
+
+/* פילוח (ENG-18): מקרא, עמודות מקובצות, שורות דקות */
+
+.dim-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-block-end: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.dim-chip { display: inline-flex; align-items: center; gap: var(--space-1); }
+
+.dim-swatch {
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.q-group { display: flex; flex-direction: column; gap: 2px; margin-block-end: var(--space-2); }
+.q-group > .q-bar-label { margin-block-end: 2px; }
+
+.q-bar-row.slim {
+  grid-template-columns: 1fr max-content;
+  margin-inline-start: var(--space-3);
+}
+
+.q-bar-track.slim { block-size: 8px; }
+.q-bar-fill.slim { border-start-end-radius: 3px; border-end-end-radius: 3px; }
+
+.mx-item-block { display: flex; flex-direction: column; gap: 2px; margin-block-end: var(--space-2); }
+
+.mx-row.slim {
+  grid-template-columns: minmax(80px, 130px) 1fr max-content;
+  margin-inline-start: var(--space-3);
+}
+
+.mx-track.slim { block-size: 10px; }
+
+.mx-dim-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nh-col-slot.cluster { max-inline-size: none; }
+
+.nh-cluster {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  block-size: 100%;
+  inline-size: 100%;
+  justify-content: center;
+}
+
+.nh-col.slim { inline-size: 8px; border-start-start-radius: 3px; border-start-end-radius: 3px; }

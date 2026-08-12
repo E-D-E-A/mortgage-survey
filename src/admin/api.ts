@@ -155,7 +155,16 @@ export interface DistStat {
   item_id: string | null;
   /** מזהה האפשרות / הציון / הערך — טקסט גולמי; התווית נפתרת מהקונפיג בדפדפן */
   answer_key: string;
+  /** ערך מימד הפילוח; null = בלי פילוח, או סשן שהמימד לא ידוע עבורו */
+  dim_value: string | null;
   n: number;
+}
+
+export interface BaseStat {
+  screen_id: string;
+  dim_value: string | null;
+  /** כמה סשנים ענו על המסך בקבוצת המימד — מכנה אחוזי הפילוח */
+  answered: number;
 }
 
 export interface StatsBundle {
@@ -165,16 +174,20 @@ export interface StatsBundle {
   overview: StatsOverview;
   funnel: FunnelStat[];
   distributions: DistStat[];
+  /** מימד הפילוח שהוחזר, או null */
+  by: string | null;
+  bases: BaseStat[];
 }
 
 /** צרור הסטטיסטיקות של שאלון; version='all' = כל הגרסאות יחד (ברירת המחדל). */
 export async function getStats(
   slug: string,
-  opts: { version?: string; includeTest?: boolean } = {},
+  opts: { version?: string; includeTest?: boolean; by?: string } = {},
 ): Promise<StatsBundle> {
   const params = new URLSearchParams({ survey: slug });
   if (opts.version && opts.version !== 'all') params.set('version', opts.version);
   if (opts.includeTest) params.set('include_test', '1');
+  if (opts.by) params.set('by', opts.by);
   const res = await call(`admin-stats?${params.toString()}`);
   if (!res.ok) throw new ApiError(res.status);
   return (await res.json()) as StatsBundle;

@@ -3,6 +3,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   binNumbers,
+  binNumbersByDim,
+  dimensionLegend,
+  dimensionOptions,
   formatCount,
   formatDuration,
   formatPercent,
@@ -167,11 +170,11 @@ const distVersions = [
   { version: 'v1', published_at: '2026-08-01', config: dv1 },
 ];
 const distRows = [
-  { screen_id: 's_status', item_id: null, answer_key: 'active', n: 6 },
-  { screen_id: 's_status', item_id: null, answer_key: 'planning', n: 3 },
-  { screen_id: 's_status', item_id: null, answer_key: 'old_removed', n: 1 },
-  { screen_id: 'goals', item_id: null, answer_key: 'rate', n: 7 },
-  { screen_id: 'goals', item_id: null, answer_key: 'flex', n: 5 },
+  { screen_id: 's_status', item_id: null, answer_key: 'active', dim_value: null, n: 6 },
+  { screen_id: 's_status', item_id: null, answer_key: 'planning', dim_value: null, n: 3 },
+  { screen_id: 's_status', item_id: null, answer_key: 'old_removed', dim_value: null, n: 1 },
+  { screen_id: 'goals', item_id: null, answer_key: 'rate', dim_value: null, n: 7 },
+  { screen_id: 'goals', item_id: null, answer_key: 'flex', dim_value: null, n: 5 },
 ];
 const distFunnel = [
   { screen_id: 's_status', viewed: 12, answered: 10, dropped_here: 0, median_ms: 4000 },
@@ -218,6 +221,124 @@ describe('questionCards', () => {
   });
 });
 
+// ─── פילוח (ENG-18) ─────────────────────────────────────────────────────────
+
+const bdConfig = {
+  version: 'b1',
+  randomVars: { price: [1200, 1900] },
+  varMeta: {
+    segment: {
+      label: 'מסלול המשיב',
+      values: { A: 'יש משכנתה', B: 'לקראת', C: 'לא רלוונטי' },
+    },
+  },
+  screens: [
+    {
+      id: 'q1',
+      type: 'single' as const,
+      prompt: 'שאלה',
+      options: [
+        { id: 'x', label: 'איקס' },
+        { id: 'y', label: 'וואי' },
+      ],
+    },
+    { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+  ],
+};
+const bdVersions = [{ version: 'b1', published_at: '2026-08-01', config: bdConfig }];
+
+describe('dimensionOptions', () => {
+  it('offers varMeta vars, randomVars, url_source and outcome — nothing else', () => {
+    expect(dimensionOptions(bdVersions, 'all')).toEqual([
+      { key: 'segment', label: 'מסלול המשיב' },
+      { key: 'price', label: 'price' },
+      { key: 'url_source', label: 'מקור הגעה' },
+      { key: '_outcome', label: 'תוצאת הסשן' },
+    ]);
+  });
+});
+
+describe('dimensionLegend', () => {
+  const rows = (values: (string | null)[]) =>
+    values.map((v, i) => ({ screen_id: 'q1', item_id: null, answer_key: 'x', dim_value: v, n: i + 1 }));
+
+  it('orders varMeta values by their declared order, labels them, and puts unknown last in gray', () => {
+    const legend = dimensionLegend(rows(['B', null, 'A']), 'segment', bdConfig);
+    expect(legend.mode).toBe('ok');
+    expect(legend.values.map((v) => [v.key, v.label])).toEqual([
+      ['A', 'יש משכנתה'],
+      ['B', 'לקראת'],
+      [null, 'לא ידוע'],
+    ]);
+    // הצבע עוקב אחרי הזהות: A תמיד ראשון בפלטה גם אם B נפוץ יותר
+    expect(legend.values[0].color).not.toBe(legend.values[1].color);
+    expect(legend.values[2].color).toBe('#9ca3af');
+  });
+
+  it('gives the outcome dimension its fixed order and Hebrew labels', () => {
+    const legend = dimensionLegend(rows(['abandoned_mid', 'complete']), '_outcome', bdConfig);
+    expect(legend.values.map((v) => v.label)).toEqual(['הושלמו', 'נטשו באמצע']);
+  });
+
+  it('refuses a dimension with more than 12 values', () => {
+    const many = rows(Array.from({ length: 13 }, (_, i) => `v${i}`));
+    expect(dimensionLegend(many, 'url_source', bdConfig).mode).toBe('refused');
+  });
+});
+
+describe('questionCards with a split', () => {
+  const dist = [
+    { screen_id: 'q1', item_id: null, answer_key: 'x', dim_value: 'A', n: 2 },
+    { screen_id: 'q1', item_id: null, answer_key: 'x', dim_value: null, n: 1 },
+    { screen_id: 'q1', item_id: null, answer_key: 'y', dim_value: 'B', n: 1 },
+  ];
+  const funnel = [{ screen_id: 'q1', viewed: 5, answered: 4, dropped_here: 0, median_ms: 3000 }];
+  const bases = [
+    { screen_id: 'q1', dim_value: 'A', answered: 2 },
+    { screen_id: 'q1', dim_value: 'B', answered: 1 },
+    { screen_id: 'q1', dim_value: null, answered: 1 },
+  ];
+
+  it('each bar splits into ordered groups with per-group percent denominators', () => {
+    const legend = dimensionLegend(dist, 'segment', bdConfig);
+    const [card] = questionCards(dist, funnel, bdVersions, 'all', { legend, bases });
+    const x = card.bars!.find((b) => b.id === 'x')!;
+    expect(x.groups!.map((g) => [g.key, g.count, g.ratio])).toEqual([
+      ['A', 2, 1], // כל העונים בקבוצת A ענו x
+      ['B', 0, 0],
+      [null, 1, 1],
+    ]);
+    const y = card.bars!.find((b) => b.id === 'y')!;
+    expect(y.groups![1]).toEqual({ key: 'B', count: 1, ratio: 1 });
+  });
+
+  it('matrix items grow per-dimension variants; histogram bins split per dimension', () => {
+    const mDist = [
+      { screen_id: 'trust', item_id: 'bank', answer_key: '4', dim_value: 'A', n: 2 },
+      { screen_id: 'trust', item_id: 'bank', answer_key: '2', dim_value: 'B', n: 1 },
+      { screen_id: 'budget', item_id: null, answer_key: '7', dim_value: 'A', n: 2 },
+      { screen_id: 'budget', item_id: null, answer_key: '12', dim_value: 'B', n: 1 },
+    ];
+    const mFunnel = [
+      { screen_id: 'trust', viewed: 3, answered: 3, dropped_here: 0, median_ms: 1000 },
+      { screen_id: 'budget', viewed: 3, answered: 3, dropped_here: 0, median_ms: 1000 },
+    ];
+    const legend = dimensionLegend(mDist, 'segment', bdConfig);
+    const [trust, budget] = questionCards(mDist, mFunnel, mxVersions, 'all', {
+      legend,
+      bases: [],
+    });
+    const bank = trust.matrix!.items[0];
+    expect(bank.variants!.map((v) => [v.key, v.mean, v.n])).toEqual([
+      ['A', 4, 2],
+      ['B', 2, 1],
+    ]);
+    const bins = binNumbersByDim(budget.atoms, 7);
+    expect(bins[0]).toMatchObject({ from: 7, counts: { A: 2 } });
+    expect(bins[bins.length - 1]).toMatchObject({ from: 12, counts: { B: 1 } });
+  });
+});
+
 // ─── מטריצה והיסטוגרמה (ENG-17) ─────────────────────────────────────────────
 
 const mxConfig = {
@@ -243,14 +364,14 @@ const mxConfig = {
 };
 const mxVersions = [{ version: 'm1', published_at: '2026-08-01', config: mxConfig }];
 const mxDist = [
-  { screen_id: 'trust', item_id: 'bank', answer_key: '4', n: 1 },
-  { screen_id: 'trust', item_id: 'bank', answer_key: '5', n: 3 },
-  { screen_id: 'trust', item_id: 'advisor', answer_key: '2', n: 2 },
-  { screen_id: 'trust', item_id: 'advisor', answer_key: 'na', n: 1 },
-  { screen_id: 'trust', item_id: 'old_item', answer_key: '3', n: 1 },
-  { screen_id: 'budget', item_id: null, answer_key: '400000', n: 3 },
-  { screen_id: 'budget', item_id: null, answer_key: '650000', n: 1 },
-  { screen_id: 'budget', item_id: null, answer_key: '2250000', n: 2 },
+  { screen_id: 'trust', item_id: 'bank', answer_key: '4', dim_value: null, n: 1 },
+  { screen_id: 'trust', item_id: 'bank', answer_key: '5', dim_value: null, n: 3 },
+  { screen_id: 'trust', item_id: 'advisor', answer_key: '2', dim_value: null, n: 2 },
+  { screen_id: 'trust', item_id: 'advisor', answer_key: 'na', dim_value: null, n: 1 },
+  { screen_id: 'trust', item_id: 'old_item', answer_key: '3', dim_value: null, n: 1 },
+  { screen_id: 'budget', item_id: null, answer_key: '400000', dim_value: null, n: 3 },
+  { screen_id: 'budget', item_id: null, answer_key: '650000', dim_value: null, n: 1 },
+  { screen_id: 'budget', item_id: null, answer_key: '2250000', dim_value: null, n: 2 },
 ];
 const mxFunnel = [
   { screen_id: 'trust', viewed: 6, answered: 5, dropped_here: 0, median_ms: 9000 },

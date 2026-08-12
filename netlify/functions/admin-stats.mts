@@ -33,6 +33,11 @@ export default async (req: Request): Promise<Response> => {
   if (!isValidSlug(survey)) return new Response('invalid survey', { status: 400 });
   const includeTest = params.get('include_test') === '1';
   const versionParam = params.get('version') ?? 'all';
+  // מימד פילוח: שם משתנה סשן, או ‎_outcome‎ לתוצאת הסשן (ראו schema.sql)
+  const by = params.get('by');
+  if (by !== null && !/^[A-Za-z0-9_]{1,64}$/.test(by)) {
+    return new Response('invalid by', { status: 400 });
+  }
 
   const slug = encodeURIComponent(survey);
   // הקונפיגים נוסעים עם הצרור: פענוח נוסחים, סדר מסכים ותוויות נעשה בדפדפן
@@ -56,14 +61,16 @@ export default async (req: Request): Promise<Response> => {
   }
 
   const rpcArgs = { p_survey: survey, p_version: version, p_include_test: includeTest };
-  const [overviewRows, funnelRows, distRows] = await Promise.all([
+  const [overviewRows, funnelRows, distRows, baseRows] = await Promise.all([
     rpc(env, 'stats_overview', rpcArgs),
     rpc(env, 'stats_funnel', rpcArgs),
-    rpc(env, 'stats_distributions', rpcArgs),
+    rpc(env, 'stats_distributions', { ...rpcArgs, p_by: by }),
+    by === null ? Promise.resolve([]) : rpc(env, 'stats_bases', { ...rpcArgs, p_by: by }),
   ]);
   if (overviewRows instanceof Response) return overviewRows;
   if (funnelRows instanceof Response) return funnelRows;
   if (distRows instanceof Response) return distRows;
+  if (baseRows instanceof Response) return baseRows;
 
   return json(
     {
@@ -73,6 +80,8 @@ export default async (req: Request): Promise<Response> => {
       overview: (overviewRows as Record<string, number>[])[0],
       funnel: funnelRows,
       distributions: distRows,
+      by,
+      bases: baseRows,
     },
     200,
     NO_STORE,
