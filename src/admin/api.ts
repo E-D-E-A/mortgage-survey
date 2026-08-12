@@ -136,6 +136,17 @@ export interface StatsOverview {
 export interface StatsVersion {
   version: string;
   published_at: string;
+  /** הקונפיג שפורסם — פענוח נוסחים, סדר מסכים ותוויות נעשה בדפדפן, לא ב-SQL */
+  config: SurveyConfig;
+}
+
+export interface FunnelStat {
+  screen_id: string;
+  viewed: number;
+  answered: number;
+  dropped_here: number;
+  /** חציון זמן ניסיון-ראשון במסך; null כשאין תשובות */
+  median_ms: number | null;
 }
 
 export interface StatsBundle {
@@ -143,6 +154,7 @@ export interface StatsBundle {
   name: string;
   versions: StatsVersion[];
   overview: StatsOverview;
+  funnel: FunnelStat[];
 }
 
 /** צרור הסטטיסטיקות של שאלון; version='all' = כל הגרסאות יחד (ברירת המחדל). */

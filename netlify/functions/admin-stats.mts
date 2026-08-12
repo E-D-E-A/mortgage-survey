@@ -35,10 +35,11 @@ export default async (req: Request): Promise<Response> => {
   const versionParam = params.get('version') ?? 'all';
 
   const slug = encodeURIComponent(survey);
+  // הקונפיגים נוסעים עם הצרור: פענוח נוסחים, סדר מסכים ותוויות נעשה בדפדפן
   const [surveyRes, versionsRes] = await Promise.all([
     fetch(`${env.url}/rest/v1/surveys?slug=eq.${slug}&select=slug,name`, { headers }),
     fetch(
-      `${env.url}/rest/v1/survey_configs?survey_id=eq.${slug}&select=version,published_at&order=published_at.desc,version.desc`,
+      `${env.url}/rest/v1/survey_configs?survey_id=eq.${slug}&select=version,published_at,config&order=published_at.desc,version.desc`,
       { headers },
     ),
   ]);
@@ -54,12 +55,13 @@ export default async (req: Request): Promise<Response> => {
     return new Response('unknown version', { status: 400 });
   }
 
-  const overviewRows = await rpc(env, 'stats_overview', {
-    p_survey: survey,
-    p_version: version,
-    p_include_test: includeTest,
-  });
+  const rpcArgs = { p_survey: survey, p_version: version, p_include_test: includeTest };
+  const [overviewRows, funnelRows] = await Promise.all([
+    rpc(env, 'stats_overview', rpcArgs),
+    rpc(env, 'stats_funnel', rpcArgs),
+  ]);
   if (overviewRows instanceof Response) return overviewRows;
+  if (funnelRows instanceof Response) return funnelRows;
 
   return json(
     {
@@ -67,6 +69,7 @@ export default async (req: Request): Promise<Response> => {
       name: surveyRows[0].name,
       versions,
       overview: (overviewRows as Record<string, number>[])[0],
+      funnel: funnelRows,
     },
     200,
     NO_STORE,

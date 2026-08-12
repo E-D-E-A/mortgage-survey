@@ -1,7 +1,7 @@
 // לוגיקת התצוגה הטהורה של מסך הסטטיסטיקות: בניית אריחי הסקירה ופורמט עברי.
 // הערכים הצפויים מחושבים ביד — לא נגזרים מהקוד הנבדק.
 import { describe, expect, it } from 'vitest';
-import { formatCount, formatPercent, overviewTiles } from './stats';
+import { formatCount, formatDuration, formatPercent, orderFunnel, overviewTiles } from './stats';
 import type { StatsOverview } from './api';
 
 const overview: StatsOverview = {
@@ -61,5 +61,67 @@ describe('formatting', () => {
     expect(formatPercent(0.5)).toBe('50%');
     expect(formatPercent(1 / 6)).toBe('16.7%');
     expect(formatPercent(0.0005)).toBe('0.1%');
+  });
+
+  it('formats durations as seconds below a minute, m:ss above', () => {
+    expect(formatDuration(4000)).toBe('4 שנ׳');
+    expect(formatDuration(83000)).toBe('1:23 דק׳');
+    expect(formatDuration(null)).toBe('—');
+  });
+});
+
+// ─── משפך (ENG-14) ──────────────────────────────────────────────────────────
+
+const v2config = {
+  version: 'v2',
+  screens: [
+    { id: 'intro', type: 'info' as const, title: 'פתיח', body: '' },
+    { id: 'q1', type: 'single' as const, prompt: 'שאלה 1', options: [] },
+    { id: 'q2', type: 'number' as const, prompt: 'שאלה חדשה' },
+    { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+  ],
+};
+const v1config = {
+  version: 'v1',
+  screens: [
+    { id: 'intro', type: 'info' as const, title: 'פתיח', body: '' },
+    { id: 'q1', type: 'single' as const, prompt: 'שאלה 1', options: [] },
+    { id: 'q_old', type: 'number' as const, prompt: 'שאלה ישנה' },
+    { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+  ],
+};
+const funnelVersions = [
+  { version: 'v2', published_at: '2026-08-05', config: v2config },
+  { version: 'v1', published_at: '2026-08-01', config: v1config },
+];
+const funnelRows = [
+  { screen_id: 'q_old', viewed: 4, answered: 4, dropped_here: 0, median_ms: 3000 },
+  { screen_id: 'q1', viewed: 10, answered: 8, dropped_here: 1, median_ms: 5000 },
+  { screen_id: 'intro', viewed: 12, answered: 0, dropped_here: 2, median_ms: null },
+];
+
+describe('orderFunnel', () => {
+  it('orders by the latest config when all versions are combined, retired screens greyed at the bottom', () => {
+    const rows = orderFunnel(funnelRows, funnelVersions, 'all');
+    expect(rows.map((r) => r.screenId)).toEqual(['intro', 'q1', 'q2', 'q_old']);
+    expect(rows.map((r) => r.retired)).toEqual([false, false, false, true]);
+    // תוויות מהקונפיג; מסך שפרש נשאר עם המזהה הגולמי
+    expect(rows[0].label).toBe('פתיח');
+    expect(rows[1].label).toBe('שאלה 1');
+    expect(rows[3].label).toBe('q_old');
+  });
+
+  it('zero-fills config screens nobody reached, and never lists end screens', () => {
+    const rows = orderFunnel(funnelRows, funnelVersions, 'all');
+    const q2 = rows.find((r) => r.screenId === 'q2')!;
+    expect(q2).toMatchObject({ viewed: 0, answered: 0, droppedHere: 0, medianMs: null });
+    expect(rows.some((r) => r.screenId === 'end')).toBe(false);
+  });
+
+  it("uses the selected version's own config when one version is chosen", () => {
+    const rows = orderFunnel(funnelRows, funnelVersions, 'v1');
+    expect(rows.map((r) => r.screenId)).toEqual(['intro', 'q1', 'q_old']);
+    expect(rows.every((r) => !r.retired)).toBe(true);
+    expect(rows[2].label).toBe('שאלה ישנה');
   });
 });

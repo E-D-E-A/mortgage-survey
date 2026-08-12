@@ -290,6 +290,60 @@ $$;
 revoke execute on function public.stats_overview(text, text, boolean) from public, anon, authenticated;
 grant execute on function public.stats_overview(text, text, boolean) to service_role;
 
+-- משפך פר-מסך: צפו, ענו, נטשו-כאן (הצפייה האחרונה של סשן בלי אירוע סיום),
+-- וחציון זמן ניסיון-ראשון בלבד — מענה חוזר אחרי חזרה אחורה מהיר בסדר גודל
+-- והיה מטה את החציון כלפי מטה. מסכי end לא מופיעים: אין להם screen_view.
+drop function if exists public.stats_funnel(text, text, boolean);
+create function public.stats_funnel(p_survey text, p_version text, p_include_test boolean)
+returns table (
+  screen_id    text,
+  viewed       int,
+  answered     int,
+  dropped_here int,
+  median_ms    int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id, outcome from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  ),
+  ev as (
+    select e.session_id, e.event_type, e.screen_id, e.created_at, e.payload
+    from survey_events e
+    join s using (session_id)
+    where e.screen_id is not null and e.event_type in ('screen_view', 'answer')
+  ),
+  drops as (
+    -- הצפייה האחרונה של כל סשן שלא הגיע לאירוע סיום = המסך שבו נעלם
+    select distinct on (ev.session_id) ev.session_id, ev.screen_id
+    from ev
+    join s using (session_id)
+    where ev.event_type = 'screen_view' and s.outcome is null
+    order by ev.session_id, ev.created_at desc
+  )
+  select
+    ev.screen_id,
+    (count(distinct ev.session_id) filter (where ev.event_type = 'screen_view'))::int,
+    (count(distinct ev.session_id) filter (where ev.event_type = 'answer'))::int,
+    coalesce(d.dropped, 0),
+    (percentile_cont(0.5) within group (order by (ev.payload ->> 'ms')::numeric)
+       filter (where ev.event_type = 'answer'
+               and coalesce((ev.payload ->> 'attempt')::int, 1) = 1))::int
+  from ev
+  left join (
+    select drops.screen_id, count(*)::int as dropped from drops group by drops.screen_id
+  ) d using (screen_id)
+  group by ev.screen_id, d.dropped
+$$;
+
+revoke execute on function public.stats_funnel(text, text, boolean) from public, anon, authenticated;
+grant execute on function public.stats_funnel(text, text, boolean) to service_role;
+
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com
 -- ה-hook הזה רץ לפני יצירת משתמש ב-Supabase Auth, ולכן חשבון גוגל

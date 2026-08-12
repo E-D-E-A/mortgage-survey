@@ -35,11 +35,22 @@ export async function ensureSurvey(
 ): Promise<void> {
   await sql`insert into surveys (slug, name, created_by) values (${slug}, ${name}, 'test')
             on conflict (slug) do nothing`;
-  for (const v of versions) {
-    await sql`insert into survey_configs (version, survey_id, config, published_by)
-              values (${v.version}, ${slug}, ${JSON.stringify(v.config ?? { version: v.version, screens: [] })}, 'test')
-              on conflict (version) do nothing`;
-  }
+  // survey_configs הוא append-only בכוונה (trigger חוסם עדכון/מחיקה), אבל
+  // פיקסטורה חייבת סמנטיקת replace — אחרת שורה שגויה מריצה ישנה נתקעת לנצח.
+  // ב-DB המקומי החד-פעמי מותר: משביתים את ה-trigger בתוך טרנזקציה נעולה,
+  // מוחקים ומכניסים טרי. ה-advisory lock מסדר קבצים מקבילים.
+  await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(732913)`;
+    await tx`alter table survey_configs disable trigger survey_configs_immutable`;
+    await tx`delete from survey_configs where version in ${tx(versions.map((v) => v.version))}`;
+    for (const v of versions) {
+      await tx`insert into survey_configs (version, survey_id, config, published_by)
+               values (${v.version}, ${slug},
+                       ${tx.json((v.config ?? { version: v.version, screens: [] }) as Parameters<Sql['json']>[0])},
+                       'test')`;
+    }
+    await tx`alter table survey_configs enable trigger survey_configs_immutable`;
+  });
 }
 
 /** מוחק את אירועי הגרסאות הנתונות ומכניס את הפיקסטורה — ריצה חוזרת נקייה */

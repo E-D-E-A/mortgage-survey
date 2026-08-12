@@ -11,7 +11,7 @@ import {
   UnauthorizedError,
   type StatsBundle,
 } from './api';
-import { formatCount, formatPercent, overviewTiles } from './stats';
+import { formatCount, formatDuration, formatPercent, orderFunnel, overviewTiles } from './stats';
 import { LogoutIcon } from './Icons';
 import { supabase } from './supabaseClient';
 
@@ -130,11 +130,61 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
           )}
 
           {bundle && bundle.versions.length > 0 && (
-            <OverviewTiles bundle={bundle} includeTest={includeTest} />
+            <>
+              <OverviewTiles bundle={bundle} includeTest={includeTest} />
+              {bundle.overview.total_sessions > 0 && (
+                <FunnelSection bundle={bundle} version={version} />
+              )}
+            </>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function FunnelSection({ bundle, version }: { bundle: StatsBundle; version: string }) {
+  const rows = orderFunnel(bundle.funnel, bundle.versions, version);
+  if (rows.length === 0) return null;
+  return (
+    <section aria-label="משפך פר-מסך">
+      <h2 className="stats-section-title">משפך — איפה נשארים ואיפה נוטשים</h2>
+      <div className="funnel-table-wrap">
+        <table className="funnel-table">
+          <thead>
+            <tr>
+              <th>מסך</th>
+              <th>צפו</th>
+              <th>ענו</th>
+              <th>נטשו כאן</th>
+              <th title="חציון זמן ניסיון ראשון בלבד — מענה חוזר אחרי חזרה אחורה לא נספר">
+                זמן חציוני
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.screenId} className={row.retired ? 'funnel-retired' : undefined}>
+                <td className="funnel-label">
+                  {row.retired ? (
+                    <>
+                      <code dir="ltr">{row.screenId}</code>
+                      <span className="a-hint"> · לא קיים בגרסה הנוכחית</span>
+                    </>
+                  ) : (
+                    row.label
+                  )}
+                </td>
+                <td>{formatCount(row.viewed)}</td>
+                <td>{formatCount(row.answered)}</td>
+                <td>{row.droppedHere > 0 ? formatCount(row.droppedHere) : '—'}</td>
+                <td>{formatDuration(row.medianMs)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
