@@ -105,6 +105,28 @@ $env:DB_TESTS='1'; npx vitest run tests/db  # PowerShell
 ```
 
 בלי הדגל (וב-CI) הקבוצה מדולגת ו-`npm test` נשאר ירוק בלי Docker.
+
+### פתרון תקלות בפיתוח מקומי
+
+- **`Port 5199 is already in use`** — ריצת `netlify dev` קודמת קרסה והשאירה
+  ילד vite חי (npm לא מעביר signal לילדים). לאתר ולסגור:
+
+  ```powershell
+  Get-NetTCPConnection -LocalPort 5199 -State Listen |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+
+  זו גם הסיבה ש-`--strictPort` מוגדר ב-netlify.toml — עדיף כישלון קולני
+  מ-vite שעובר בשקט לפורט אחר.
+
+- **`http://localhost:8888` נתקע אבל `http://127.0.0.1:8888` עובד** —
+  `wslrelay.exe` תופס את ‎`::1:8888`‎ (IPv6) אחרי ששרת כלשהו האזין לפורט הזה
+  בתוך WSL בעבר. `localhost` מנסה IPv6 קודם ונבלע ברילוי. לבדוק מי מאזין:
+  `Get-NetTCPConnection -LocalPort 8888 -State Listen`; אם רואים `wslrelay`,
+  לסגור אותו (`Stop-Process`) או `wsl --shutdown`.
+
+- **קריסת `EBUSY ... .netlify/functions-serve`** — טופל: vite מוגדר להתעלם
+  מ-`.netlify/` (ראו vite.config.ts). אם זה חוזר — לוודא שההגדרה שם.
 ב-`npm run dev` הקונסולה תציג מסך כניסה אבל הפונקציות לא רצות — עבודה על `/admin`
 דורשת `netlify dev`. לכניסת Google מקומית צריך ש-`http://localhost:8888/admin`
 יופיע ב-Redirect URLs בדשבורד Supabase (ראו למטה).
