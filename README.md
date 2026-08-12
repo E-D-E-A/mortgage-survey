@@ -76,10 +76,25 @@ npx supabase stop      # בסיום (הנתונים נשמרים בין הרצו
 טבלאות ו-SQL Editor מלא (`select * from stats_overview('demo', null, false);`).
 לטרמינל: `docker exec -it supabase_db_mortgage-survey psql -U postgres`.
 
-**להיכנס לקונסולה מול הסטאק המקומי:** לגוגל אין ספק בסביבה המקומית, ולכן
-`npm run dev:login` — יוצר משתמש אדמין מקומי ומדפיס שורה להדבקה בקונסולת
-הדפדפן ב-`/admin`; אחרי רענון נכנסים, כולל מסך הסטטיסטיקות של שאלון הדמו
-(`/admin/demo/stats`).
+**להיכנס לקונסולה מול הסטאק המקומי:** שתי דרכים.
+
+- *בלי שום הגדרה:* `npm run dev:login` — יוצר משתמש אדמין מקומי ומדפיס שורה
+  להדבקה בקונסולת הדפדפן ב-`/admin`; אחרי רענון נכנסים, כולל מסך הסטטיסטיקות
+  של שאלון הדמו (`/admin/demo/stats`).
+- *כניסת Google אמיתית (חד-פעמי):* ‎`[auth.external.google]`‎ כבר מופעל
+  ב-`supabase/config.toml` וקורא את הסודות מ-`.env` בלבד:
+
+  1. ב-Google Cloud Console, ל-OAuth client הקיים מוסיפים ל-Authorized
+     redirect URIs את ‎`http://127.0.0.1:54321/auth/v1/callback`‎.
+  2. ב-`.env` מוסיפים את אותם Client ID/Secret שמוגדרים בדשבורד Supabase:
+     ```
+     SUPABASE_AUTH_GOOGLE_CLIENT_ID=...
+     SUPABASE_AUTH_GOOGLE_SECRET=...
+     ```
+  3. ‎`npx supabase stop && npx supabase start`‎ (שינויי config נטענים באתחול).
+
+  מכאן כפתור הגוגל הרגיל ב-`/admin` עובד גם מקומית — ו-requireAdmin ממשיך
+  לאכוף דומיין first-edea.com בדיוק כמו בענן.
 
 בדיקות האינטגרציה מול ה-DB (`tests/db/`) רצות רק בהפעלה מפורשת — הן מסרבות
 לכל מארח שאינו מקומי, כך שלעולם לא ייגעו בנתוני אמת:
