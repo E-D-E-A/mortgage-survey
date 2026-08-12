@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "db:schema": "node scripts/apply-schema.mjs",
-    "db:seed": "node scripts/seed-stats.mjs"
+    "db:seed": "node scripts/seed-stats.mjs",
+    "dev:login": "node scripts/dev-login.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
