@@ -56,12 +56,14 @@ export default async (req: Request): Promise<Response> => {
   }
 
   const rpcArgs = { p_survey: survey, p_version: version, p_include_test: includeTest };
-  const [overviewRows, funnelRows] = await Promise.all([
+  const [overviewRows, funnelRows, distRows] = await Promise.all([
     rpc(env, 'stats_overview', rpcArgs),
     rpc(env, 'stats_funnel', rpcArgs),
+    rpc(env, 'stats_distributions', rpcArgs),
   ]);
   if (overviewRows instanceof Response) return overviewRows;
   if (funnelRows instanceof Response) return funnelRows;
+  if (distRows instanceof Response) return distRows;
 
   return json(
     {
@@ -70,6 +72,7 @@ export default async (req: Request): Promise<Response> => {
       versions,
       overview: (overviewRows as Record<string, number>[])[0],
       funnel: funnelRows,
+      distributions: distRows,
     },
     200,
     NO_STORE,

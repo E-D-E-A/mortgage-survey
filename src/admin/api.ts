@@ -149,12 +149,22 @@ export interface FunnelStat {
   median_ms: number | null;
 }
 
+export interface DistStat {
+  screen_id: string;
+  /** פריט מטריצה; null לשאלות שאינן מטריצה */
+  item_id: string | null;
+  /** מזהה האפשרות / הציון / הערך — טקסט גולמי; התווית נפתרת מהקונפיג בדפדפן */
+  answer_key: string;
+  n: number;
+}
+
 export interface StatsBundle {
   survey: string;
   name: string;
   versions: StatsVersion[];
   overview: StatsOverview;
   funnel: FunnelStat[];
+  distributions: DistStat[];
 }
 
 /** צרור הסטטיסטיקות של שאלון; version='all' = כל הגרסאות יחד (ברירת המחדל). */

@@ -11,7 +11,15 @@ import {
   UnauthorizedError,
   type StatsBundle,
 } from './api';
-import { formatCount, formatDuration, formatPercent, orderFunnel, overviewTiles } from './stats';
+import {
+  formatCount,
+  formatDuration,
+  formatPercent,
+  orderFunnel,
+  overviewTiles,
+  questionCards,
+  type QuestionCardModel,
+} from './stats';
 import { LogoutIcon } from './Icons';
 import { supabase } from './supabaseClient';
 
@@ -133,7 +141,10 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
             <>
               <OverviewTiles bundle={bundle} includeTest={includeTest} />
               {bundle.overview.total_sessions > 0 && (
-                <FunnelSection bundle={bundle} version={version} />
+                <>
+                  <FunnelSection bundle={bundle} version={version} />
+                  <DistributionsSection bundle={bundle} version={version} />
+                </>
               )}
             </>
           )}
@@ -185,6 +196,81 @@ function FunnelSection({ bundle, version }: { bundle: StatsBundle; version: stri
         </table>
       </div>
     </section>
+  );
+}
+
+function DistributionsSection({ bundle, version }: { bundle: StatsBundle; version: string }) {
+  const cards = questionCards(bundle.distributions, bundle.funnel, bundle.versions, version);
+  if (cards.length === 0) return null;
+  return (
+    <section aria-label="התפלגויות תשובות">
+      <h2 className="stats-section-title">מה ענו — שאלה אחר שאלה</h2>
+      <div className="q-cards">
+        {cards.map((card) => (
+          <QuestionCard key={card.screenId} card={card} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function QuestionCard({ card }: { card: QuestionCardModel }) {
+  return (
+    <article className="q-card">
+      <header className="q-card-head">
+        <h3>{card.label}</h3>
+        <span className="a-hint">
+          {formatCount(card.base)} ענו
+          {card.spansVersions && (
+            <span
+              className="chip q-chip"
+              title="נוסח או אפשרויות שונים בין הגרסאות המשולבות — להשוואה מדויקת יש לבחור גרסה"
+            >
+              מתפרס על {card.spansVersions} גרסאות
+            </span>
+          )}
+        </span>
+      </header>
+      {card.base === 0 ? (
+        <p className="a-hint">אף אחד עוד לא ענה על השאלה הזאת.</p>
+      ) : card.bars ? (
+        <ChoiceBars card={card} />
+      ) : (
+        <p className="a-hint">התרשים לשאלה מהסוג הזה יתווסף בהמשך הענף.</p>
+      )}
+      {card.type === 'multi' && card.base > 0 && (
+        <p className="a-hint q-note">אחוז מהעונים; אפשר לבחור כמה אפשרויות, ולכן הסכום עשוי לעבור 100%.</p>
+      )}
+    </article>
+  );
+}
+
+/**
+ * עמודות אופקיות ב-RTL: הבסיס בצד ימין (inline-start), הקצה המעוגל בקצה
+ * הנתון בלבד; הערך יושב בקצה כל עמודה — טקסט בטוקן טקסט, לא בצבע הסדרה.
+ */
+function ChoiceBars({ card }: { card: QuestionCardModel }) {
+  const max = Math.max(...card.bars!.map((b) => b.ratio ?? 0), 0.0001);
+  return (
+    <div className="q-bars" role="img" aria-label={`התפלגות: ${card.label}`}>
+      {card.bars!.map((bar) => (
+        <div key={bar.id} className="q-bar-row">
+          <span className={`q-bar-label${bar.retiredOption ? ' retired' : ''}`} title={bar.label}>
+            {bar.retiredOption ? <code dir="ltr">{bar.id}</code> : bar.label}
+          </span>
+          <span className="q-bar-track">
+            <span
+              className="q-bar-fill"
+              style={{ inlineSize: `${((bar.ratio ?? 0) / max) * 100}%` }}
+            />
+          </span>
+          <span className="q-bar-value">
+            {formatCount(bar.count)}
+            {bar.ratio !== null && <span className="q-bar-pct"> · {formatPercent(bar.ratio)}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 

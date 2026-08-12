@@ -344,6 +344,78 @@ $$;
 revoke execute on function public.stats_funnel(text, text, boolean) from public, anon, authenticated;
 grant execute on function public.stats_funnel(text, text, boolean) to service_role;
 
+-- התשובה הסופית: שורה אחת לכל סשן×מסך — האירוע עם ה-attempt הגבוה ביותר
+-- (שוויון נשבר לפי זמן). מי שחזר אחורה ושינה תשובה נספר פעם אחת, עם מה שבחר
+-- בסוף. value נשאר jsonb גולמי — הפירוש (אטומים, תוויות) נעשה בשכבות שמעל.
+create or replace view public.final_answers
+  with (security_invoker = true) as
+select distinct on (e.session_id, e.screen_id)
+  e.session_id,
+  e.survey_version,
+  e.screen_id,
+  e.payload -> 'value'                          as value,
+  coalesce((e.payload ->> 'attempt')::int, 1)   as attempt,
+  e.created_at
+from public.survey_events e
+where e.event_type = 'answer' and e.screen_id is not null
+order by e.session_id, e.screen_id,
+         coalesce((e.payload ->> 'attempt')::int, 1) desc, e.created_at desc;
+
+revoke all on public.final_answers from anon, authenticated;
+grant select on public.final_answers to service_role;
+
+-- התפלגויות: כלל פריסת-אטומים אחד לכל סוגי השאלות הסגורות —
+--   מחרוזת/מספר/בוליאני → אטום אחד (הערך עצמו כטקסט)
+--   מערך (רב-ברירה)     → אטום לכל אפשרות שנבחרה
+--   אובייקט (מטריצה)    → אטום לכל פריט, item_id = הפריט, המפתח = הציון/na
+--   null (דילוג מכוון)   → לא אטום; נספר בסטטיסטיקות התשובות הפתוחות בלבד
+-- התוצאה: ספירות גולמיות לפי (מסך, פריט, מפתח) — תוויות ואחוזים בדפדפן.
+drop function if exists public.stats_distributions(text, text, boolean);
+create function public.stats_distributions(p_survey text, p_version text, p_include_test boolean)
+returns table (
+  screen_id  text,
+  item_id    text,
+  answer_key text,
+  n          int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  ),
+  fa as (
+    select f.screen_id, f.value
+    from final_answers f
+    join s using (session_id)
+    where (p_version is null or f.survey_version = p_version)
+      and f.value is not null
+      and jsonb_typeof(f.value) <> 'null'
+  ),
+  atoms as (
+    select fa.screen_id, null::text as item_id, fa.value #>> '{}' as answer_key
+    from fa where jsonb_typeof(fa.value) in ('string', 'number', 'boolean')
+    union all
+    select fa.screen_id, null, elem.val
+    from fa, lateral jsonb_array_elements_text(fa.value) elem(val)
+    where jsonb_typeof(fa.value) = 'array'
+    union all
+    select fa.screen_id, kv.key, kv.value #>> '{}'
+    from fa, lateral jsonb_each(fa.value) kv
+    where jsonb_typeof(fa.value) = 'object'
+  )
+  select atoms.screen_id, atoms.item_id, atoms.answer_key, count(*)::int
+  from atoms
+  group by atoms.screen_id, atoms.item_id, atoms.answer_key
+$$;
+
+revoke execute on function public.stats_distributions(text, text, boolean) from public, anon, authenticated;
+grant execute on function public.stats_distributions(text, text, boolean) to service_role;
+
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com
 -- ה-hook הזה רץ לפני יצירת משתמש ב-Supabase Auth, ולכן חשבון גוגל

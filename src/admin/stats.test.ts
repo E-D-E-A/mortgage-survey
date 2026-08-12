@@ -1,7 +1,14 @@
 // לוגיקת התצוגה הטהורה של מסך הסטטיסטיקות: בניית אריחי הסקירה ופורמט עברי.
 // הערכים הצפויים מחושבים ביד — לא נגזרים מהקוד הנבדק.
 import { describe, expect, it } from 'vitest';
-import { formatCount, formatDuration, formatPercent, orderFunnel, overviewTiles } from './stats';
+import {
+  formatCount,
+  formatDuration,
+  formatPercent,
+  orderFunnel,
+  overviewTiles,
+  questionCards,
+} from './stats';
 import type { StatsOverview } from './api';
 
 const overview: StatsOverview = {
@@ -99,6 +106,116 @@ const funnelRows = [
   { screen_id: 'q1', viewed: 10, answered: 8, dropped_here: 1, median_ms: 5000 },
   { screen_id: 'intro', viewed: 12, answered: 0, dropped_here: 2, median_ms: null },
 ];
+
+// ─── כרטיסי התפלגות (ENG-15) ────────────────────────────────────────────────
+
+const dv2 = {
+  version: 'v2',
+  screens: [
+    { id: 'intro', type: 'info' as const, title: 'פתיח', body: '' },
+    {
+      id: 's_status',
+      type: 'single' as const,
+      prompt: 'מה מצבך?',
+      options: [
+        { id: 'active', label: 'פעילה' },
+        { id: 'planning', label: 'מתכנן' },
+        { id: 'considering', label: 'שוקל' },
+      ],
+    },
+    {
+      id: 'goals',
+      type: 'multi' as const,
+      prompt: 'מה חשוב?',
+      options: [
+        { id: 'rate', label: 'ריבית' },
+        { id: 'flex', label: 'גמישות' },
+      ],
+    },
+    { id: 'why', type: 'text' as const, prompt: 'ספרו לנו' },
+    { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+  ],
+};
+const dv1 = {
+  version: 'v1',
+  screens: [
+    {
+      id: 's_status',
+      // v1 בלי considering — סט אפשרויות שונה ⇒ הערת ריבוי גרסאות
+      type: 'single' as const,
+      prompt: 'מה מצבך?',
+      options: [
+        { id: 'active', label: 'פעילה' },
+        { id: 'planning', label: 'מתכנן' },
+      ],
+    },
+    {
+      id: 'goals',
+      type: 'multi' as const,
+      prompt: 'מה חשוב?',
+      options: [
+        { id: 'rate', label: 'ריבית' },
+        { id: 'flex', label: 'גמישות' },
+      ],
+    },
+    { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+  ],
+};
+const distVersions = [
+  { version: 'v2', published_at: '2026-08-05', config: dv2 },
+  { version: 'v1', published_at: '2026-08-01', config: dv1 },
+];
+const distRows = [
+  { screen_id: 's_status', item_id: null, answer_key: 'active', n: 6 },
+  { screen_id: 's_status', item_id: null, answer_key: 'planning', n: 3 },
+  { screen_id: 's_status', item_id: null, answer_key: 'old_removed', n: 1 },
+  { screen_id: 'goals', item_id: null, answer_key: 'rate', n: 7 },
+  { screen_id: 'goals', item_id: null, answer_key: 'flex', n: 5 },
+];
+const distFunnel = [
+  { screen_id: 's_status', viewed: 12, answered: 10, dropped_here: 0, median_ms: 4000 },
+  { screen_id: 'goals', viewed: 9, answered: 8, dropped_here: 1, median_ms: 6000 },
+];
+
+describe('questionCards', () => {
+  const cards = () => questionCards(distRows, distFunnel, distVersions, 'all');
+
+  it('builds cards only for closed questions, in latest-config order, base N from the funnel', () => {
+    expect(cards().map((c) => [c.screenId, c.type])).toEqual([
+      ['s_status', 'single'],
+      ['goals', 'multi'],
+    ]);
+    expect(cards()[0].base).toBe(10);
+    expect(cards()[1].base).toBe(8);
+  });
+
+  it('orders bars by config, resolves labels, appends removed options with their raw id', () => {
+    const status = cards()[0];
+    expect(status.bars!.map((b) => [b.id, b.label, b.count])).toEqual([
+      ['active', 'פעילה', 6],
+      ['planning', 'מתכנן', 3],
+      ['considering', 'שוקל', 0],
+      ['old_removed', 'old_removed', 1],
+    ]);
+    expect(status.bars![3].retiredOption).toBe(true);
+    // שיעור מתוך העונים על השאלה
+    expect(status.bars![0].ratio).toBeCloseTo(0.6);
+  });
+
+  it('multi-choice ratios are percent of respondents and may sum past 100%', () => {
+    const goals = cards()[1];
+    expect(goals.bars!.map((b) => b.ratio)).toEqual([7 / 8, 5 / 8]);
+  });
+
+  it('notes when the option set differs across combined versions, and only then', () => {
+    const [status, goals] = cards();
+    expect(status.spansVersions).toBe(2);
+    expect(goals.spansVersions).toBeNull();
+    // בגרסה בודדת אין מה להעיר
+    const single = questionCards(distRows, distFunnel, distVersions, 'v2');
+    expect(single[0].spansVersions).toBeNull();
+  });
+});
 
 describe('orderFunnel', () => {
   it('orders by the latest config when all versions are combined, retired screens greyed at the bottom', () => {
