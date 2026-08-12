@@ -226,6 +226,10 @@ export function questionCards(
 ): QuestionCardModel[] {
   const config = chosenConfig(versions, selected);
   if (!config) return [];
+  // base = "ענו" מהמשפך (סשנים עם אירוע answer כלשהו). לשאלות סגורות זה שווה
+  // בהגדרה למספר התשובות הסופיות שאינן null — תשובת null קיימת רק בשאלות
+  // טקסט (דילוג מכוון), ולהן אין כרטיס. מכני הפילוח (stats_bases) סופרים
+  // תשובות סופיות לא-null — אותו מספר בדיוק עבור המסכים שמצוירים כאן.
   const answeredBy = new Map(funnel.map((f) => [f.screen_id, f.answered]));
   const byScreen = new Map<string, DistStat[]>();
   for (const row of dist) {
@@ -255,18 +259,16 @@ export function questionCards(
     }
 
     let bars: ChoiceBar[] | undefined;
-    if (type === 'single' || type === 'multi') {
+    if (screen.type === 'single' || screen.type === 'multi') {
       // בפילוח פעיל יש שורה לכל (מפתח, מימד) — הסכימה כאן, לא הנחת שורה-למפתח
       const totals = new Map<string, number>();
       for (const a of atoms) totals.set(a.answer_key, (totals.get(a.answer_key) ?? 0) + a.n);
-      bars = screen.type === 'single' || screen.type === 'multi'
-        ? screen.options.map((o) => ({
-            id: o.id,
-            label: o.label,
-            count: totals.get(o.id) ?? 0,
-            ratio: base > 0 ? (totals.get(o.id) ?? 0) / base : null,
-          }))
-        : [];
+      bars = screen.options.map((o) => ({
+        id: o.id,
+        label: o.label,
+        count: totals.get(o.id) ?? 0,
+        ratio: base > 0 ? (totals.get(o.id) ?? 0) / base : null,
+      }));
       const known = new Set(bars.map((b) => b.id));
       for (const [key, count] of totals) {
         if (known.has(key)) continue;
@@ -464,8 +466,9 @@ export function dimensionLegend(
     if (row.dim_value === null) hasUnknown = true;
     else present.add(row.dim_value);
   }
+  // "לא ידוע" הוא עמודה בתרשים לכל דבר — נספר בתקרה יחד עם הערכים הידועים
   const distinct = present.size + (hasUnknown ? 1 : 0);
-  if (present.size > MAX_DIMENSION_VALUES) {
+  if (distinct > MAX_DIMENSION_VALUES) {
     return { mode: 'refused', values: [], distinct };
   }
 

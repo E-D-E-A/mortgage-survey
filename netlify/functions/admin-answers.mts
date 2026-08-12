@@ -9,7 +9,7 @@
 // טרי תמיד (no-store). ⚠ שמות ה-rpc מסונכרנים עם schema.sql (tests/sync).
 
 import { requireAdmin } from './lib/session';
-import { json, supaHeaders, supabaseEnv } from './lib/supabase';
+import { json, rpc, supaHeaders, supabaseEnv } from './lib/supabase';
 import { isValidSlug } from '../../src/data/surveys';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -105,18 +105,4 @@ function parseIntParam(raw: string | null, fallback: number): number | null {
   if (raw === null) return fallback;
   if (!/^\d{1,6}$/.test(raw)) return null;
   return Number(raw);
-}
-
-async function rpc(
-  env: { url: string; key: string },
-  fn: string,
-  args: Record<string, unknown>,
-): Promise<unknown | Response> {
-  const res = await fetch(`${env.url}/rest/v1/rpc/${fn}`, {
-    method: 'POST',
-    headers: supaHeaders(env.key),
-    body: JSON.stringify(args),
-  });
-  if (!res.ok) return new Response('upstream error', { status: 502 });
-  return res.json();
 }

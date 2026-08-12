@@ -1839,7 +1839,7 @@ a.a-btn { text-decoration: none; }
 .stats-control select { min-width: 180px; }
 
 .stats-toggle { cursor: pointer; user-select: none; }
-.stats-toggle input { accent-color: #00947f; }
+.stats-toggle input { accent-color: var(--primary, #00947f); }
 
 .stat-tiles {
   display: grid;
@@ -1877,7 +1877,7 @@ a.a-btn { text-decoration: none; }
 .stats-empty {
   text-align: center;
   color: var(--muted);
-  padding-block: var(--space-8, 48px);
+  padding-block: 48px;
 }
 
 /* משפך פר-מסך */
@@ -1981,7 +1981,7 @@ a.a-btn { text-decoration: none; }
   display: block;
   block-size: 100%;
   min-inline-size: 2px;
-  background: #00947f;
+  background: var(--primary, #00947f);
   border-start-end-radius: 4px;
   border-end-end-radius: 4px;
 }
@@ -2065,7 +2065,7 @@ a.a-btn { text-decoration: none; }
   display: block;
   inline-size: 100%;
   max-inline-size: 24px;
-  background: #00947f;
+  background: var(--primary, #00947f);
   border-start-start-radius: 4px;
   border-start-end-radius: 4px;
 }
@@ -2165,7 +2165,7 @@ a.a-btn { text-decoration: none; }
 .stats-tab.active {
   color: var(--text);
   font-weight: 600;
-  border-block-end-color: #00947f;
+  border-block-end-color: var(--primary, #00947f);
 }
 
 .oa-stats {

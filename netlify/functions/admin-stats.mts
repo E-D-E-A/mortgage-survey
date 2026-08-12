@@ -2,14 +2,18 @@
 // זהו נתיב הקריאה-מהדפדפן הראשון לנתוני תשובות: requireAdmin לפני הכל,
 // והדפדפן עדיין לא נוגע ב-Supabase — הכל דרך כאן עם service_role בצד השרת.
 //
-//   GET ?survey=<slug>&version=<version|all>&include_test=<1|0>
-//     → { survey, name, versions: [{ version, published_at }], overview }
+//   GET ?survey=<slug>&version=<version|all>&include_test=<1|0>&by=<var|_outcome>
+//     → { survey, name,
+//         versions: [{ version, published_at, config }],   ← הקונפיגים לפענוח בדפדפן
+//         overview, funnel, distributions,                 ← ראו הפונקציות ב-schema.sql
+//         by,                                              ← המימד שהוחזר, או null
+//         bases }                                          ← מכני אחוזים לפילוח
 //
 // טרי תמיד (Cache-Control: no-store) — מעקב חי אחרי שטח חשוב מקאש.
 // ⚠ שמות ה-rpc מסונכרנים עם schema.sql — נאכף ב-tests/sync/stats-sql.test.ts.
 
 import { requireAdmin } from './lib/session';
-import { json, supaHeaders, supabaseEnv } from './lib/supabase';
+import { json, rpc, supaHeaders, supabaseEnv } from './lib/supabase';
 import { isValidSlug } from '../../src/data/surveys';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -17,6 +21,7 @@ const NO_STORE = { 'Cache-Control': 'no-store' };
 interface VersionRow {
   version: string;
   published_at: string;
+  config: unknown;
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -87,17 +92,3 @@ export default async (req: Request): Promise<Response> => {
     NO_STORE,
   );
 };
-
-async function rpc(
-  env: { url: string; key: string },
-  fn: string,
-  args: Record<string, unknown>,
-): Promise<unknown | Response> {
-  const res = await fetch(`${env.url}/rest/v1/rpc/${fn}`, {
-    method: 'POST',
-    headers: supaHeaders(env.key),
-    body: JSON.stringify(args),
-  });
-  if (!res.ok) return new Response('upstream error', { status: 502 });
-  return res.json();
-}

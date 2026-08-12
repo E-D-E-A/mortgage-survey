@@ -280,9 +280,15 @@ describe('dimensionLegend', () => {
     expect(legend.values.map((v) => v.label)).toEqual(['הושלמו', 'נטשו באמצע']);
   });
 
-  it('refuses a dimension with more than 12 values', () => {
+  it('refuses a dimension with more than 12 values — the unknown bucket counts too', () => {
     const many = rows(Array.from({ length: 13 }, (_, i) => `v${i}`));
     expect(dimensionLegend(many, 'url_source', bdConfig).mode).toBe('refused');
+    // 12 ערכים ידועים + "לא ידוע" = 13 עמודות בפועל — גם זה נדחה
+    const twelvePlusUnknown = rows([...Array.from({ length: 12 }, (_, i) => `v${i}`), null]);
+    expect(dimensionLegend(twelvePlusUnknown, 'url_source', bdConfig).mode).toBe('refused');
+    // בדיוק 12 כולל הלא-ידוע — עובר
+    const okSet = rows([...Array.from({ length: 11 }, (_, i) => `v${i}`), null]);
+    expect(dimensionLegend(okSet, 'url_source', bdConfig).mode).toBe('ok');
   });
 });
 
