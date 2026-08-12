@@ -436,6 +436,21 @@ const OUTCOME_LABELS: Record<string, string> = {
   abandoned_bounce: 'לא ענו כלל',
 };
 
+/** תווית עברית לתוצאת סשן בשורת תשובה בודדת (abandoned = כל נטישה) */
+export const outcomeLabel = (outcome: string): string =>
+  outcome === 'abandoned' ? 'נטישה' : (OUTCOME_LABELS[outcome] ?? outcome);
+
+/** שאלות הטקסט של הקונפיג הקובע — הרשימה שלשונית התשובות הפתוחות מדפדפת */
+export function textScreens(
+  versions: StatsVersion[],
+  selected: string,
+): { id: string; label: string }[] {
+  const config = chosenConfig(versions, selected);
+  return (config?.screens ?? [])
+    .filter((s) => s.type === 'text')
+    .map((s) => ({ id: s.id, label: screenLabel(s) }));
+}
+
 export const MAX_DIMENSION_VALUES = 12;
 
 export function dimensionLegend(

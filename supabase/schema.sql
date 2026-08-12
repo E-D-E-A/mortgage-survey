@@ -469,6 +469,136 @@ $$;
 revoke execute on function public.stats_bases(text, text, boolean, text) from public, anon, authenticated;
 grant execute on function public.stats_bases(text, text, boolean, text) to service_role;
 
+-- תשובות פתוחות, מטא-דאטה שלא דורש קריאה: שלושת המצבים — ענו (תשובה סופית
+-- שאינה null), דילגו במכוון (תשובה סופית null), נטשו (צפו במסך ולא ענו כלל) —
+-- ואחוזוני אורך התשובה. שום ניתוח תוכן: אורכים וספירות בלבד.
+drop function if exists public.open_answer_stats(text, text, boolean, text);
+create function public.open_answer_stats(
+  p_survey text, p_version text, p_include_test boolean, p_screen text
+)
+returns table (
+  screen_id  text,
+  answered   int,
+  skipped    int,
+  abandoned  int,
+  len_min    int,
+  len_median int,
+  len_p90    int,
+  len_max    int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  ),
+  ev as (
+    select e.screen_id, e.session_id, e.event_type
+    from survey_events e
+    join s using (session_id)
+    where e.screen_id is not null
+      and e.event_type in ('screen_view', 'answer')
+      and (p_screen is null or e.screen_id = p_screen)
+  ),
+  fa as (
+    select f.screen_id, f.value
+    from final_answers f
+    join s using (session_id)
+    where (p_version is null or f.survey_version = p_version)
+      and (p_screen is null or f.screen_id = p_screen)
+  ),
+  lens as (
+    select fa.screen_id, char_length(fa.value #>> '{}') as len
+    from fa where jsonb_typeof(fa.value) = 'string'
+  )
+  select
+    v.screen_id,
+    coalesce(a.answered, 0),
+    coalesce(a.skipped, 0),
+    v.viewed - coalesce(any_ans.n, 0) as abandoned,
+    l.len_min, l.len_median, l.len_p90, l.len_max
+  from (
+    select ev.screen_id, count(distinct ev.session_id)::int as viewed
+    from ev where ev.event_type = 'screen_view' group by ev.screen_id
+  ) v
+  left join (
+    select ev.screen_id, count(distinct ev.session_id)::int as n
+    from ev where ev.event_type = 'answer' group by ev.screen_id
+  ) any_ans using (screen_id)
+  left join (
+    select fa.screen_id,
+      (count(*) filter (where fa.value is not null and jsonb_typeof(fa.value) <> 'null'))::int as answered,
+      (count(*) filter (where jsonb_typeof(fa.value) = 'null'))::int as skipped
+    from fa group by fa.screen_id
+  ) a using (screen_id)
+  left join (
+    select lens.screen_id,
+      min(lens.len)::int                                            as len_min,
+      (percentile_cont(0.5) within group (order by lens.len))::int  as len_median,
+      (percentile_cont(0.9) within group (order by lens.len))::int  as len_p90,
+      max(lens.len)::int                                            as len_max
+    from lens group by lens.screen_id
+  ) l using (screen_id)
+$$;
+
+revoke execute on function public.open_answer_stats(text, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.open_answer_stats(text, text, boolean, text) to service_role;
+
+-- הרשימה עצמה: תשובות טקסט גולמיות, חדש-ראשון, מדופדף. הדפדפן מוסר אילו
+-- מסכים הם שאלות טקסט (ל-SQL אין מושג סוגי מסכים — הקונפיג חי בדפדפן).
+-- p_segment: ערך של משתנה segment; ‎__unknown__‎ = סשנים בלי ערך; null = הכל.
+drop function if exists public.open_answers(text, text, boolean, text[], text, int, int);
+create function public.open_answers(
+  p_survey text, p_version text, p_include_test boolean,
+  p_screens text[], p_segment text, p_limit int, p_offset int
+)
+returns table (
+  total          bigint,
+  screen_id      text,
+  value          text,
+  created_at     timestamptz,
+  survey_version text,
+  segment        text,
+  outcome        text
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id, outcome, vars ->> 'segment' as segment
+    from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  )
+  select
+    count(*) over () as total,
+    f.screen_id,
+    f.value #>> '{}' as value,
+    f.created_at,
+    f.survey_version,
+    s.segment,
+    coalesce(s.outcome, 'abandoned') as outcome
+  from final_answers f
+  join s using (session_id)
+  where (p_version is null or f.survey_version = p_version)
+    and f.screen_id = any (p_screens)
+    and jsonb_typeof(f.value) = 'string'
+    and (p_segment is null
+         or (p_segment = '__unknown__' and s.segment is null)
+         or s.segment = p_segment)
+  order by f.created_at desc
+  limit p_limit offset p_offset
+$$;
+
+revoke execute on function public.open_answers(text, text, boolean, text[], text, int, int) from public, anon, authenticated;
+grant execute on function public.open_answers(text, text, boolean, text[], text, int, int) to service_role;
+
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com
 -- ה-hook הזה רץ לפני יצירת משתמש ב-Supabase Auth, ולכן חשבון גוגל

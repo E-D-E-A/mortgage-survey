@@ -193,6 +193,57 @@ export async function getStats(
   return (await res.json()) as StatsBundle;
 }
 
+// ---------- תשובות פתוחות ----------
+
+export interface OpenAnswerStats {
+  screen_id: string;
+  answered: number;
+  skipped: number;
+  abandoned: number;
+  len_min: number | null;
+  len_median: number | null;
+  len_p90: number | null;
+  len_max: number | null;
+}
+
+export interface OpenAnswerRow {
+  screen_id: string;
+  /** הטקסט הגולמי, כלשונו — שום ניתוח תוכן */
+  value: string;
+  created_at: string;
+  survey_version: string;
+  segment: string | null;
+  outcome: string;
+}
+
+export interface OpenAnswersPage {
+  stats: OpenAnswerStats[];
+  total: number;
+  rows: OpenAnswerRow[];
+}
+
+export async function getOpenAnswers(
+  slug: string,
+  opts: {
+    screens: string[];
+    version?: string;
+    includeTest?: boolean;
+    segment?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<OpenAnswersPage> {
+  const params = new URLSearchParams({ survey: slug, screens: opts.screens.join(',') });
+  if (opts.version && opts.version !== 'all') params.set('version', opts.version);
+  if (opts.includeTest) params.set('include_test', '1');
+  if (opts.segment) params.set('segment', opts.segment);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  if (opts.offset) params.set('offset', String(opts.offset));
+  const res = await call(`admin-answers?${params.toString()}`);
+  if (!res.ok) throw new ApiError(res.status);
+  return (await res.json()) as OpenAnswersPage;
+}
+
 // ---------- פרסום ----------
 
 export interface PublishResult {

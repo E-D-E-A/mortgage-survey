@@ -7,8 +7,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
   ForbiddenError,
+  getOpenAnswers,
   getStats,
   UnauthorizedError,
+  type OpenAnswersPage,
   type StatsBundle,
 } from './api';
 import {
@@ -22,7 +24,9 @@ import {
   formatPercent,
   orderFunnel,
   overviewTiles,
+  outcomeLabel,
   questionCards,
+  textScreens,
   UNKNOWN_DIM_KEY,
   type DimensionLegend,
   type QuestionCardModel,
@@ -50,6 +54,7 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
   const [version, setVersion] = useState<string>('all');
   const [includeTest, setIncludeTest] = useState(false);
   const [by, setBy] = useState('');
+  const [tab, setTab] = useState<'stats' | 'answers'>('stats');
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
 
   const fetchNow = useCallback(async () => {
@@ -148,6 +153,25 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
             </button>
           </div>
 
+          <div className="stats-tabs" role="tablist" aria-label="תצוגות">
+            <button
+              role="tab"
+              aria-selected={tab === 'stats'}
+              className={`stats-tab${tab === 'stats' ? ' active' : ''}`}
+              onClick={() => setTab('stats')}
+            >
+              סטטיסטיקות
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === 'answers'}
+              className={`stats-tab${tab === 'answers' ? ' active' : ''}`}
+              onClick={() => setTab('answers')}
+            >
+              תשובות פתוחות
+            </button>
+          </div>
+
           {load.phase === 'loading' && <p className="stats-empty">טוענים נתונים…</p>}
 
           {load.phase === 'error' && (
@@ -163,7 +187,7 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
             </p>
           )}
 
-          {bundle && bundle.versions.length > 0 && (
+          {bundle && bundle.versions.length > 0 && tab === 'stats' && (
             <>
               <OverviewTiles bundle={bundle} includeTest={includeTest} />
               {bundle.overview.total_sessions > 0 && (
@@ -173,6 +197,16 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
                 </>
               )}
             </>
+          )}
+
+          {bundle && bundle.versions.length > 0 && tab === 'answers' && (
+            <OpenAnswersTab
+              slug={slug}
+              bundle={bundle}
+              version={version}
+              includeTest={includeTest}
+              onAuthError={onAuthError}
+            />
           )}
         </div>
       </div>
@@ -221,6 +255,179 @@ function FunnelSection({ bundle, version }: { bundle: StatsBundle; version: stri
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// ─── לשונית התשובות הפתוחות (ENG-16) ────────────────────────────────────────
+// קריאה בלבד, כלשונן: שום קידוד, שום ניתוח תוכן — רק סינון, אורכים ודפדוף.
+
+const PAGE_SIZE = 50;
+
+function OpenAnswersTab({
+  slug,
+  bundle,
+  version,
+  includeTest,
+  onAuthError,
+}: {
+  slug: string;
+  bundle: StatsBundle;
+  version: string;
+  includeTest: boolean;
+  onAuthError: () => void;
+}) {
+  const questions = textScreens(bundle.versions, version);
+  const [screen, setScreen] = useState('all');
+  const [segment, setSegment] = useState('all');
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState<OpenAnswersPage | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const screens = screen === 'all' ? questions.map((q) => q.id) : [screen];
+  const screensKey = screens.join(',');
+
+  useEffect(() => {
+    setOffset(0);
+  }, [screensKey, segment, version, includeTest]);
+
+  useEffect(() => {
+    if (screens.length === 0) return;
+    let stale = false;
+    setFailed(false);
+    getOpenAnswers(slug, {
+      screens,
+      version,
+      includeTest,
+      segment: segment === 'all' ? undefined : segment,
+      limit: PAGE_SIZE,
+      offset,
+    })
+      .then((data) => {
+        if (!stale) setPage(data);
+      })
+      .catch((e) => {
+        if (e instanceof UnauthorizedError || e instanceof ForbiddenError) onAuthError();
+        else if (!stale) setFailed(true);
+      });
+    return () => {
+      stale = true;
+    };
+    // התלות היא screensKey (מחרוזת יציבה) — מערך ה-screens נגזר ממנה בכל רינדור
+  }, [slug, screensKey, segment, version, includeTest, offset, onAuthError]);
+
+  if (questions.length === 0) {
+    return <p className="stats-empty">בשאלון הזה אין שאלות פתוחות (שאלות טקסט).</p>;
+  }
+  if (failed) {
+    return <p className="stats-empty">טעינת התשובות נכשלה — אפשר לנסות לרענן.</p>;
+  }
+
+  const config = chosenConfig(bundle.versions, version);
+  const segmentValues = config?.varMeta?.segment?.values ?? {};
+  const questionLabel = new Map(questions.map((q) => [q.id, q.label]));
+
+  return (
+    <section aria-label="תשובות פתוחות">
+      <div className="stats-controls">
+        <label className="stats-control">
+          שאלה
+          <select className="a-input" value={screen} onChange={(e) => setScreen(e.target.value)}>
+            <option value="all">כל השאלות הפתוחות</option>
+            {questions.map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="stats-control">
+          מסלול המשיב
+          <select className="a-input" value={segment} onChange={(e) => setSegment(e.target.value)}>
+            <option value="all">הכול</option>
+            {Object.entries(segmentValues).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+            <option value="__unknown__">לא ידוע</option>
+          </select>
+        </label>
+      </div>
+
+      {page && (
+        <>
+          <div className="oa-stats">
+            {page.stats.map((s) => (
+              <div key={s.screen_id} className="oa-stat-row">
+                <span className="oa-stat-q" title={questionLabel.get(s.screen_id) ?? s.screen_id}>
+                  {questionLabel.get(s.screen_id) ?? s.screen_id}
+                </span>
+                <span className="a-hint">
+                  ענו {formatCount(s.answered)} · דילגו {formatCount(s.skipped)} · נטשו{' '}
+                  {formatCount(s.abandoned)}
+                  {s.len_median !== null && (
+                    <>
+                      {' '}
+                      · אורך: {formatCount(s.len_min ?? 0)}–{formatCount(s.len_max ?? 0)} תווים
+                      (חציון {formatCount(s.len_median)}, עשירון עליון {formatCount(s.len_p90 ?? 0)})
+                    </>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {page.total === 0 ? (
+            <p className="stats-empty">אין תשובות טקסט בטווח הסינון הנוכחי.</p>
+          ) : (
+            <>
+              <ul className="oa-list">
+                {page.rows.map((row, i) => (
+                  <li key={`${row.created_at}-${i}`} className="oa-row">
+                    <p className="oa-text">{row.value}</p>
+                    <p className="oa-meta a-hint">
+                      {screen === 'all' && (
+                        <>
+                          {questionLabel.get(row.screen_id) ?? row.screen_id}
+                          {' · '}
+                        </>
+                      )}
+                      {new Date(row.created_at).toLocaleDateString('he-IL')}
+                      {' · '}
+                      <bdi dir="ltr">{row.survey_version}</bdi>
+                      {' · '}
+                      {row.segment ? (segmentValues[row.segment] ?? row.segment) : 'לא ידוע'}
+                      {' · '}
+                      {outcomeLabel(row.outcome)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              <div className="oa-pager">
+                <button
+                  className="a-btn ghost small"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                >
+                  → הקודם
+                </button>
+                <span className="a-hint">
+                  {formatCount(offset + 1)}–{formatCount(Math.min(offset + PAGE_SIZE, page.total))}{' '}
+                  מתוך {formatCount(page.total)}
+                </span>
+                <button
+                  className="a-btn ghost small"
+                  disabled={offset + PAGE_SIZE >= page.total}
+                  onClick={() => setOffset(offset + PAGE_SIZE)}
+                >
+                  הבא ←
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </section>
   );
 }
