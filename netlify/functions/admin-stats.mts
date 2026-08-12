@@ -1,0 +1,88 @@
+// סטטיסטיקות תגובות לקונסולה — קריאה בלבד, עורכי first-edea בלבד.
+// זהו נתיב הקריאה-מהדפדפן הראשון לנתוני תשובות: requireAdmin לפני הכל,
+// והדפדפן עדיין לא נוגע ב-Supabase — הכל דרך כאן עם service_role בצד השרת.
+//
+//   GET ?survey=<slug>&version=<version|all>&include_test=<1|0>
+//     → { survey, name, versions: [{ version, published_at }], overview }
+//
+// טרי תמיד (Cache-Control: no-store) — מעקב חי אחרי שטח חשוב מקאש.
+// ⚠ שמות ה-rpc מסונכרנים עם schema.sql — נאכף ב-tests/sync/stats-sql.test.ts.
+
+import { requireAdmin } from './lib/session';
+import { json, supaHeaders, supabaseEnv } from './lib/supabase';
+import { isValidSlug } from '../../src/data/surveys';
+
+const NO_STORE = { 'Cache-Control': 'no-store' };
+
+interface VersionRow {
+  version: string;
+  published_at: string;
+}
+
+export default async (req: Request): Promise<Response> => {
+  if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
+
+  const session = await requireAdmin(req);
+  if (session instanceof Response) return session;
+  const env = supabaseEnv();
+  if (env instanceof Response) return env;
+  const headers = supaHeaders(env.key);
+
+  const params = new URL(req.url).searchParams;
+  const survey = params.get('survey') ?? '';
+  if (!isValidSlug(survey)) return new Response('invalid survey', { status: 400 });
+  const includeTest = params.get('include_test') === '1';
+  const versionParam = params.get('version') ?? 'all';
+
+  const slug = encodeURIComponent(survey);
+  const [surveyRes, versionsRes] = await Promise.all([
+    fetch(`${env.url}/rest/v1/surveys?slug=eq.${slug}&select=slug,name`, { headers }),
+    fetch(
+      `${env.url}/rest/v1/survey_configs?survey_id=eq.${slug}&select=version,published_at&order=published_at.desc,version.desc`,
+      { headers },
+    ),
+  ]);
+  if (!surveyRes.ok || !versionsRes.ok) return new Response('upstream error', { status: 502 });
+
+  const surveyRows = (await surveyRes.json()) as { slug: string; name: string }[];
+  if (surveyRows.length === 0) return new Response('survey not found', { status: 404 });
+  const versions = (await versionsRes.json()) as VersionRow[];
+
+  // version=all → null בפונקציות ה-SQL (כל הגרסאות); גרסה מפורשת חייבת להתקיים
+  const version = versionParam === 'all' ? null : versionParam;
+  if (version !== null && !versions.some((v) => v.version === version)) {
+    return new Response('unknown version', { status: 400 });
+  }
+
+  const overviewRows = await rpc(env, 'stats_overview', {
+    p_survey: survey,
+    p_version: version,
+    p_include_test: includeTest,
+  });
+  if (overviewRows instanceof Response) return overviewRows;
+
+  return json(
+    {
+      survey,
+      name: surveyRows[0].name,
+      versions,
+      overview: (overviewRows as Record<string, number>[])[0],
+    },
+    200,
+    NO_STORE,
+  );
+};
+
+async function rpc(
+  env: { url: string; key: string },
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<unknown | Response> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: supaHeaders(env.key),
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) return new Response('upstream error', { status: 502 });
+  return res.json();
+}

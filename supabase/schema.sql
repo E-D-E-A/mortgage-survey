@@ -155,6 +155,20 @@ revoke all on public.survey_drafts  from anon, authenticated;
 revoke all on public.survey_configs from anon, authenticated;
 
 -- ============================================================
+-- הרשאות מפורשות ל-service_role (צד השרת של Netlify בלבד).
+-- בפרויקטי ענן ותיקים service_role קיבל הכל דרך default privileges; בהתקנות
+-- חדשות — וגם בסטאק המקומי של supabase start — אובייקטים אינם נחשפים
+-- אוטומטית, ולכן ההענקה כאן מפורשת. anon/authenticated נשארים חסומים לגמרי.
+-- survey_configs בכוונה בלי update/delete — ה-trigger למעלה אוכף append-only.
+-- ============================================================
+grant usage on schema public to service_role;
+grant select, insert                 on public.survey_events  to service_role;
+grant select, insert, update, delete on public.surveys        to service_role;
+grant select, insert, update, delete on public.survey_drafts  to service_role;
+grant select, insert                 on public.survey_configs to service_role;
+grant usage, select on all sequences in schema public to service_role;
+
+-- ============================================================
 -- Views לניתוח (נגישות רק מהדשבורד / service key)
 -- מוגדרים אחרי survey_configs כי הם נשענים עליו כדי לתרגם survey_version
 -- (המזהה היחיד שיש בשורת האירוע) לשאלון שאליו היא שייכת.
@@ -181,6 +195,7 @@ from public.survey_events e
 group by session_id;
 
 revoke all on public.completed_responses from anon, authenticated;
+grant select on public.completed_responses to service_role;
 
 -- משפך פר-מסך: צפיות, תשובות, זמן ממוצע — לבקרת איכות ונשירה
 create or replace view public.screen_funnel
@@ -201,6 +216,79 @@ where screen_id is not null
 group by survey_version, screen_id;
 
 revoke all on public.screen_funnel from anon, authenticated;
+grant select on public.screen_funnel to service_role;
+
+-- ============================================================
+-- סטטיסטיקות למסך ה-stats בקונסולה (ENG-12..ENG-18)
+-- שכבה 1: session_stats — שורת סיכום אחת לכל סשן.
+--
+-- "סשן בדיקה" = vars של session_start מכילים url_test (קישור שנפתח עם ?test=1).
+-- זו נקודת ההגדרה היחידה של הכלל — כל פונקציות הסטטיסטיקה מסננות דרכה,
+-- וקונסולת הניהול יכולה לבקש include_test כדי לראות גם אותם.
+--
+-- vars אפקטיביים = מהאירוע האחרון שנושא vars: אירוע סיום עדיף על answer
+-- מועשר, שעדיף על session_start. סשן שנטש עם לקוח ישן (בלי vars ב-answer)
+-- נשאר עם ה-vars ההתחלתיים — משתנה מחושב כמו segment יופיע בו כ"לא ידוע".
+-- ⚠ הכלל url_test והשמות כאן מסונכרנים עם tests/sync/stats-sql.test.ts.
+-- ============================================================
+
+create or replace view public.session_stats
+  with (security_invoker = true) as
+select
+  session_id,
+  max(survey_version)                                                        as survey_version,
+  (select c.survey_id from public.survey_configs c
+    where c.version = max(e.survey_version))                                 as survey_id,
+  min(created_at) filter (where event_type = 'session_start')                as started_at,
+  max(created_at)                                                            as last_event_at,
+  max(event_type) filter (where event_type in
+    ('complete','screenout','quotafull'))                                    as outcome,
+  bool_or(event_type = 'answer')                                             as answered_any,
+  coalesce(bool_or(event_type = 'session_start'
+                   and payload -> 'vars' ? 'url_test'), false)               as is_test,
+  (array_agg(payload -> 'vars' order by created_at desc)
+     filter (where payload ? 'vars'))[1]                                     as vars
+from public.survey_events e
+group by session_id;
+
+revoke all on public.session_stats from anon, authenticated;
+grant select on public.session_stats to service_role;
+
+-- שכבה 2: פונקציות אגרגציה שה-endpoint המאומת (admin-stats) קורא דרך rpc.
+-- drop לפני create — שינוי חתימה או עמודות החזרה ב-create or replace נכשל,
+-- וה-drop המפורש משאיר את הקובץ ניתן להרצה חוזרת.
+
+-- אריחי הסקירה: סה"כ, הושלמו, סוננו, מכסה מלאה, ונטישה מפוצלת לשניים —
+-- "נטשו באמצע" (ענו לפחות פעם אחת) מול "נכנסו ולא ענו כלל" (בוטים/הצצה).
+drop function if exists public.stats_overview(text, text, boolean);
+create function public.stats_overview(p_survey text, p_version text, p_include_test boolean)
+returns table (
+  total_sessions   int,
+  completed        int,
+  screened_out     int,
+  quota_full       int,
+  abandoned_mid    int,
+  abandoned_bounce int
+)
+language sql stable
+set search_path = public
+as $$
+  select
+    count(*)::int,
+    (count(*) filter (where outcome = 'complete'))::int,
+    (count(*) filter (where outcome = 'screenout'))::int,
+    (count(*) filter (where outcome = 'quotafull'))::int,
+    (count(*) filter (where outcome is null and answered_any))::int,
+    (count(*) filter (where outcome is null and not answered_any))::int
+  from session_stats
+  where survey_id = p_survey
+    and started_at is not null
+    and (p_version is null or survey_version = p_version)
+    and (p_include_test or not is_test)
+$$;
+
+revoke execute on function public.stats_overview(text, text, boolean) from public, anon, authenticated;
+grant execute on function public.stats_overview(text, text, boolean) to service_role;
 
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com

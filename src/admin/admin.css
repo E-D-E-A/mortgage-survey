@@ -1808,3 +1808,74 @@ a.a-btn { text-decoration: none; }
 }
 
 .fg-lane-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- מסך הסטטיסטיקות (ENG-13+) ---------- */
+
+.stats-body {
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.stats-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.stats-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.stats-control select { min-width: 180px; }
+
+.stats-toggle { cursor: pointer; user-select: none; }
+.stats-toggle input { accent-color: #00947f; }
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.stat-tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--space-3) var(--space-4);
+}
+
+.stat-num {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label { color: var(--muted); font-size: var(--text-xs); }
+.stat-pct { font-weight: 600; color: var(--text); }
+
+.stat-sub {
+  list-style: none;
+  margin-block-start: var(--space-2);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stats-empty {
+  text-align: center;
+  color: var(--muted);
+  padding-block: var(--space-8, 48px);
+}

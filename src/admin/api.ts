@@ -122,6 +122,42 @@ export async function saveDraft(
   return (await res.json()) as { updated_at: string };
 }
 
+// ---------- סטטיסטיקות ----------
+
+export interface StatsOverview {
+  total_sessions: number;
+  completed: number;
+  screened_out: number;
+  quota_full: number;
+  abandoned_mid: number;
+  abandoned_bounce: number;
+}
+
+export interface StatsVersion {
+  version: string;
+  published_at: string;
+}
+
+export interface StatsBundle {
+  survey: string;
+  name: string;
+  versions: StatsVersion[];
+  overview: StatsOverview;
+}
+
+/** צרור הסטטיסטיקות של שאלון; version='all' = כל הגרסאות יחד (ברירת המחדל). */
+export async function getStats(
+  slug: string,
+  opts: { version?: string; includeTest?: boolean } = {},
+): Promise<StatsBundle> {
+  const params = new URLSearchParams({ survey: slug });
+  if (opts.version && opts.version !== 'all') params.set('version', opts.version);
+  if (opts.includeTest) params.set('include_test', '1');
+  const res = await call(`admin-stats?${params.toString()}`);
+  if (!res.ok) throw new ApiError(res.status);
+  return (await res.json()) as StatsBundle;
+}
+
 // ---------- פרסום ----------
 
 export interface PublishResult {

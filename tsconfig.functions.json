@@ -9,6 +9,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    // בדיקות האינטגרציה מייבאות את קבצי ה-.mts של הפונקציות ישירות
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
   "include": ["netlify/functions", "tests"]

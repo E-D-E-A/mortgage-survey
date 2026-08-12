@@ -149,6 +149,8 @@ function buildSession(i, plan, rows) {
   const startVars = { price, url_source: plan.source };
   if (plan.test) startVars.url_test = '1';
 
+  // payload נשאר אובייקט — postgres.js משדר אובייקט כ-json; מחרוזת מוכנה
+  // הייתה נשמרת כמחרוזת-בתוך-jsonb (קידוד כפול) ושוברת כל payload -> 'vars'
   const push = (event_type, screen_id, payload) => {
     rows.push({
       event_uid: eventUuid(),
@@ -156,7 +158,7 @@ function buildSession(i, plan, rows) {
       survey_version: version,
       event_type,
       screen_id,
-      payload: JSON.stringify(payload),
+      payload,
       client_ts: new Date(t),
       created_at: new Date(t),
     });

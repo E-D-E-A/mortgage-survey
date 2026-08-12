@@ -17,6 +17,7 @@ import { SurveyList } from './SurveyList';
 import { supabase } from './supabaseClient';
 import { ScreenList } from './ScreenList';
 import { ScreenEditor } from './ScreenEditor';
+import { StatsPage } from './StatsPage';
 import { FlowGraph } from './FlowGraph';
 import { Simulator } from './Simulator';
 import { ValidationPanel } from './ValidationPanel';
@@ -106,14 +107,15 @@ function useTooNarrow(): boolean {
 
 type Auth = { phase: 'checking' } | { phase: 'login' } | { phase: 'in'; email: string };
 
-/** ‎/admin‎ → רשימת השאלונים, ‎/admin/<slug>‎ → העורך של אותו שאלון. */
-type Route = { view: 'list' } | { view: 'editor'; slug: string };
+/** ‎/admin‎ → רשימה, ‎/admin/<slug>‎ → עורך, ‎/admin/<slug>/stats‎ → סטטיסטיקות. */
+type Route = { view: 'list' } | { view: 'editor'; slug: string } | { view: 'stats'; slug: string };
 
 function parseRoute(pathname: string): Route {
-  const m = pathname.match(/^\/admin\/([^/]+)\/?$/);
+  const m = pathname.match(/^\/admin\/([^/]+)(\/stats)?\/?$/);
   if (!m) return { view: 'list' };
   const slug = decodeURIComponent(m[1]);
-  return isValidSlug(slug) ? { view: 'editor', slug } : { view: 'list' };
+  if (!isValidSlug(slug)) return { view: 'list' };
+  return m[2] ? { view: 'stats', slug } : { view: 'editor', slug };
 }
 
 export default function AdminApp() {
@@ -178,13 +180,32 @@ function Console({ email, onAuthError }: { email: string; onAuthError: () => voi
       <div className="admin-app">
         <ConsoleTopbar email={email} />
         <div className="admin-scroll">
-          <SurveyList surveys={surveys} onOpen={(slug) => navigate(`/admin/${slug}`)} />
+          <SurveyList
+            surveys={surveys}
+            onOpen={(slug) => navigate(`/admin/${slug}`)}
+            onStats={(slug) => navigate(`/admin/${slug}/stats`)}
+          />
         </div>
       </div>
     );
   }
 
   const survey = surveys.items.find((s) => s.slug === route.slug);
+
+  if (route.view === 'stats') {
+    return (
+      <StatsPage
+        key={route.slug}
+        slug={route.slug}
+        name={survey?.name ?? route.slug}
+        email={email}
+        onBack={() => navigate('/admin')}
+        onOpenEditor={() => navigate(`/admin/${route.slug}`)}
+        onAuthError={onAuthError}
+      />
+    );
+  }
+
   return (
     <Editor
       key={route.slug}
@@ -196,6 +217,7 @@ function Console({ email, onAuthError }: { email: string; onAuthError: () => voi
         void surveys.reload();
         navigate('/admin');
       }}
+      onStats={() => navigate(`/admin/${route.slug}/stats`)}
       onAuthError={onAuthError}
     />
   );
@@ -259,10 +281,11 @@ interface EditorProps {
   archived: boolean;
   email: string;
   onBack: () => void;
+  onStats: () => void;
   onAuthError: () => void;
 }
 
-function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProps) {
+function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: EditorProps) {
   const draft = useDraft(slug, onAuthError);
   const tooNarrow = useTooNarrow();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -470,6 +493,9 @@ function Editor({ slug, name, archived, email, onBack, onAuthError }: EditorProp
           </button>
           <button className="a-btn ghost small" onClick={leave} title="חזרה לרשימת השאלונים">
             → כל השאלונים
+          </button>
+          <button className="a-btn ghost small" onClick={onStats} title="סטטיסטיקות התשובות של השאלון">
+            סטטיסטיקות
           </button>
           <h1>{name}</h1>
           <code className="topbar-slug" dir="ltr">

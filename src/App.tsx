@@ -186,6 +186,9 @@ export default function App({ config }: { config: SurveyConfig }) {
         value,
         ms: Date.now() - enteredAt.current,
         attempt,
+        // צילום ה-vars אחרי כללי onSubmit: סשן שנוטש בהמשך נושא את הפילוח
+        // (segment וכד') עד לנקודה שאליה הגיע — בלי זה נטישה = "לא ידוע" בניתוח
+        vars: { ...vars },
         ...extra,
       });
     }
