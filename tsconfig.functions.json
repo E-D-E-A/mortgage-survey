@@ -11,5 +11,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["netlify/functions"]
+  "include": ["netlify/functions", "tests"]
 }

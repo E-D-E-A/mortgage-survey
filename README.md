@@ -57,6 +57,30 @@ npm test           # בדיקות מנוע התנאים
 
 בדיקת הצינור המלא מקומית (פונקציות + Supabase, כולל `/admin`): `cp .env.example .env`,
 מילוי המשתנים, ואז `netlify dev` ופתיחת `http://localhost:8888/admin`.
+
+### דאטהבייס מקומי (Supabase CLI) — פיתוח ובדיקות בלי לגעת בענן
+
+סטאק Supabase מלא רץ מקומית ב-Docker, מוגדר ב-`supabase/config.toml` (בריפו):
+
+```bash
+npx supabase start     # פעם ראשונה מורידה images — כמה דקות
+npm run db:schema      # מחיל את supabase/schema.sql (idempotent, כמו ב-SQL Editor)
+npm run db:seed        # שאלון 'demo' + עשרות סשנים סינתטיים לפיתוח הסטטיסטיקות
+npx supabase stop      # בסיום (הנתונים נשמרים בין הרצות)
+```
+
+כדי שהפונקציות המקומיות ידברו עם הסטאק המקומי במקום הענן, ב-`.env` שמים את
+הערכים ש-`npx supabase status` מדפיס (`API URL` ו-`service_role key`).
+
+בדיקות האינטגרציה מול ה-DB (`tests/db/`) רצות רק בהפעלה מפורשת — הן מסרבות
+לכל מארח שאינו מקומי, כך שלעולם לא ייגעו בנתוני אמת:
+
+```bash
+DB_TESTS=1 npx vitest run tests/db          # bash
+$env:DB_TESTS='1'; npx vitest run tests/db  # PowerShell
+```
+
+בלי הדגל (וב-CI) הקבוצה מדולגת ו-`npm test` נשאר ירוק בלי Docker.
 ב-`npm run dev` הקונסולה תציג מסך כניסה אבל הפונקציות לא רצות — עבודה על `/admin`
 דורשת `netlify dev`. לכניסת Google מקומית צריך ש-`http://localhost:8888/admin`
 יופיע ב-Redirect URLs בדשבורד Supabase (ראו למטה).

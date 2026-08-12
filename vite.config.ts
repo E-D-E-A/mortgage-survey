@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // tests/db הן בדיקות אינטגרציה מול Supabase מקומי — מדולגות בלי DB_TESTS=1
+    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
   },
 });
