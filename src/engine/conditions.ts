@@ -1,4 +1,4 @@
-import type { AnswerValue, Condition, SurveyContext } from './types';
+import type { AnswerValue, Condition, Screen, SurveyContext } from './types';
 
 /** מעריך תנאי הצגה/ניתוב מול התשובות ומשתני הסשן. */
 export function evaluate(cond: Condition, ctx: SurveyContext): boolean {
@@ -44,11 +44,39 @@ export function evaluate(cond: Condition, ctx: SurveyContext): boolean {
 
 type Vars = SurveyContext['vars'];
 
+/** תבנית השיבוץ — נקודת ההגדרה היחידה של התחביר, לקריאה ולכתיבה כאחד. */
+const INTERPOLATION_RE = /\{(\w+)\}/g;
+
 /** מחליף ‎{name}‎ בערך ממשתני הסשן או מהתשובות — למשל מחיר מוגרל בתוך נוסח שאלה. */
 export function interpolate(text: string, ctx: SurveyContext): string {
-  return text.replace(/\{(\w+)\}/g, (match, key: string) => {
+  return text.replace(INTERPOLATION_RE, (match, key: string) => {
     const v = ctx.vars[key] ?? ctx.answers[key];
     if (v === null || v === undefined) return match;
     return String(v);
   });
+}
+
+/**
+ * The names a text interpolates — the read side of interpolate(), for the
+ * validator: a `{name}` with nothing behind it is not silently dropped, it is
+ * printed to the respondent braces and all.
+ */
+export function interpolationRefs(text: string): string[] {
+  return [...text.matchAll(INTERPOLATION_RE)].map((m) => m[1]);
+}
+
+/**
+ * The screen fields interpolation actually reaches. Lives next to interpolate()
+ * so the validator and the runtime cannot drift on which text a `{name}` works
+ * in — ⚠ it must stay in step with withInterpolation() in src/App.tsx.
+ */
+export function interpolatedTexts(screen: Screen): string[] {
+  switch (screen.type) {
+    case 'info':
+    case 'consent':
+    case 'end':
+      return [screen.title, screen.body];
+    default:
+      return [screen.prompt];
+  }
 }

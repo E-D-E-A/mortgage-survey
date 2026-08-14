@@ -11,6 +11,7 @@ import { isValidSlug, surveyPath } from '../data/surveys';
 import { useDraft } from './useDraft';
 import { useSurveys } from './useSurveys';
 import { insertScreen } from './edits';
+import { defineVar as defineVarIn, defineVarValue as defineVarValueIn } from './vars';
 import { makeNaming, screenLabel } from './display';
 import { LoginScreen } from './LoginScreen';
 import { SurveyList } from './SurveyList';
@@ -23,6 +24,7 @@ import { Simulator } from './Simulator';
 import { ValidationPanel } from './ValidationPanel';
 import { PanelResizer } from './PanelResizer';
 import { PublishDialog } from './PublishDialog';
+import { SurveySettings } from './SurveySettings';
 import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, RedoIcon, UndoIcon, WarningIcon } from './Icons';
 import './admin.css';
 
@@ -299,6 +301,7 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // null = בדיקת המסלול כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
   const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
   const [sidebarW, setSidebarW] = useState(() => readWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT));
@@ -459,31 +462,13 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
 
   /** סימון חדש נרשם ברמת השאלון, לא על המסך — אחרת רק המסך שיצר אותו יידע את שמו. */
   const defineVar = useCallback(
-    (name: string, label: string) => {
-      draft.update((cfg) => ({
-        ...cfg,
-        varMeta: { ...cfg.varMeta, [name]: { ...cfg.varMeta?.[name], label } },
-      }));
-    },
+    (name: string, label: string) => draft.update((cfg) => defineVarIn(cfg, name, label)),
     [draft],
   );
 
   const defineVarValue = useCallback(
-    (name: string, value: string, label: string) => {
-      draft.update((cfg) => {
-        const existing = cfg.varMeta?.[name];
-        return {
-          ...cfg,
-          varMeta: {
-            ...cfg.varMeta,
-            [name]: {
-              label: existing?.label ?? name,
-              values: { ...existing?.values, [value]: label },
-            },
-          },
-        };
-      });
-    },
+    (name: string, value: string, label: string) =>
+      draft.update((cfg) => defineVarValueIn(cfg, name, value, label)),
     [draft],
   );
 
@@ -551,6 +536,14 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
             disabled={!draft.dirty || draft.saving || draft.phase !== 'ready'}
           >
             {draft.saving ? 'שומר…' : 'שמירה'}
+          </button>
+          <button
+            className="a-btn secondary"
+            onClick={() => setSettingsOpen(true)}
+            disabled={draft.phase !== 'ready'}
+            title="הגרלות A/B — משתנים שנקבעים למשיב בכניסה, לפני המסך הראשון"
+          >
+            משתני השאלון
           </button>
           <button
             className={`a-btn ${simAnswers ? 'primary' : 'secondary'}`}
@@ -743,6 +736,15 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
             </aside>
           )}
         </div>
+      )}
+
+      {settingsOpen && config && (
+        <SurveySettings
+          config={config}
+          naming={naming}
+          onUpdate={draft.update}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
 
       {publishOpen && (

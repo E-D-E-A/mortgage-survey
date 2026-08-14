@@ -143,6 +143,67 @@ describe('validateConfig', () => {
   });
 });
 
+// ── משתנים מוגרלים ושיבוץ בנוסח (ENG-19) ──
+
+describe('validateConfig · random variables', () => {
+  const withRandom = (randomVars: SurveyConfig['randomVars'], screens?: Screen[]): SurveyConfig => ({
+    version: 't',
+    randomVars,
+    screens: screens ?? [info('a'), end('e')],
+  });
+
+  it('a draw with fewer than two values is an error', () => {
+    for (const values of [[], [99]]) {
+      const issue = errors(withRandom({ price: values })).find((i) => i.code === 'random-var-values');
+      expect(issue?.message).toContain('price');
+    }
+    expect(codes(withRandom({ price: [99, 199] }))).not.toContain('random-var-values');
+  });
+
+  it('an empty value is an error — the respondent would read a hole', () => {
+    const issue = errors(withRandom({ price: [99, '  '] })).find(
+      (i) => i.code === 'random-var-values',
+    );
+    expect(issue?.message).toContain('ערך ריק');
+  });
+
+  it('a repeated value is a warning — it doubles that value’s odds', () => {
+    const issue = validateConfig(withRandom({ price: [99, 199, 99] })).find(
+      (i) => i.code === 'random-var-values',
+    );
+    expect(issue?.level).toBe('warning');
+  });
+
+  it('interpolating a name nothing produces is an error', () => {
+    const screens = [info('a', { title: 'מחיר: {price}' }), end('e')];
+    expect(codes(cfg(screens))).toContain('unknown-interpolation');
+    expect(codes(withRandom({ price: [99, 199] }, screens))).not.toContain('unknown-interpolation');
+  });
+
+  it('interpolation accepts a mark, a url_* param and a question id', () => {
+    const c = cfg([
+      info('a', { onSubmit: [{ var: 'seg', value: 'A' }] }),
+      { id: 'q1', type: 'number', prompt: 'גיל' },
+      info('b', { title: '{seg} · {url_source} · {q1}' }),
+      end('e'),
+    ]);
+    expect(codes(c)).not.toContain('unknown-interpolation');
+  });
+
+  it('reports each unknown name once per screen, in the fields the engine interpolates', () => {
+    // help אינו עובר interpolate (ראו withInterpolation ב-App.tsx), ולכן {ghost}
+    // שם אינו הפניה שבורה אלא טקסט
+    const c = cfg([
+      info('a', { title: '{ghost}', body: '{ghost} ושוב {ghost}' }),
+      { id: 'q1', type: 'text', prompt: 'שאלה', help: '{ghost}' },
+      end('e'),
+    ]);
+    const found = validateConfig(c).filter((i) => i.code === 'unknown-interpolation');
+    expect(found).toHaveLength(1);
+    expect(found[0].screenId).toBe('a');
+  });
+});
+
 // ── שלמות תוכן המסך ──
 // כל מקרה כאן הוא עריכה "חוקית" בקונסולה שהשאירה את השאלון שבור בלי שום
 // התרעה (דוח QA 2026-08-08, A7).

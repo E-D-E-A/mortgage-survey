@@ -5,6 +5,7 @@
 // Shared verbatim between the admin editor (live feedback) and the publish
 // Netlify function (server-side gate) — esbuild bundles this file into both.
 
+import { interpolatedTexts, interpolationRefs } from './conditions';
 import type { Condition, Option, Screen, SurveyConfig } from './types';
 
 export interface ValidationIssue {
@@ -29,7 +30,9 @@ export interface ValidationIssue {
     | 'scale-range'
     | 'bad-max-selections'
     | 'bad-text-limit'
-    | 'var-order';
+    | 'var-order'
+    | 'random-var-values'
+    | 'unknown-interpolation';
   screenId?: string;
   message: string;
 }
@@ -112,7 +115,7 @@ function collectLeaves(cond: Condition, out: Leaf[]): void {
 }
 
 /** כל התנאים שמופיעים על מסך: showIf, next[].if, onSubmit[].if */
-function screenConditions(screen: Screen): Condition[] {
+export function screenConditions(screen: Screen): Condition[] {
   const out: Condition[] = [];
   if (screen.showIf) out.push(screen.showIf);
   for (const r of screen.next ?? []) if (r.if) out.push(r.if);
@@ -248,6 +251,42 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     });
   }
 
+  // --- משתנים מוגרלים ---
+  // ההגרלה נעשית פעם אחת בכניסה (initVars ב-App.tsx) ומשם הערך קבוע למשיב.
+  // רשימה של ערך אחד אינה ניסוי — כל המשיבים יקבלו אותו ערך, ושתי הזרועות
+  // שהאדמין חשב שהוא מודד יהיו זרוע אחת. ערך ריק גרוע אף יותר: מי שיוגרל
+  // אליו יראה מחרוזת ריקה בתוך נוסח השאלה.
+  for (const [name, values] of Object.entries(config.randomVars ?? {})) {
+    const list = Array.isArray(values) ? values : [];
+    if (list.length < 2) {
+      issues.push({
+        level: 'error',
+        code: 'random-var-values',
+        message: `להגרלה "${name}" יש ${list.length === 1 ? 'ערך אחד בלבד' : 'רשימת ערכים ריקה'} — צריך לפחות שני ערכים, אחרת אין כאן הגרלה`,
+      });
+    }
+    if (list.some((v) => typeof v === 'string' && !v.trim())) {
+      issues.push({
+        level: 'error',
+        code: 'random-var-values',
+        message: `להגרלה "${name}" יש ערך ריק — מי שיוגרל אליו יראה חור בנוסח השאלה`,
+      });
+    }
+    const seen = new Set<string>();
+    for (const v of list) {
+      const key = String(v);
+      if (seen.has(key)) {
+        issues.push({
+          level: 'warning',
+          code: 'random-var-values',
+          message: `הערך "${key}" מופיע יותר מפעם אחת בהגרלה "${name}" — הסיכוי שלו כפול משאר הערכים`,
+        });
+        break;
+      }
+      seen.add(key);
+    }
+  }
+
   // --- שלמות תוכן המסך ---
   // עריכה שנראית תמימה (שינוי מזהה אפשרות, מחיקת האפשרות האחרונה, סולם הפוך)
   // יכולה להשאיר את המשיב מול מסך ריק או תקוע בלי דרך להמשיך ובלי דרך לחזור.
@@ -380,6 +419,25 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         });
       }
       if ('q' in leaf) checkOptionValues(s.id, leaf, screens, idToIndex, issues);
+    }
+
+    // שיבוץ ‎{name}‎ בנוסח המסך. interpolate משאיר את הטוקן כמו שהוא כשאין לו
+    // ערך, ולכן הפניה שבורה אינה כשל שקט: המשיב קורא ‎{price}‎ עם הסוגריים
+    // בתוך השאלה. הפניה לשאלה לגיטימית — interpolate נופל גם על התשובות.
+    const interpolated = new Set<string>();
+    for (const text of interpolatedTexts(s)) {
+      if (typeof text !== 'string') continue;
+      for (const ref of interpolationRefs(text)) {
+        if (interpolated.has(ref)) continue;
+        interpolated.add(ref);
+        if (producedVars.has(ref) || ref.startsWith('url_') || idToIndex.has(ref)) continue;
+        issues.push({
+          level: 'error',
+          code: 'unknown-interpolation',
+          screenId: s.id,
+          message: `הנוסח במסך "${s.id}" משבץ את {${ref}}, אבל אין בשאלון סימון או שאלה בשם הזה — המשיב יראה את הסוגריים כמו שהן`,
+        });
+      }
     }
   }
 

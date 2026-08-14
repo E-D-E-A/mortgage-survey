@@ -10,6 +10,7 @@ import type { SetVarRule } from '../engine/types';
 import type { Naming } from './display';
 import { varLabel, varValueLabel } from './display';
 import { OptionalCondition } from './ConditionBuilder';
+import { DefineForm, nextCode } from './DefineForm';
 import { PencilIcon, TrashIcon } from './Icons';
 
 interface Props {
@@ -136,6 +137,9 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                       : naming.varMeta[rule.var]?.values?.[creating.renaming] ?? ''
                     : ''
                 }
+                takenCodes={
+                  creating.field === 'var' ? naming.vars : values.map(([id]) => id)
+                }
                 onCancel={() => setCreating(null)}
                 onCreate={(code, label) => {
                   if (creating.field === 'var') {
@@ -166,84 +170,3 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
   );
 }
 
-/** קוד פנוי הבא בסדרה — כדי שהאדמין לא יצטרך להמציא אחד. */
-function nextCode(prefix: string, taken: string[]): string {
-  for (let n = 1; ; n++) {
-    const candidate = `${prefix}${n}`;
-    if (!taken.includes(candidate)) return candidate;
-  }
-}
-
-/**
- * התווית קודמת לקוד בכוונה: התווית היא מה שכל הקונסולה תציג, והקוד הוא פרט
- * טכני שנחוץ רק לקובץ הנתונים — הוא מגיע מוכן ורוב האדמינים לא יגעו בו.
- */
-function DefineForm({
-  kind,
-  renaming,
-  suggestedCode,
-  suggestedLabel,
-  onCreate,
-  onCancel,
-}: {
-  kind: 'var' | 'value';
-  /** שינוי שם לסימון קיים — הקוד כבר קבוע ולא נערך, רק התווית */
-  renaming: boolean;
-  suggestedCode: string;
-  suggestedLabel: string;
-  onCreate: (code: string, label: string) => void;
-  onCancel: () => void;
-}) {
-  const [label, setLabel] = useState(suggestedLabel);
-  const [code, setCode] = useState(suggestedCode);
-  const codeValid = /^[a-zA-Z][a-zA-Z0-9_]*$/.test(code.trim());
-  const ready = label.trim().length > 0 && codeValid;
-
-  return (
-    <form
-      className="define-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (ready) onCreate(code.trim(), label.trim());
-      }}
-    >
-      <label className="a-field">
-        <span className="a-label">
-          {kind === 'var' ? 'שם הסימון — כך הוא ייראה בקונסולה' : 'שם הערך — כך הוא ייראה בקונסולה'}
-        </span>
-        <input
-          className="a-input"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={kind === 'var' ? 'למשל: מסלול המשיב' : 'למשל: מסלול A — יש משכנתה'}
-          autoFocus
-        />
-      </label>
-      <label className="a-field">
-        <span className="a-label">קוד לקובץ הנתונים</span>
-        <input
-          className="a-input"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          dir="ltr"
-          aria-invalid={!codeValid}
-          disabled={renaming}
-          title={renaming ? 'הקוד קבוע — שינוי שלו היה מנתק אותו מהנתונים שכבר נאספו' : undefined}
-        />
-      </label>
-      <div className="define-actions">
-        <button className="a-btn primary small" type="submit" disabled={!ready}>
-          {renaming ? 'שמירת השם' : 'יצירה'}
-        </button>
-        <button className="a-btn ghost small" type="button" onClick={onCancel}>
-          ביטול
-        </button>
-      </div>
-      {!codeValid && (
-        <p className="a-hint error-text">
-          הקוד צריך להתחיל באות אנגלית, ולהמשיך באותיות אנגליות, ספרות או קו תחתון
-        </p>
-      )}
-    </form>
-  );
-}
