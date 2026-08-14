@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
+  fetchExportCsv,
   ForbiddenError,
   getOpenAnswers,
   getStats,
@@ -56,6 +57,8 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
   const [by, setBy] = useState('');
   const [tab, setTab] = useState<'stats' | 'answers'>('stats');
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState(false);
 
   const fetchNow = useCallback(async () => {
     setLoad({ phase: 'loading' });
@@ -76,6 +79,29 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
   }, [fetchNow]);
 
   const bundle = load.phase === 'ready' ? load.bundle : null;
+
+  // ההורדה עוברת דרך fetch (ה-endpoint דורש Bearer) — קישור ישיר לא יעבוד
+  const exportCsv = async () => {
+    setExporting(true);
+    setExportFailed(false);
+    try {
+      const { blob, filename } = await fetchExportCsv(slug, { version, includeTest });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      if (e instanceof UnauthorizedError || e instanceof ForbiddenError) {
+        onAuthError();
+        return;
+      }
+      setExportFailed(true);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="admin-app">
@@ -151,6 +177,15 @@ export function StatsPage({ slug, name, email, onBack, onOpenEditor, onAuthError
             <button className="a-btn ghost small" onClick={() => void fetchNow()}>
               רענון
             </button>
+            <button
+              className="a-btn ghost small"
+              onClick={() => void exportCsv()}
+              disabled={exporting || !bundle || bundle.versions.length === 0}
+              title="קובץ CSV עם כל התשובות — שורה לכל משיב/ה, עמודה לכל שאלה. נפתח ב-Google Sheets וב-Excel."
+            >
+              {exporting ? 'מכינים קובץ…' : 'ייצוא לגיליון (CSV)'}
+            </button>
+            {exportFailed && <span className="error-text">הייצוא נכשל — אפשר לנסות שוב.</span>}
           </div>
 
           <div className="stats-tabs" role="tablist" aria-label="תצוגות">

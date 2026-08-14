@@ -244,6 +244,25 @@ export async function getOpenAnswers(
   return (await res.json()) as OpenAnswersPage;
 }
 
+// ---------- ייצוא ----------
+
+/**
+ * מוריד את ה-raw data כ-CSV (שורה לסשן, עמודה לשאלה) — הקובץ נבנה בשרת
+ * (admin-export) וחוזר כ-Blob מוכן להורדה. שם הקובץ מגיע מהשרת.
+ */
+export async function fetchExportCsv(
+  slug: string,
+  opts: { version?: string; includeTest?: boolean } = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const params = new URLSearchParams({ survey: slug });
+  if (opts.version && opts.version !== 'all') params.set('version', opts.version);
+  if (opts.includeTest) params.set('include_test', '1');
+  const res = await call(`admin-export?${params.toString()}`);
+  if (!res.ok) throw new ApiError(res.status);
+  const match = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/);
+  return { blob: await res.blob(), filename: match?.[1] ?? `${slug}.csv` };
+}
+
 // ---------- פרסום ----------
 
 export interface PublishResult {
