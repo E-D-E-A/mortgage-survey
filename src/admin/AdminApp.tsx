@@ -123,11 +123,27 @@ export default function AdminApp() {
 
   useEffect(() => {
     // נורה גם בטעינה (INITIAL_SESSION) וגם בחזרה מגוגל (SIGNED_IN),
-    // כי detectSessionInUrl קולט את הטוקנים מה-URL בעצמו
+    // כי detectSessionInUrl קולט את הטוקנים מה-URL בעצמו.
+    //
+    // supabase-js מאזין בעצמו ל-visibilitychange ומשדר SIGNED_IN בכל חזרה
+    // ללשונית, גם כשהסשן לא השתנה. אובייקט state חדש בכל שידור כזה מרנדר
+    // מחדש את כל הקונסולה — ובעקבותיו useDraft טוען את הטיוטה מהשרת ומוחק
+    // עריכות שלא נשמרו. לכן מחליפים state רק כשהוא באמת השתנה.
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuth(session ? { phase: 'in', email: session.user.email ?? '' } : { phase: 'login' });
+      setAuth((prev) => {
+        if (!session) return prev.phase === 'login' ? prev : { phase: 'login' };
+        const email = session.user.email ?? '';
+        return prev.phase === 'in' && prev.email === email ? prev : { phase: 'in', email };
+      });
     });
     return () => data.subscription.unsubscribe();
+  }, []);
+
+  // זהות יציבה: onAuthError הוא תלות של reload ב-useDraft/useSurveys, וסגור
+  // חדש בכל רינדור של AdminApp היה מפעיל טעינה מחדש של הטיוטה.
+  const onAuthError = useCallback(() => {
+    void supabase.auth.signOut();
+    setAuth({ phase: 'login' });
   }, []);
 
   if (auth.phase === 'checking') {
@@ -148,15 +164,7 @@ export default function AdminApp() {
     );
   }
 
-  return (
-    <Console
-      email={auth.email}
-      onAuthError={() => {
-        void supabase.auth.signOut();
-        setAuth({ phase: 'login' });
-      }}
-    />
-  );
+  return <Console email={auth.email} onAuthError={onAuthError} />;
 }
 
 /** ניווט בין רשימת השאלונים לעורך, בלי ראוטר חיצוני (שני מסכים בלבד). */
