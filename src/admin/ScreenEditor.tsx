@@ -22,19 +22,22 @@ interface Props {
   config: SurveyConfig;
   screen: Screen;
   naming: Naming;
+  /** קודי האנליזה ננעלו — כלומר, השאלון כבר פורסם פעם אחת לפחות */
+  codesLocked: boolean;
   onChange: (screen: Screen) => void;
   /** עריכת תנאי התצוגה של ענף שלם — אותה סמנטיקה כמו לחיצה על הענף בתרשים */
   onLaneShowIf: (ids: string[], cond: Condition | undefined) => void;
   onDelete: () => void;
   onSelect: (id: string) => void;
-  onDefineVar: (name: string, label: string) => void;
-  onDefineVarValue: (name: string, value: string, label: string) => void;
+  onDefineVar: (name: string, label: string, renamedFrom?: string) => void;
+  onDefineVarValue: (name: string, value: string, label: string, renamedFrom?: string) => void;
 }
 
 export function ScreenEditor({
   config,
   screen,
   naming,
+  codesLocked,
   onChange,
   onLaneShowIf,
   onDelete,
@@ -148,6 +151,7 @@ export function ScreenEditor({
               rules={screen.onSubmit ?? []}
               onChange={(rules) => patch({ onSubmit: rules })}
               naming={naming}
+              codesLocked={codesLocked}
               onDefineVar={onDefineVar}
               onDefineVarValue={onDefineVarValue}
             />

@@ -17,14 +17,26 @@ interface Props {
   rules: SetVarRule[];
   onChange: (rules: SetVarRule[] | undefined) => void;
   naming: Naming;
-  /** יוצר סימון חדש ברמת השאלון (varMeta), כדי שכל מסך יראה אותו בשמו */
-  onDefineVar: (name: string, label: string) => void;
-  onDefineVarValue: (name: string, value: string, label: string) => void;
+  /** קודי האנליזה ננעלו — כלומר, השאלון כבר פורסם פעם אחת לפחות */
+  codesLocked: boolean;
+  /**
+   * יוצר סימון חדש ברמת השאלון (varMeta), כדי שכל מסך יראה אותו בשמו.
+   * ‎renamedFrom‎ — הקוד הקודם, כששינו אותו: ההפניות אליו מתעדכנות עם השם.
+   */
+  onDefineVar: (name: string, label: string, renamedFrom?: string) => void;
+  onDefineVarValue: (name: string, value: string, label: string, renamedFrom?: string) => void;
 }
 
 const NEW = '__new__';
 
-export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVarValue }: Props) {
+export function SetVarEditor({
+  rules,
+  onChange,
+  naming,
+  codesLocked,
+  onDefineVar,
+  onDefineVarValue,
+}: Props) {
   const emit = (next: SetVarRule[]) => onChange(next.length > 0 ? next : undefined);
   const [creating, setCreating] = useState<
     { index: number; field: 'var' | 'value'; renaming?: string } | null
@@ -124,6 +136,7 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                 key={`${creating.field}-${creating.renaming ?? 'new'}`}
                 kind={creating.field}
                 renaming={Boolean(creating.renaming)}
+                codeLocked={codesLocked}
                 suggestedCode={
                   creating.renaming ??
                   (creating.field === 'var'
@@ -142,12 +155,16 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                 }
                 onCancel={() => setCreating(null)}
                 onCreate={(code, label) => {
+                  // הכלל נוגעים בו רק כשמגדירים משהו חדש: שינוי של הגדרה קיימת
+                  // כבר עדכן את כל ההפניות אליה, וכתיבה נוספת כאן הייתה דורסת
+                  // אותה בעותק ישן של המסך
+                  const from = creating.renaming;
                   if (creating.field === 'var') {
-                    onDefineVar(code, label);
-                    patch(i, { ...rule, var: code, value: '' });
+                    onDefineVar(code, label, from);
+                    if (!from) patch(i, { ...rule, var: code, value: '' });
                   } else {
-                    onDefineVarValue(rule.var, code, label);
-                    patch(i, { ...rule, value: code });
+                    onDefineVarValue(rule.var, code, label, from);
+                    if (!from) patch(i, { ...rule, value: code });
                   }
                   setCreating(null);
                 }}

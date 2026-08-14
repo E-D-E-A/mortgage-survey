@@ -35,6 +35,12 @@ interface Props {
   kind: DefineKind;
   /** שינוי של הגדרה קיימת — התווית תמיד נערכת, הקוד רק כשהוא עדיין פתוח */
   renaming: boolean;
+  /**
+   * הקוד ננעל אחרי הפרסום הראשון של השאלון. הנימוק לנעילה — ניתוק מנתונים
+   * שכבר נאספו — נכון רק כשיש נתונים, ולפני הפרסום הראשון אין. לכן עד אז
+   * הקוד פתוח, ואחריו נעול לתמיד.
+   */
+  codeLocked?: boolean;
   suggestedCode: string;
   suggestedLabel: string;
   /**
@@ -49,12 +55,15 @@ interface Props {
 export function DefineForm({
   kind,
   renaming,
+  codeLocked = true,
   suggestedCode,
   suggestedLabel,
   takenCodes = [],
   onCreate,
   onCancel,
 }: Props) {
+  // הנעילה רלוונטית רק בשינוי של הגדרה קיימת; קוד חדש תמיד נכתב מאפס
+  const locked = renaming && codeLocked;
   const [label, setLabel] = useState(suggestedLabel);
   const [code, setCode] = useState(suggestedCode);
   const trimmed = code.trim();
@@ -90,10 +99,22 @@ export function DefineForm({
           onChange={(e) => setCode(e.target.value)}
           dir="ltr"
           aria-invalid={!codeValid || codeTaken}
-          disabled={renaming}
-          title={renaming ? 'הקוד קבוע — שינוי שלו היה מנתק אותו מהנתונים שכבר נאספו' : undefined}
+          disabled={locked}
+          title={
+            locked
+              ? 'הקוד קבוע — שינוי שלו היה מנתק אותו מהנתונים שכבר נאספו'
+              : renaming
+                ? 'השאלון עוד לא פורסם, ולכן אין נתונים שתלויים בקוד — אפשר עדיין לתקן אותו'
+                : undefined
+          }
         />
       </label>
+      {renaming && !locked && (
+        <p className="a-hint">
+          שינוי הקוד יעדכן איתו את כל מה שמפנה אליו — סימונים, תנאים, מכסות ושיבוץ בנוסח.
+          אחרי הפרסום הראשון הקוד יינעל.
+        </p>
+      )}
       <div className="define-actions">
         <button className="a-btn primary small" type="submit" disabled={!ready}>
           {renaming ? 'שמירת השם' : 'יצירה'}

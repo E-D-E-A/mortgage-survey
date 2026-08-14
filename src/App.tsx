@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { evaluate, interpolate } from './engine/conditions';
+import { evaluate, interpolate, mapInterpolatedTexts } from './engine/conditions';
 import { findNext } from './engine/navigation';
 import { progressRatio, pruneAnswers } from './engine/path';
 import { pickRandom } from './engine/random';
@@ -279,23 +279,7 @@ export default function App({ config, quota }: { config: SurveyConfig; quota: Va
 
 /** מחיל אינטרפולציה של משתנים ({price} וכד') על נוסחי המסך לפני רינדור. */
 function withInterpolation(screen: Screen, ctx: SurveyContext): Screen {
-  const t = (s: string) => interpolate(s, ctx);
-  switch (screen.type) {
-    case 'info':
-      return { ...screen, title: t(screen.title), body: t(screen.body) };
-    case 'consent':
-      return { ...screen, title: t(screen.title), body: t(screen.body) };
-    case 'single':
-    case 'multi':
-      return { ...screen, prompt: t(screen.prompt) };
-    case 'matrix':
-      return { ...screen, prompt: t(screen.prompt) };
-    case 'number':
-    case 'text':
-      return { ...screen, prompt: t(screen.prompt) };
-    case 'end':
-      return { ...screen, title: t(screen.title), body: t(screen.body) };
-  }
+  return mapInterpolatedTexts(screen, (s) => interpolate(s, ctx));
 }
 
 /**

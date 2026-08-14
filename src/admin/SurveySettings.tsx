@@ -20,6 +20,7 @@ import {
   parseRandomValue,
   removeRandomValueAt,
   removeRandomVar,
+  renameVar,
   setQuota,
   setRandomValueAt,
   setVarValueLabel,
@@ -29,11 +30,13 @@ import {
 interface Props {
   config: SurveyConfig;
   naming: Naming;
+  /** קודי האנליזה ננעלו — כלומר, השאלון כבר פורסם פעם אחת לפחות */
+  codesLocked: boolean;
   onUpdate: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
   onClose: () => void;
 }
 
-export function SurveySettings({ config, naming, onUpdate, onClose }: Props) {
+export function SurveySettings({ config, naming, codesLocked, onUpdate, onClose }: Props) {
   // null = אף טופס פתוח; '' = יצירת הגרלה חדשה; שם = שינוי השם של הגרלה קיימת
   const [defining, setDefining] = useState<string | null>(null);
   const randomVars = Object.entries(config.randomVars ?? {});
@@ -93,6 +96,7 @@ export function SurveySettings({ config, naming, onUpdate, onClose }: Props) {
               values={values}
               config={config}
               naming={naming}
+              codesLocked={codesLocked}
               onUpdate={onUpdate}
               renaming={defining === name}
               onRename={() => setDefining(name)}
@@ -189,6 +193,7 @@ interface CardProps {
   values: (string | number)[];
   config: SurveyConfig;
   naming: Naming;
+  codesLocked: boolean;
   onUpdate: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
   renaming: boolean;
   onRename: () => void;
@@ -200,6 +205,7 @@ function RandomVarCard({
   values,
   config,
   naming,
+  codesLocked,
   onUpdate,
   renaming,
   onRename,
@@ -249,12 +255,15 @@ function RandomVarCard({
         <DefineForm
           kind="randomVar"
           renaming
+          codeLocked={codesLocked}
           suggestedCode={name}
           suggestedLabel={naming.varMeta[name]?.label ?? ''}
           takenCodes={naming.vars}
           onCancel={onRenameDone}
-          onCreate={(_code, label) => {
-            onUpdate((cfg) => defineVar(cfg, name, label));
+          onCreate={(code, label) => {
+            // שינוי הקוד וכתיבת התווית באותו עדכון — אחרת חצי מהפעולה יכולה
+            // להתבטל לבדה ב-undo, והקונפיג נשאר עם קוד חדש ותווית של הישן
+            onUpdate((cfg) => defineVar(renameVar(cfg, name, code), code, label));
             onRenameDone();
           }}
         />
@@ -281,6 +290,15 @@ function RandomVarCard({
               dir="ltr"
               placeholder="הערך עצמו"
               aria-label="הערך שמוגרל"
+              // הערך המוגרל נשמר ב-vars של המשיב ומוצג לו בתוך הנוסח, ולכן
+              // הוא נתון לכל דבר — ננעל אחרי הפרסום בדיוק כמו קוד. הוספה
+              // ומחיקה נשארות פתוחות: הן לא משנות מה שכבר נאסף.
+              disabled={codesLocked}
+              title={
+                codesLocked
+                  ? 'הערך קבוע — שינוי שלו היה מנתק אותו מהתשובות שכבר נאספו. אפשר להוסיף ערך חדש או להסיר ערך מההגרלה'
+                  : undefined
+              }
             />
             <input
               className="a-input"

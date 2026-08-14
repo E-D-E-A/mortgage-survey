@@ -11,7 +11,12 @@ import { isValidSlug, surveyPath } from '../data/surveys';
 import { useDraft } from './useDraft';
 import { useSurveys } from './useSurveys';
 import { insertScreen } from './edits';
-import { defineVar as defineVarIn, defineVarValue as defineVarValueIn } from './vars';
+import {
+  defineVar as defineVarIn,
+  defineVarValue as defineVarValueIn,
+  renameVar,
+  renameVarValue,
+} from './vars';
 import { makeNaming, screenLabel } from './display';
 import { LoginScreen } from './LoginScreen';
 import { SurveyList } from './SurveyList';
@@ -222,6 +227,10 @@ function Console({ email, onAuthError }: { email: string; onAuthError: () => voi
       slug={route.slug}
       name={survey?.name ?? route.slug}
       archived={Boolean(survey?.archived_at)}
+      // קודי האנליזה ננעלים בפרסום הראשון. כל עוד הרשימה לא נטענה עוד לא ידוע
+      // אם השאלון פורסם — ואז ננעלים: נעילה מיותרת מעצבנת, שחרור מיותר משנה
+      // קוד שנתונים שכבר נאספו מפנים אליו.
+      codesLocked={survey ? survey.versions > 0 : true}
       email={email}
       onBack={() => {
         void surveys.reload();
@@ -289,13 +298,24 @@ interface EditorProps {
   slug: string;
   name: string;
   archived: boolean;
+  /** האם קודי האנליזה כבר נעולים — כלומר, האם השאלון פורסם אי-פעם */
+  codesLocked: boolean;
   email: string;
   onBack: () => void;
   onStats: () => void;
   onAuthError: () => void;
 }
 
-function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: EditorProps) {
+function Editor({
+  slug,
+  name,
+  archived,
+  codesLocked,
+  email,
+  onBack,
+  onStats,
+  onAuthError,
+}: EditorProps) {
   const draft = useDraft(slug, onAuthError);
   const tooNarrow = useTooNarrow();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -469,15 +489,27 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
     [config],
   );
 
-  /** סימון חדש נרשם ברמת השאלון, לא על המסך — אחרת רק המסך שיצר אותו יידע את שמו. */
+  // סימון חדש נרשם ברמת השאלון, לא על המסך — אחרת רק המסך שיצר אותו יידע את
+  // שמו. שינוי קוד (`renamedFrom`) נעשה באותה עדכון בדיוק: שתי פעולות נפרדות
+  // היו שתי רשומות undo, ואחת מהן לבדה משאירה קונפיג לא עקבי.
   const defineVar = useCallback(
-    (name: string, label: string) => draft.update((cfg) => defineVarIn(cfg, name, label)),
+    (name: string, label: string, renamedFrom?: string) =>
+      draft.update((cfg) =>
+        defineVarIn(renamedFrom ? renameVar(cfg, renamedFrom, name) : cfg, name, label),
+      ),
     [draft],
   );
 
   const defineVarValue = useCallback(
-    (name: string, value: string, label: string) =>
-      draft.update((cfg) => defineVarValueIn(cfg, name, value, label)),
+    (name: string, value: string, label: string, renamedFrom?: string) =>
+      draft.update((cfg) =>
+        defineVarValueIn(
+          renamedFrom ? renameVarValue(cfg, name, renamedFrom, value) : cfg,
+          name,
+          value,
+          label,
+        ),
+      ),
     [draft],
   );
 
@@ -722,6 +754,7 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
                 config={config}
                 screen={selected}
                 naming={naming}
+                codesLocked={codesLocked}
                 onSelect={revealScreen}
                 onDefineVar={defineVar}
                 onDefineVarValue={defineVarValue}
@@ -753,6 +786,7 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
         <SurveySettings
           config={config}
           naming={naming}
+          codesLocked={codesLocked}
           onUpdate={draft.update}
           onClose={() => setSettingsOpen(false)}
         />

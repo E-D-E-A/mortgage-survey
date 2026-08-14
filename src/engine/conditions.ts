@@ -67,8 +67,7 @@ export function interpolationRefs(text: string): string[] {
 
 /**
  * The screen fields interpolation actually reaches. Lives next to interpolate()
- * so the validator and the runtime cannot drift on which text a `{name}` works
- * in — ⚠ it must stay in step with withInterpolation() in src/App.tsx.
+ * so the validator and the runtime cannot drift on which text a `{name}` works in.
  */
 export function interpolatedTexts(screen: Screen): string[] {
   switch (screen.type) {
@@ -78,5 +77,31 @@ export function interpolatedTexts(screen: Screen): string[] {
       return [screen.title, screen.body];
     default:
       return [screen.prompt];
+  }
+}
+
+/**
+ * The write side of interpolatedTexts: rewrites exactly the fields it reads.
+ * Three callers need this same field list — the runtime substitution, the
+ * validator, and the console's rename-a-code edit — and a field present in one
+ * list but missing from another is a `{name}` that resolves in the survey and
+ * not in the editor, or the reverse.
+ */
+export function mapInterpolatedTexts(screen: Screen, fn: (text: string) => string): Screen {
+  switch (screen.type) {
+    case 'info':
+      return { ...screen, title: fn(screen.title), body: fn(screen.body) };
+    case 'consent':
+      return { ...screen, title: fn(screen.title), body: fn(screen.body) };
+    case 'end':
+      return { ...screen, title: fn(screen.title), body: fn(screen.body) };
+    case 'single':
+    case 'multi':
+      return { ...screen, prompt: fn(screen.prompt) };
+    case 'matrix':
+      return { ...screen, prompt: fn(screen.prompt) };
+    case 'number':
+    case 'text':
+      return { ...screen, prompt: fn(screen.prompt) };
   }
 }

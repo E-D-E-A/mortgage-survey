@@ -5,9 +5,13 @@
 // טהורות ובלי React, מאותה סיבה שבגללה edits.ts קיים: זו הלוגיקה שאפשר וצריך
 // לבדוק ביחידה, והרכיב שמעליה נשאר רינדור בלבד.
 
-import { interpolatedTexts, interpolationRefs } from '../engine/conditions';
+import {
+  interpolatedTexts,
+  interpolationRefs,
+  mapInterpolatedTexts,
+} from '../engine/conditions';
 import { screenConditions } from '../engine/validate';
-import type { Condition, SurveyConfig, VarMeta } from '../engine/types';
+import type { Condition, Screen, SurveyConfig, VarMeta } from '../engine/types';
 
 /** ערך בהגרלה: מספר נשמר כמספר, כדי שתנאי מספרי ימשיך להשוות מספרים. */
 export type RandomValue = string | number;
@@ -204,6 +208,127 @@ export function setQuota(
   const next: VarMeta =
     Object.keys(quotas).length > 0 ? { ...rest, quotas } : rest;
   return { ...config, varMeta: { ...config.varMeta, [name]: next } };
+}
+
+/* ---------- שינוי קוד ---------- */
+//
+// קוד נעול אחרי הפרסום הראשון, אבל עד אליו הוא פתוח — ואז שינוי שלו חייב
+// לגרור *כל* הפניה אליו בבת אחת. קוד שהשתנה במקום אחד ולא באחר משאיר שאלון
+// שנראה תקין ומתנהג אחרת: תנאי שמפסיק להתקיים, מכסה שמפסיקה להיספר, שיבוץ
+// שמדפיס סוגריים. לכן הכל יושב בפונקציה אחת, ולא באוסף עריכות שהקורא מרכיב.
+
+/** מחליף מפתח במפה בלי לשנות את סדר המפתחות (הסדר הוא מה שהאדמין רואה). */
+function renameKey<T>(
+  map: Record<string, T> | undefined,
+  from: string,
+  to: string,
+): Record<string, T> | undefined {
+  if (!map || !(from in map)) return map;
+  const out: Record<string, T> = {};
+  for (const [key, value] of Object.entries(map)) out[key === from ? to : key] = value;
+  return out;
+}
+
+/** מחיל טרנספורמציה על כל התנאים של המסך — showIf, כללי ניתוב וכללי סימון. */
+function mapScreenConditions(screen: Screen, fn: (cond: Condition) => Condition): Screen {
+  const next: Screen = { ...screen };
+  if (next.showIf) next.showIf = fn(next.showIf);
+  if (next.next) next.next = next.next.map((r) => (r.if ? { ...r, if: fn(r.if) } : r));
+  if (next.onSubmit) next.onSubmit = next.onSubmit.map((r) => (r.if ? { ...r, if: fn(r.if) } : r));
+  return next;
+}
+
+function mapLeaves(cond: Condition, fn: (leaf: Condition) => Condition): Condition {
+  if ('all' in cond) return { all: cond.all.map((c) => mapLeaves(c, fn)) };
+  if ('any' in cond) return { any: cond.any.map((c) => mapLeaves(c, fn)) };
+  if ('not' in cond) return { not: mapLeaves(cond.not, fn) };
+  return fn(cond);
+}
+
+/**
+ * שינוי הקוד של סימון או הגרלה, על כל ההפניות אליו: כללי סימון, תנאים,
+ * תוויות, מכסות, רשימת ההגרלה ושיבוץ ‎{name}‎ בנוסח המסכים.
+ *
+ * ⚠ מניח שהקוד החדש פנוי — הבדיקה נעשית בטופס (DefineForm.takenCodes), כי שם
+ * אפשר להסביר לאדמין מה לא בסדר לפני שהוא לוחץ.
+ */
+export function renameVar(config: SurveyConfig, from: string, to: string): SurveyConfig {
+  if (from === to) return config;
+
+  const screens = config.screens.map((screen) => {
+    let next = mapScreenConditions(screen, (cond) =>
+      mapLeaves(cond, (leaf) => ('var' in leaf && leaf.var === from ? { ...leaf, var: to } : leaf)),
+    );
+    if (next.onSubmit?.some((r) => r.var === from)) {
+      next = { ...next, onSubmit: next.onSubmit.map((r) => (r.var === from ? { ...r, var: to } : r)) };
+    }
+    // split/join ולא regex: הקוד מגיע מטופס ולא מהקוד שלנו, ואין סיבה להעביר
+    // אותו דרך מנוע שמפרש תווים
+    return mapInterpolatedTexts(next, (text) => text.split(`{${from}}`).join(`{${to}}`));
+  });
+
+  const next: SurveyConfig = { ...config, screens };
+  const varMeta = renameKey(config.varMeta, from, to);
+  const randomVars = renameKey(config.randomVars, from, to);
+  if (varMeta) next.varMeta = varMeta;
+  if (randomVars) next.randomVars = randomVars;
+  return next;
+}
+
+/**
+ * שינוי הקוד של *ערך* של סימון, על כל ההפניות אליו: הערך בכללי הסימון,
+ * הערכים בתנאים (כולל בתוך רשימות של "אחד מאלה"), התווית והמכסה.
+ *
+ * ההשוואה נעשית על String(value) כי ערך יכול להיות שמור כמספר (הגרלה) בעוד
+ * הקוד שהטופס מחזיר הוא תמיד מחרוזת.
+ */
+export function renameVarValue(
+  config: SurveyConfig,
+  mark: string,
+  from: string,
+  to: string,
+): SurveyConfig {
+  if (from === to) return config;
+  const swap = (value: unknown) => (String(value) === from ? to : value);
+
+  const screens = config.screens.map((screen) => {
+    let next = mapScreenConditions(screen, (cond) =>
+      mapLeaves(cond, (leaf) => {
+        if (!('var' in leaf) || leaf.var !== mark || leaf.value === undefined) return leaf;
+        return Array.isArray(leaf.value)
+          ? { ...leaf, value: leaf.value.map(swap) }
+          : { ...leaf, value: swap(leaf.value) };
+      }),
+    );
+    if (next.onSubmit?.some((r) => r.var === mark && String(r.value) === from)) {
+      next = {
+        ...next,
+        onSubmit: next.onSubmit.map((r) =>
+          r.var === mark && String(r.value) === from ? { ...r, value: to } : r,
+        ),
+      };
+    }
+    return next;
+  });
+
+  const meta = config.varMeta?.[mark];
+  const nextConfig: SurveyConfig = { ...config, screens };
+  if (meta) {
+    const values = renameKey(meta.values, from, to);
+    const quotas = renameKey(meta.quotas, from, to);
+    nextConfig.varMeta = {
+      ...config.varMeta,
+      [mark]: { ...meta, ...(values && { values }), ...(quotas && { quotas }) },
+    };
+  }
+  const drawn = config.randomVars?.[mark];
+  if (drawn) {
+    nextConfig.randomVars = {
+      ...config.randomVars,
+      [mark]: drawn.map((v) => (String(v) === from ? parseRandomValue(to) : v)),
+    };
+  }
+  return nextConfig;
 }
 
 function conditionUsesVar(cond: Condition, name: string): boolean {

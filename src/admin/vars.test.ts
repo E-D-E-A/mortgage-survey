@@ -9,6 +9,8 @@ import {
   parseRandomValue,
   removeRandomValueAt,
   removeRandomVar,
+  renameVar,
+  renameVarValue,
   setQuota,
   setRandomValueAt,
   setVarValueLabel,
@@ -156,6 +158,124 @@ describe('setQuota', () => {
     expect(setQuota(bare, 'persona', 'x', 5).varMeta?.persona).toEqual({
       label: 'persona',
       quotas: { x: 5 },
+    });
+  });
+});
+
+// ── שינוי קוד לפני הפרסום הראשון (ENG-22) ──
+
+describe('renameVar', () => {
+  const cfg: SurveyConfig = {
+    version: 't',
+    randomVars: { price: [99, 199] },
+    varMeta: {
+      seg: { label: 'מסלול', values: { A: 'מסלול א' }, quotas: { A: 10 } },
+      price: { label: 'מחיר' },
+    },
+    screens: [
+      info('a', { title: 'המחיר {price} ומסלול {seg}', onSubmit: [{ var: 'seg', value: 'A' }] }),
+      info('b', {
+        showIf: { all: [{ var: 'seg', op: 'eq', value: 'A' }, { q: 'a', op: 'answered' }] },
+        next: [{ if: { not: { var: 'seg', op: 'eq', value: 'B' } }, goto: 'a' }],
+      }),
+    ],
+  };
+
+  it('repoints onSubmit, conditions at any depth, labels, quotas and interpolation', () => {
+    const next = renameVar(cfg, 'seg', 'segment');
+
+    expect(next.screens[0].onSubmit).toEqual([{ var: 'segment', value: 'A' }]);
+    expect(next.screens[1].showIf).toEqual({
+      all: [{ var: 'segment', op: 'eq', value: 'A' }, { q: 'a', op: 'answered' }],
+    });
+    expect(next.screens[1].next?.[0].if).toEqual({ not: { var: 'segment', op: 'eq', value: 'B' } });
+    expect(next.varMeta?.segment).toEqual(cfg.varMeta!.seg);
+    expect(next.varMeta?.seg).toBeUndefined();
+    expect((next.screens[0] as { title: string }).title).toBe('המחיר {price} ומסלול {segment}');
+  });
+
+  it('renames a draw everywhere it is named, including its value list', () => {
+    const next = renameVar(cfg, 'price', 'offer');
+    expect(next.randomVars).toEqual({ offer: [99, 199] });
+    expect((next.screens[0] as { title: string }).title).toBe('המחיר {offer} ומסלול {seg}');
+  });
+
+  it('keeps the key order — the order is what the admin sees', () => {
+    expect(Object.keys(renameVar(cfg, 'seg', 'segment').varMeta ?? {})).toEqual([
+      'segment',
+      'price',
+    ]);
+  });
+
+  it('leaves everything alone when the code did not change', () => {
+    expect(renameVar(cfg, 'seg', 'seg')).toBe(cfg);
+  });
+
+  it('does not touch a same-named question or a different variable', () => {
+    const next = renameVar(cfg, 'seg', 'segment');
+    expect(next.screens[1].showIf).toEqual({
+      all: [{ var: 'segment', op: 'eq', value: 'A' }, { q: 'a', op: 'answered' }],
+    });
+    expect(next.varMeta?.price).toEqual({ label: 'מחיר' });
+  });
+});
+
+describe('renameVarValue', () => {
+  const cfg: SurveyConfig = {
+    version: 't',
+    varMeta: { seg: { label: 'מסלול', values: { A: 'מסלול א', B: 'מסלול ב' }, quotas: { A: 10 } } },
+    screens: [
+      info('a', {
+        onSubmit: [
+          { var: 'seg', value: 'A' },
+          { var: 'seg', value: 'B' },
+        ],
+      }),
+      info('b', { showIf: { var: 'seg', op: 'in', value: ['A', 'B'] } }),
+      info('c', { showIf: { var: 'other', op: 'eq', value: 'A' } }),
+    ],
+  };
+
+  it('repoints the rule, the label, the quota and list values inside conditions', () => {
+    const next = renameVarValue(cfg, 'seg', 'A', 'track_a');
+
+    expect(next.screens[0].onSubmit).toEqual([
+      { var: 'seg', value: 'track_a' },
+      { var: 'seg', value: 'B' },
+    ]);
+    expect(next.screens[1].showIf).toEqual({ var: 'seg', op: 'in', value: ['track_a', 'B'] });
+    expect(next.varMeta?.seg.values).toEqual({ track_a: 'מסלול א', B: 'מסלול ב' });
+    expect(next.varMeta?.seg.quotas).toEqual({ track_a: 10 });
+  });
+
+  it('leaves the same value on a different mark untouched', () => {
+    expect(renameVarValue(cfg, 'seg', 'A', 'track_a').screens[2].showIf).toEqual({
+      var: 'other',
+      op: 'eq',
+      value: 'A',
+    });
+  });
+
+  it('matches a value stored as a number, since the form always hands back text', () => {
+    const numeric: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [info('a', { onSubmit: [{ var: 'price', value: 99 }] })],
+    };
+    const next = renameVarValue(numeric, 'price', '99', '149');
+    expect(next.screens[0].onSubmit).toEqual([{ var: 'price', value: '149' }]);
+    // ברשימת ההגרלה הערך נשמר כמספר, כי משם הוא מוזן לתנאים מספריים
+    expect(next.randomVars?.price).toEqual([149, 199]);
+  });
+
+  it('does not invent a value on an "answered" leaf that has none', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      screens: [info('a', { showIf: { var: 'seg', op: 'answered' } })],
+    };
+    expect(renameVarValue(c, 'seg', 'A', 'track_a').screens[0].showIf).toEqual({
+      var: 'seg',
+      op: 'answered',
     });
   });
 });
