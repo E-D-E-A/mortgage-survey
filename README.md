@@ -108,6 +108,17 @@ $env:DB_TESTS='1'; npx vitest run tests/db  # PowerShell
 
 ### פתרון תקלות בפיתוח מקומי
 
+- **`Timed out waiting for port '5199' to be open`** — netlify מחכה לפורט
+  20 ניסיונות בלבד (‎`lib/wait-port.js`‎, כ-15 שניות) ולא 10 דקות כפי שנראה
+  מהקוד. אם vite לא הספיק להאזין בזמן, netlify מת — אבל vite ממשיך לעלות
+  אחריו ונשאר יתום שתופס את 5199, ולכן ההרצה הבאה נכשלת שוב, הפעם על
+  `--strictPort`. לכן `netlify.toml` מריץ ‎`node node_modules/vite/bin/vite.js`‎
+  ישירות ולא `npx vite`: npx עלה כאן כ-6 שניות מול 2 (ובהרצה קרה הרבה יותר),
+  ומוסיף שתי שכבות תהליך שנשארות בחיים אחרי ש-netlify נסגר. לניקוי היתום —
+  ראו הסעיף הבא. אם זה חוזר על מכונה עמוסה:
+  `netlify dev --skip-wait-port` — netlify לא ימתין בכלל, ובקשות בשניות
+  הראשונות יחזירו 502 עד ש-vite עולה.
+
 - **`Port 5199 is already in use`** — ריצת `netlify dev` קודמת קרסה והשאירה
   ילד vite חי (npm לא מעביר signal לילדים). לאתר ולסגור:
 
