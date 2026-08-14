@@ -1,12 +1,13 @@
-// דפדוף התשובות הפתוחות — קריאה בלבד, עורכי first-edea בלבד (requireAdmin).
-// הדפדפן מוסר אילו מסכים הם שאלות טקסט (הקונפיג חי אצלו); כאן רק מסננים,
-// סופרים אורכים ומדפדפים. שום ניתוח תוכן — הטקסט חוזר כלשונו.
+// Paging through the open-text answers — read-only, first-edea editors only
+// (requireAdmin). The browser tells us which screens are text questions (the
+// config lives there); here we only filter, measure lengths and page. No content
+// analysis whatsoever — the text comes back exactly as written.
 //
 //   GET ?survey=<slug>&screens=<id,id,...>&version=<version|all>&segment=<value|__unknown__>
 //       &include_test=<1|0>&limit=<1..100>&offset=<n>
 //     → { stats: [...], total, rows: [{ screen_id, value, created_at, survey_version, segment, outcome }] }
 //
-// טרי תמיד (no-store). ⚠ שמות ה-rpc מסונכרנים עם schema.sql (tests/sync).
+// Always fresh (no-store). ⚠ The rpc names are kept in sync with schema.sql (tests/sync).
 
 import { requireAdmin } from './lib/session';
 import { json, rpc, supaHeaders, supabaseEnv } from './lib/supabase';
@@ -91,7 +92,7 @@ export default async (req: Request): Promise<Response> => {
 
   return json(
     {
-      // מטא-דאטה רק למסכים שהתבקשו — ה-rpc מחזיר את כולם וזול יותר לסנן כאן
+      // Metadata only for the screens that were asked for — the rpc returns them all and filtering here is cheaper
       stats: (statsRows as { screen_id: string }[]).filter((s) => requested.has(s.screen_id)),
       total: Number(total),
       rows,

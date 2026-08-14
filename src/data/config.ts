@@ -1,13 +1,16 @@
-// טעינת קונפיג השאלון בזמן ריצה, עם הצמדת גרסה לסשן:
-// פרסום גרסה חדשה לעולם לא משפיע על משיב באמצע שאלון — הסשן ממשיך עם
-// הגרסה שבה התחיל (snapshot ב-sessionStorage, ואם אבד — שליפה לפי version).
-// רק סשן חדש מקבל את הגרסה הפעילה האחרונה.
+// Loading the survey config at run time, with the version pinned to the session:
+// publishing a new version never affects a respondent who is mid-survey — their
+// session carries on with the version it started in (a snapshot in
+// sessionStorage, and if that is lost, a fetch by version). Only a new session
+// gets the latest active version.
 //
-// השאלון נבחר לפי ה-slug שבנתיב (‎/s/<slug>‎); הנתיב הישן ‎/‎ מגיש את שאלון
-// ברירת המחדל. מפתחות האחסון מקבלים את ה-slug (session-scope.ts), ולכן שני
-// שאלונים באותה לשונית לא דורסים זה את הסשן של זה.
+// The survey is selected by the slug in the path (`/s/<slug>`); the old `/` path
+// serves the default survey. The storage keys carry the slug
+// (session-scope.ts), so two surveys in the same tab do not overwrite each
+// other's session.
 //
-// בפיתוח (vite dev) אין תלות ב-Supabase — נטען שאלון הדגמה המקומי.
+// In development (vite dev) there is no dependency on Supabase — the local demo
+// survey is loaded instead.
 
 import type { SurveyConfig } from '../engine/types';
 import { questionnaire } from '../questionnaire/survey-v1';
@@ -24,7 +27,7 @@ interface ConfigSnapshot {
   config: SurveyConfig;
 }
 
-/** למה הטעינה נכשלה — 'closed'/'missing' הם מצבים לגיטימיים שצריך להסביר למשיב. */
+/** Why the load failed — 'closed'/'missing' are legitimate states that need explaining to the respondent. */
 export type LoadFailure = 'closed' | 'missing' | 'network';
 
 export class ConfigLoadError extends Error {
@@ -33,7 +36,7 @@ export class ConfigLoadError extends Error {
   }
 }
 
-/** הגרסה שאליה מוצמד הסשן הנוכחי, אם קיים סשן שמור. */
+/** The version the current session is pinned to, if a saved session exists. */
 export function pinnedVersion(): string | null {
   try {
     const raw = sessionStorage.getItem(scopedKey(STATE_KEY));
@@ -61,7 +64,7 @@ function writeSnapshot(snap: ConfigSnapshot): void {
   try {
     sessionStorage.setItem(scopedKey(CONFIG_KEY), JSON.stringify(snap));
   } catch {
-    /* מכסה מלאה — נסתמך על שליפה לפי version בטעינה הבאה */
+    /* Storage quota full — we will fall back to fetching by version next load */
   }
 }
 
@@ -97,7 +100,7 @@ export async function loadConfig(slug: string = DEFAULT_SURVEY_SLUG): Promise<Su
       writeSnapshot(fetched);
       return fetched.config;
     }
-    // הגרסה המוצמדת נעלמה (לא אמור לקרות — הטבלה immutable): איפוס הסשן
+    // The pinned version is gone (should not happen — the table is immutable): reset the session
     sessionStorage.removeItem(scopedKey(STATE_KEY));
   }
 

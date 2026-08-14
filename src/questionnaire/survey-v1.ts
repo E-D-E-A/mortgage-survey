@@ -1,33 +1,37 @@
 import type { Condition, SurveyConfig } from '../engine/types';
 
-// שאלון אישוש הפרסונות — גרסה רזה, תקרת 15 שאלות למשיב.
+// The persona validation survey — the lean version, capped at 15 questions per respondent.
 //
-// נגזר משלד המחקר (קונפלואנס MTG 13729793) בתהליך הזיקוק המתועד ב-docs/:
+// Derived from the research skeleton (Confluence MTG 13729793) through the refinement process documented in docs/:
 //   distillation-plan.md · persona-mapping.md · question-triage.md · wording-v1.md
-// מיפוי מזהה → קוד שלד → קידוד, והרשימה המלאה של מה שהוצא: docs/codebook.md
+// The id → skeleton code → coding mapping, and the full list of what was cut: docs/codebook.md
 //
-// תקציב קבוע של 15 שאלות לכל משיב, מנוצל שונה לפי מסלול — משיבי A מדלגים על
-// שתי שאלות סינון (צפי, פעולות) ולכן מקבלים שתי שאלות תוכן במקומן:
+// A fixed budget of 15 questions per respondent, spent differently per track — A
+// respondents skip two screening questions (expectation, actions) and so get two
+// content questions in their place:
 //
-//            סינון   מסלול   דמוגרפיה   מחויבות   סה"כ
-//   מקטע A     2       9         3          1       15
-//   מקטע B     4       7         3          1       15
-//   מקטע C     4       7         3          1       15
+//            screening  track  demographics  commitment  total
+//   segment A      2        9          3           1         15
+//   segment B      4        7          3           1         15
+//   segment C      4        7          3           1         15
 //
-// ⚠ הגרסה המלאה (v1.0, 23–32 שאלות) שמורה בהיסטוריית git. סעיף "שאלות בהמתנה"
-//   בקודבוק מפרט מה הוצא ובאיזה סדר להחזיר אם יתפנה תקציב.
+// ⚠ The full version (v1.0, 23–32 questions) is kept in the git history. The
+//   "questions on hold" section of the codebook lists what was cut and in what
+//   order to bring it back if budget frees up.
 //
-// ⚠ אינווריאנטת segment: משתני onSubmit לא מתאפסים בניווט אחורה, ולכן כל מסך
-//   שמציב את segment עושה זאת בזוג כללים משלים (תנאי + not(תנאי)) — s_status
-//   מציב A או 'pending', ו-s_actions מציב B או C. כך חזרה אחורה ושינוי תשובה
-//   תמיד דורסת את הערך הישן. showIf של s_timeline/s_actions נשען על *התשובה*
-//   ל-s_status ולא על המשתנה, כך שכל שינוי מעביר שוב דרך מסך שמחשב מחדש.
+// ⚠ The segment invariant: onSubmit variables are not reset by backwards
+//   navigation, so every screen that assigns segment does so with a complementary
+//   pair of rules (a condition + not(condition)) — s_status assigns A or
+//   'pending', and s_actions assigns B or C. That way going back and changing an
+//   answer always overwrites the old value. s_timeline/s_actions' showIf leans on
+//   the *answer* to s_status rather than on the variable, so any change routes
+//   through a screen that recomputes it again.
 
-/** מקטע B = צפי ≤ 12 חודשים וגם פעולה ממשית אחת לפחות ב-90 יום. */
+/** Segment B = an expectation of ≤ 12 months *and* at least one real action in 90 days. */
 const segmentBRule: Condition = {
   all: [
     { q: 's_timeline', op: 'in', value: ['m0_3', 'm4_6', 'm7_12'] },
-    // השלד מונה את כל שבע הפעולות כ"ממשיות" — כולל חיפוש נכס, עו"ד/מתווך והכנת מסמכים.
+    // The skeleton counts all seven actions as "real" — including property search, a lawyer/agent and preparing documents.
     {
       q: 's_actions',
       op: 'includesAny',
@@ -36,7 +40,7 @@ const segmentBRule: Condition = {
   ],
 };
 
-/** מסלול A = משכנתה פעילה או מעורבות בחמש השנים האחרונות. */
+/** Track A = an active mortgage, or involvement in one over the last five years. */
 const statusIsA: Condition = { q: 's_status', op: 'in', value: ['active', 'past5'] };
 
 const inA: Condition = { var: 'segment', op: 'eq', value: 'A' };
@@ -45,10 +49,12 @@ const inC: Condition = { var: 'segment', op: 'eq', value: 'C' };
 
 export const questionnaire: SurveyConfig = {
   version: 'v1.1',
-  // תצוגה בלבד: הקונסולה מציגה את התוויות האלה במקום segment / A / B / C.
-  // שמות המשתנים והערכים עצמם נשארים קוד האנליזה (docs/codebook.md).
-  // התוויות בלי אותיות הקוד בכוונה: A/B/C הם קוד האנליזה (docs/codebook.md)
-  // ונשארים בקובץ הנתונים — על המסך קוראים רק את התיאור.
+  // Display only: the console shows these labels in place of segment / A / B / C.
+  // The variable and value names themselves remain the analysis codes
+  // (docs/codebook.md).
+  // The labels deliberately omit the code letters: A/B/C are the analysis codes
+  // (docs/codebook.md) and stay in the data file — on screen you read the
+  // description alone.
   varMeta: {
     segment: {
       label: 'מסלול המשיב',
@@ -61,7 +67,7 @@ export const questionnaire: SurveyConfig = {
     },
   },
   screens: [
-    // ────────────────────── סינון · A רואה 2, B/C רואים 4 ──────────────────────
+    // ────────────── screening · A sees 2, B/C see 4 ──────────────
     {
       id: 'intro',
       type: 'info',
@@ -79,7 +85,7 @@ export const questionnaire: SurveyConfig = {
       next: [{ if: { q: 'consent', op: 'eq', value: 'declined' }, goto: 'end_screenout' }],
     },
     {
-      // 1 — משמש גם כגיל הדמוגרפי; לא נשאל שוב.
+      // 1 — doubles as the demographic age; not asked again.
       id: 's_age',
       type: 'number',
       prompt: 'מה גילך?',
@@ -89,7 +95,7 @@ export const questionnaire: SurveyConfig = {
       next: [{ if: { q: 's_age', op: 'lt', value: 18 }, goto: 'end_screenout' }],
     },
     {
-      // 2 — מיזוג S4+S5; מנתב ל-A.
+      // 2 — a merge of S4+S5; routes to A.
       id: 's_status',
       type: 'single',
       prompt: 'מה מתאר את מצבך בנוגע למשכנתה?',
@@ -105,12 +111,12 @@ export const questionnaire: SurveyConfig = {
         },
         { id: 'none', label: 'אף אחד מהמצבים האלה' },
         { id: 'dontknow', label: 'לא יודע/ת' },
-        // מחזיר את הסינון של S3 ("לא מעורב/ת בהחלטה") בעלות של אפס שאלות,
-        // אחרי ש-s_role נחתכה מהתקציב.
+        // Restores S3's screening ("not involved in the decision") at the cost of
+        // zero questions, after s_role was cut from the budget.
         { id: 'not_involved', label: 'איני מעורב/ת בהחלטות משכנתה של משק הבית שלי' },
       ],
-      // 'pending' = טרם נקבע; אף showIf אינו משווה אליו, ולכן שום מסך מקטע
-      // לא נפתח בטעות אחרי חזרה אחורה ושינוי תשובה.
+      // 'pending' = not yet decided; no showIf compares against it, so no segment
+      // screen opens by accident after going back and changing an answer.
       onSubmit: [
         { var: 'segment', value: 'A', if: statusIsA },
         { var: 'segment', value: 'pending', if: { not: statusIsA } },
@@ -118,7 +124,7 @@ export const questionnaire: SurveyConfig = {
       next: [{ if: { q: 's_status', op: 'eq', value: 'not_involved' }, goto: 'end_screenout' }],
     },
     {
-      // 3 — B/C בלבד
+      // 3 — B/C only
       id: 's_timeline',
       type: 'single',
       showIf: { q: 's_status', op: 'in', value: ['none', 'dontknow'] },
@@ -134,7 +140,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // 4 — B/C בלבד
+      // 4 — B/C only
       id: 's_actions',
       type: 'multi',
       showIf: { q: 's_status', op: 'in', value: ['none', 'dontknow'] },
@@ -155,9 +161,9 @@ export const questionnaire: SurveyConfig = {
       ],
     },
 
-    // ───────────────────────── מסלול A · 9 שאלות ─────────────────────────
+    // ───────────────────────── track A · 9 questions ─────────────────────────
     {
-      // BES-R — העוגן ההתנהגותי. בלעדיו אין הבחנה בין צורך פעיל לסקרנות.
+      // BES-R — the behavioural anchor. Without it there is no telling an active need from curiosity.
       id: 'a_last_when',
       type: 'single',
       showIf: inA,
@@ -172,7 +178,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // מדד הכאב — נושא את סף "כאב ראוי ל-MVP" (30% בחומרה 4–5).
+      // The pain measure — it carries the "pain worth an MVP" threshold (30% at severity 4–5).
       id: 'a_difficulty',
       type: 'matrix',
       showIf: inA,
@@ -191,7 +197,7 @@ export const questionnaire: SurveyConfig = {
       shuffleItems: true,
     },
     {
-      // P4 (עדי וירון) + משתנה התוצאה של H3.
+      // P4 (Adi and Yaron) + H3's outcome variable.
       id: 'a_refi',
       type: 'single',
       showIf: inA,
@@ -204,7 +210,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // המנבא ב-H3 (לחץ תזרימי מול מידע כללי) + P10.
+      // The predictor in H3 (cash-flow pressure versus general information) + P10.
       id: 'a_cashflow',
       type: 'single',
       showIf: inA,
@@ -221,7 +227,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // בחירה כפויה — מפרידה שלושה צרכים שנראים זהים: P4 · P6 · P11.
+      // A forced choice — it separates three needs that look identical: P4 · P6 · P11.
       id: 'a_priority',
       type: 'single',
       showIf: inA,
@@ -235,7 +241,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // H4 + מכסת 40/40 (עם יועץ / בלי).
+      // H4 + the 40/40 quota (with an adviser / without).
       id: 'a_advisor',
       type: 'single',
       showIf: inA,
@@ -248,8 +254,9 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // הכרעה 7.1 מקופלת לשאלה אחת: האפשרות "לא צפויה" מחליפה את מסך הגשר הנפרד.
-      // מזהה את P3 (משפרי דיור) · P6 (הגדלה) · P10/P12 (רכישת חלק) · P11 (השקעה).
+      // Decision 7.1 folded into a single question: the "unexpected" option replaces
+      // the separate bridge screen. It identifies P3 (home upgraders) · P6
+      // (increasing the loan) · P10/P12 (buying out a share) · P11 (investment).
       id: 'a_deal_type',
       type: 'single',
       showIf: inA,
@@ -266,8 +273,9 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // צורך לא-מוטה — חייבת להישאר לפני מסך הקונספט.
-      // בגרסה הרזה זו גם מדד התאמת התכונה (סף 40%), במקום שאלת היכולות שאחרי החשיפה.
+      // Unprimed need — it has to stay ahead of the concept screen.
+      // In the lean version it is also the feature-fit measure (a 40% threshold), in
+      // place of the post-exposure capabilities question.
       id: 'a_easier',
       type: 'multi',
       showIf: inA,
@@ -295,7 +303,7 @@ export const questionnaire: SurveyConfig = {
       cta: 'הבנתי, נמשיך',
     },
     {
-      // BES-C — משתנה התוצאה של הוולידציה המסחרית.
+      // BES-C — the outcome variable of the commercial validation.
       id: 'a_commit',
       type: 'single',
       showIf: inA,
@@ -311,9 +319,9 @@ export const questionnaire: SurveyConfig = {
       next: [{ goto: 'd_household' }],
     },
 
-    // ───────────────────────── מסלול B · 7 שאלות ─────────────────────────
+    // ───────────────────────── track B · 7 questions ─────────────────────────
     {
-      // הכרעה 7.2 — מפרידה 8 מ-9 פרסונות ה-B. בלעדיה כולן נראות זהות בנתונים.
+      // Decision 7.2 — it separates 8 of the 9 B personas. Without it they all look identical in the data.
       id: 'b_deal_type',
       type: 'single',
       showIf: inB,
@@ -329,7 +337,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // המבחן החד ביותר של P1: כלל אצבע מול תקציב מסודר. התנהגות, לא דעה.
+      // The sharpest test of P1: a rule of thumb versus a proper budget. Behaviour, not opinion.
       id: 'b_ceiling',
       type: 'single',
       showIf: inB,
@@ -344,7 +352,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // מדד הכאב המרכזי של B.
+      // B's central pain measure.
       id: 'b_unclear',
       type: 'multi',
       showIf: inB,
@@ -365,7 +373,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // ארבעת פריטי SURE במסך אחד — קונפליקט החלטתי (0–4) + H7.
+      // The four SURE items on one screen — decisional conflict (0–4) + H7.
       id: 'b_sure',
       type: 'multi',
       showIf: inB,
@@ -379,7 +387,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // חסם מרכזי · מארחת את חור 2 (P5 — הכנסה מחו"ל) ואת חור 3 (P2/P10/P12 — גיל).
+      // A central barrier · it hosts gap 2 (P5 — income from abroad) and gap 3 (P2/P10/P12 — age).
       id: 'b_delay',
       type: 'single',
       showIf: inB,
@@ -399,7 +407,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // צורך לא-מוטה, לפני החשיפה. משמש גם כמדד התאמת התכונה (סף 40%).
+      // Unprimed need, ahead of the exposure. It doubles as the feature-fit measure (a 40% threshold).
       id: 'b_confident',
       type: 'multi',
       showIf: inB,
@@ -443,7 +451,7 @@ export const questionnaire: SurveyConfig = {
       next: [{ goto: 'd_household' }],
     },
 
-    // ───────────────────────── מסלול C · 7 שאלות ─────────────────────────
+    // ───────────────────────── track C · 7 questions ─────────────────────────
     {
       id: 'c_housing',
       type: 'single',
@@ -458,7 +466,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // התחרות על הקשב — התובנה המרכזית של מקטע C.
+      // The competition for attention — segment C's central insight.
       id: 'c_financial_goal',
       type: 'single',
       showIf: inC,
@@ -491,7 +499,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // טריגרים — H5.
+      // Triggers — H5.
       id: 'c_conditions',
       type: 'multi',
       showIf: inC,
@@ -510,7 +518,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // מקבילת הכאב של C — חסם נתפס.
+      // C's counterpart to pain — a perceived barrier.
       id: 'c_barriers',
       type: 'matrix',
       showIf: inC,
@@ -529,7 +537,7 @@ export const questionnaire: SurveyConfig = {
       shuffleItems: true,
     },
     {
-      // H8 — מוצר הכניסה הקטן ביותר. צורך לא-מוטה, לפני החשיפה.
+      // H8 — the smallest entry product. Unprimed need, ahead of the exposure.
       id: 'c_small_action',
       type: 'multi',
       showIf: inC,
@@ -554,8 +562,8 @@ export const questionnaire: SurveyConfig = {
       cta: 'הבנתי, נמשיך',
     },
     {
-      // BES-C. 'deposit' הוא אות המחויבות החזק ביותר ב-C, ולכן מקופל לכאן
-      // במקום שאלה נפרדת (C22 בשלד).
+      // BES-C. 'deposit' is the strongest commitment signal in C, so it is folded in
+      // here rather than asked as a separate question (C22 in the skeleton).
       id: 'c_commit',
       type: 'single',
       showIf: inC,
@@ -570,7 +578,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
 
-    // ──────────────────── דמוגרפיה · 3 שאלות (הגיל נלקח מ-s_age) ────────────────────
+    // ──────────── demographics · 3 questions (age is taken from s_age) ────────────
     {
       id: 'd_household',
       type: 'single',
@@ -586,7 +594,7 @@ export const questionnaire: SurveyConfig = {
       ],
     },
     {
-      // רב-ברירה במכוון: מטפל ב"גם שכיר וגם עצמאי" (P8), ומארח את S8 בלי מסך נוסף.
+      // Multi-choice deliberately: it handles "both employed and self-employed" (P8), and hosts S8 without another screen.
       id: 'd_employment',
       type: 'multi',
       prompt: 'אילו מהמצבים הבאים מתארים אותך?',
@@ -617,9 +625,9 @@ export const questionnaire: SurveyConfig = {
       ],
     },
 
-    // ──────────────────────────── סיום ומחויבות ────────────────────────────
+    // ──────────────────────────── ending and commitment ────────────────────────────
     {
-      // פרטי הקשר עצמם נאספים בטופס חיצוני נפרד — עקרון הפרטיות בשלד.
+      // The contact details themselves are collected in a separate external form — the skeleton's privacy principle.
       id: 'end_followup',
       type: 'single',
       prompt: 'האם תרצה/י להשתתף בבדיקת המשך קצרה?',

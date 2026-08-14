@@ -1,12 +1,14 @@
-// בדיקת מסלול: האדמין עונה על השאלות שמנתבות, ורואה בדיוק לאן זה מוביל.
+// The path check: the admin answers the questions that route, and sees exactly
+// where that leads.
 //
-// זה הכלי שהופך שאלון מסועף מ"אוסף תנאים" ל"מסלול" — כי הוא לא מסביר את
-// הכללים אלא מריץ אותם. המנוע הוא אותו simulatePath שנבדק מול ההרצה האמיתית,
-// ולכן מה שמוצג כאן הוא מה שיקרה, לא הערכה.
+// This is the tool that turns a branching survey from "a pile of conditions" into
+// "a path" — because it does not explain the rules, it runs them. The engine is
+// the same simulatePath that is tested against a real run, so what is shown here
+// is what will happen, not an estimate.
 //
-// ⚠ בוררים תשובות ולא משתנים בכוונה: showIf של s_timeline נשען על *התשובה*
-// ל-s_status ולא על segment, ולכן "קיצור דרך" של הצבת מסלול ידנית היה מציג
-// מסלולים שלא קיימים.
+// ⚠ The pickers set answers and not variables, deliberately: s_timeline's showIf
+// leans on the *answer* to s_status and not on segment, so the "shortcut" of
+// setting a track by hand would display paths that do not exist.
 
 import { useMemo } from 'react';
 import { simulatePath } from '../engine/path';
@@ -21,14 +23,14 @@ interface Props {
   naming: Naming;
   answers: Answers;
   onAnswers: (answers: Answers) => void;
-  /** מצב המכסות שהבדיקה רצה בו — אותם משתני סשן שהמשיב האמיתי מקבל בכניסה */
+  /** The quota state the check runs under — the very session vars a real respondent gets on entry */
   quotaFull: Vars;
   onQuotaFull: (vars: Vars) => void;
   onSelect: (id: string) => void;
   onClose: () => void;
 }
 
-/** כל התנאים בקונפיג, מכל שלושת המנגנונים. */
+/** Every condition in the config, from all three mechanisms. */
 function allConditions(config: SurveyConfig): Condition[] {
   return config.screens.flatMap((s) =>
     [s.showIf, ...(s.next ?? []).map((r) => r.if), ...(s.onSubmit ?? []).map((r) => r.if)].filter(
@@ -38,8 +40,9 @@ function allConditions(config: SurveyConfig): Condition[] {
 }
 
 /**
- * רק השאלות שבאמת משנות מסלול. בשאלון של 62 מסכים אלה שש — וזה ההבדל בין
- * כלי שאפשר להשתמש בו לבין טופס שצריך למלא מחדש בכל בדיקה.
+ * Only the questions that actually change the path. In a 62-screen survey that is
+ * six of them — and that is the difference between a tool you can use and a form
+ * you have to fill in again for every check.
  */
 export function routingQuestions(config: SurveyConfig): Screen[] {
   const referenced = new Set(allConditions(config).flatMap(conditionQuestions));
@@ -92,9 +95,10 @@ export function Simulator({
         )}
       </div>
 
-      {/* מכסה מלאה אינה תשובה של המשיב אלא מצב של המחקר בזמן שהוא נכנס, ולכן
-          היא בורר נפרד — וזה גם הדבר היחיד כאן שאי אפשר לבדוק בשאלון החי בלי
-          לחכות שהמכסה באמת תתמלא */}
+      {/* A full quota is not something the respondent answers but the state of
+          the study at the moment they arrive, so it is a separate control — and
+          it is also the one thing here that cannot be checked on the live survey
+          without waiting for a quota to genuinely fill */}
       {cells.length > 0 && (
         <div className="sim-quotas">
           <span className="a-label">מכסות שכבר התמלאו</span>
@@ -150,7 +154,7 @@ export function Simulator({
   );
 }
 
-/** בורר תשובה לפי סוג המסך — נוסח האפשרויות, לא מזהים. */
+/** An answer picker per screen type — the option wording, not the ids. */
 function AnswerPicker({
   screen,
   value,

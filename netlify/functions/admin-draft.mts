@@ -1,9 +1,11 @@
-// טיוטת שאלון (שורה אחת לכל שאלון). עורכי first-edea בלבד (requireAdmin לפני הכל).
-// הפרמטר ?survey=<slug> בוחר את השאלון; בהיעדרו — שאלון ברירת המחדל.
+// A survey draft (one row per survey). first-edea editors only (requireAdmin
+// before anything else).
+// The ?survey=<slug> parameter selects the survey; without it — the default survey.
 // GET → { config, updated_at } | { config: null }
-// PUT { config, expected_updated_at } → שמירה עם נעילה אופטימית:
-//   expected_updated_at שאינו תואם ל-DB ⇒ 409 (מישהו שמר במקביל).
-// טיוטה מותרת להיות לא-תקינה — הוולידציה חוסמת רק פרסום.
+// PUT { config, expected_updated_at } → a save with optimistic locking:
+//   an expected_updated_at that does not match the DB ⇒ 409 (someone saved
+//   concurrently).
+// A draft is allowed to be invalid — validation only blocks publishing.
 
 import { requireAdmin } from './lib/session';
 import { json, supaHeaders, supabaseEnv } from './lib/supabase';
@@ -63,9 +65,10 @@ export default async (req: Request): Promise<Response> => {
   const now = new Date().toISOString();
 
   if (expected === null) {
-    // יצירת הטיוטה הראשונה של השאלון; אם כבר קיימת — 409 (מישהו הקדים).
-    // שאלון שלא קיים נחסם ע"י ה-FK ומחזיר 409 מ-PostgREST; מפרידים בין
-    // השניים כדי לא להציג לעורך "מישהו הקדים אותך" על שאלון שנמחק.
+    // Creating the survey's first draft; if one already exists — 409 (someone
+    // got there first). A survey that does not exist is blocked by the FK and
+    // also returns 409 from PostgREST; the two are told apart so the editor is
+    // not shown "someone got there before you" for a survey that was deleted.
     const res = await fetch(`${env.url}/rest/v1/survey_drafts`, {
       method: 'POST',
       headers: { ...headers, Prefer: 'return=minimal' },
@@ -97,7 +100,7 @@ export default async (req: Request): Promise<Response> => {
   if (!res.ok) return new Response('upstream error', { status: 502 });
   const updated = (await res.json()) as unknown[];
   if (updated.length === 0) {
-    // הטיוטה השתנתה מאז שנטענה — שמירה נדחית כדי לא לדרוס
+    // The draft changed since it was loaded — the save is rejected rather than overwrite it
     return new Response('draft changed concurrently', { status: 409 });
   }
   return json({ updated_at: now });

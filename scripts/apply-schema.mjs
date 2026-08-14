@@ -1,7 +1,9 @@
-// מחיל את supabase/schema.sql על ה-Postgres המקומי של `npx supabase start`.
-// שימוש: npm run db:schema
-// אותה סמנטיקה כמו הדבקה ב-SQL Editor בענן — הקובץ idempotent וניתן להרצה חוזרת.
-// הגנה: מסרבים למארח שאינו מקומי — הכלי קיים כדי שפיתוח לא ייגע בענן בטעות.
+// Applies supabase/schema.sql to the local Postgres from `npx supabase start`.
+// Usage: npm run db:schema
+// The same semantics as pasting it into the cloud SQL Editor — the file is
+// idempotent and safe to re-run.
+// A guard: any non-local host is refused — this tool exists so that development
+// never touches the cloud by accident.
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
 

@@ -1,9 +1,12 @@
-// קצה קריאה ציבורי לקונפיג השאלון. בלי אימות — הקונפיג ממילא מוצג לכל משיב.
-// ?version=<v> מחזיר גרסה מוצמדת (immutable — סשן שהתחיל בה ממשיך איתה),
-//   וממשיך לעבוד גם לשאלון שאורכב, כדי שמשיב באמצע יוכל לסיים.
-// ?survey=<slug> מחזיר את הגרסה האחרונה שפורסמה לאותו שאלון;
-//   בלי הפרמטר — שאלון ברירת המחדל (הקישור הישן, ‎/‎).
-// שאלון מאורכב מחזיר 410 לסשן חדש: הקישור חולק, והמשיב צריך הסבר ולא שגיאה.
+// The public read endpoint for a survey config. No authentication — the config is
+// shown to every respondent anyway.
+// ?version=<v> returns a pinned version (immutable — a session that started on it
+//   carries on with it), and keeps working for an archived survey too, so a
+//   respondent who is mid-survey can finish.
+// ?survey=<slug> returns the latest published version of that survey;
+//   without the parameter — the default survey (the old link, `/`).
+// An archived survey returns 410 for a new session: the link was handed out, and
+// the respondent deserves an explanation rather than an error.
 
 import { DEFAULT_SURVEY_SLUG, isValidSlug } from '../../src/data/surveys';
 
@@ -32,7 +35,7 @@ export default async (req: Request): Promise<Response> => {
   }
 
   if (!version) {
-    // סשן חדש: השאלון חייב להיות קיים ולא מאורכב
+    // A new session: the survey has to exist and not be archived
     const surveyRes = await fetch(
       `${supaUrl}/rest/v1/surveys?slug=eq.${encodeURIComponent(slug)}&select=archived_at&limit=1`,
       { headers },
@@ -63,8 +66,8 @@ export default async (req: Request): Promise<Response> => {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      // גרסה מוצמדת לעולם לא משתנה (trigger בסכמה) — אפשר cache אגרסיבי.
-      // הגרסה הפעילה מתעדכנת בפרסום — cache קצר בלבד.
+      // A pinned version never changes (a trigger in the schema) — aggressive
+      // caching is safe. The active version changes on publish — a short cache only.
       'Cache-Control': version
         ? 'public, max-age=31536000, immutable'
         : 'public, max-age=60, must-revalidate',

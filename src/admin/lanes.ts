@@ -1,14 +1,16 @@
-// ענף = רצף מסכים עוקבים שחולקים תנאי תצוגה זהה. זו היחידה שהאדמין חושב
-// עליה כ"מסלול" ("כל מסכי A"), וזו גם יחידת העריכה: תנאי אחד לכל הרצף.
+// A lane = a run of consecutive screens that share an identical display
+// condition. This is the unit the admin thinks of as a "track" ("all the A
+// screens"), and it is also the unit of editing: one condition for the whole run.
 //
-// בלי זה, שינוי תנאי מסלול הוא 19 עריכות זהות, וכל שכחה מפצלת את הענף לשניים
-// בלי שום סימן — גם בתרשים וגם בזרימה בפועל.
+// Without it, changing a track's condition is 19 identical edits, and forgetting
+// any one of them splits the lane in two with no sign at all — in the diagram and
+// in the actual flow alike.
 
 import type { Screen } from '../engine/types';
 
 /**
- * כל המסכים שחולקים עם `id` את אותו תנאי תצוגה ברצף רציף.
- * מסך בלי תנאי תצוגה עומד לבדו — אין לו ענף.
+ * Every screen that shares `id`'s display condition in an unbroken run.
+ * A screen with no display condition stands alone — it has no lane.
  */
 export function laneMembers(screens: Screen[], id: string): string[] {
   const index = screens.findIndex((s) => s.id === id);

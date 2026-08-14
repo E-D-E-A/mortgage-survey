@@ -18,11 +18,13 @@ import type {
 export type SubmitFn = (value: AnswerValue | undefined, extra?: Record<string, unknown>) => void;
 
 /**
- * התשובה שכבר ניתנה למסך הזה, אם ניתנה. חזרה אחורה חייבת להציג אותה —
- * מסך ריק אחרי חזרה משקר למשיב ומכריח אותו לענות מחדש.
+ * The answer already given for this screen, if there is one. Going back has to
+ * show it — an empty screen after going back lies to the respondent and forces
+ * them to answer all over again.
  *
- * הזריעה בטוחה למרות ש-useState קורא את הערך ההתחלתי פעם אחת בלבד: App.tsx
- * מרנדר את המסך עם key={screen.id}, כך שכל מעבר מסך מרכיב את הרכיב מחדש.
+ * The seeding is safe even though useState reads the initial value only once:
+ * App.tsx renders the screen with key={screen.id}, so every screen change mounts
+ * the component afresh.
  */
 export interface ViewProps<S> {
   screen: S;
@@ -30,15 +32,16 @@ export interface ViewProps<S> {
   initial?: AnswerValue;
 }
 
-/** כותרת המסך — משמשת גם כשם הנגיש של קבוצת האפשרויות ושל שדות הקלט. */
+/** The screen's heading — it doubles as the accessible name of the option group and of the input fields. */
 function promptId(screenId: string): string {
   return `prompt-${screenId}`;
 }
 
 /**
- * כותרת המסך. מעבר בין מסכים אינו טעינת דף, ולכן המיקוד נשאר במקום שבו היה
- * הכפתור שנעלם — כלומר על ה-body. App.tsx מעביר את המיקוד לכותרת בכל החלפת
- * מסך, וזה מה שמאפשר לה לקבל אותו (tabIndex={-1} = ניתן למיקוד בקוד, לא ב-Tab).
+ * The screen's heading. Moving between screens is not a page load, so focus
+ * stays where the button that disappeared used to be — that is, on the body.
+ * App.tsx moves focus to the heading on every screen change, and this is what
+ * lets it receive focus (tabIndex={-1} = focusable from code, not by Tab).
  */
 export const SCREEN_TITLE_CLASS = 'screen-title';
 
@@ -51,11 +54,13 @@ export function ScreenTitle({ id, children }: { id?: string; children: ReactNode
 }
 
 /**
- * ניווט מקלדת בקבוצת בחירה יחידה. כפתורים עם role="radio" נראים לקורא מסך
- * כקבוצת רדיו, ומשתמש מקלדת מצפה בהתאם לחיצים — ולא ל-Tab על כל אפשרות.
+ * Keyboard navigation within a single-choice group. Buttons with role="radio"
+ * appear to a screen reader as a radio group, and a keyboard user accordingly
+ * expects arrow keys — not a Tab stop on every option.
  *
- * הכיוון הוויזואלי הוא RTL: "הבא" יושב משמאל ברשימה אופקית (סולם המטריצה)
- * ומתחת ברשימה אנכית, ולכן ArrowLeft ו-ArrowDown מקדמים, והשניים האחרים מחזירים.
+ * The visual direction is RTL: "next" sits to the left in a horizontal list (the
+ * matrix scale) and below in a vertical one, so ArrowLeft and ArrowDown advance,
+ * and the other two go back.
  */
 function radioGroupKeys<T>(
   values: readonly T[],
@@ -67,10 +72,10 @@ function radioGroupKeys<T>(
     if (step === 0) return;
     e.preventDefault();
     const at = current === undefined ? -1 : values.indexOf(current);
-    // בלי בחירה קודמת החץ הראשון בוחר את הקצה שאליו הוא מצביע
+    // With nothing selected yet, the first arrow press picks the end it points at
     const next = at < 0 ? (step === 1 ? 0 : values.length - 1) : (at + step + values.length) % values.length;
     select(values[next]);
-    // המיקוד נודד עם הבחירה — זו ההתנהגות של קבוצת רדיו מובנית
+    // Focus travels with the selection — that is how a native radio group behaves
     const group = e.currentTarget;
     requestAnimationFrame(() => {
       const el = group.querySelectorAll<HTMLElement>('[role="radio"]')[next];
@@ -79,7 +84,7 @@ function radioGroupKeys<T>(
   };
 }
 
-/** רק האפשרות הנבחרת (או הראשונה, כשאין בחירה) יושבת במסלול ה-Tab. */
+/** Only the selected option (or the first, when none is selected) sits in the Tab order. */
 function rovingTabIndex(selected: boolean, isFirst: boolean, anySelected: boolean): 0 | -1 {
   return selected || (!anySelected && isFirst) ? 0 : -1;
 }
@@ -102,7 +107,7 @@ export function ConsentView({ screen, submit }: ViewProps<ConsentScreen>) {
     <div className="screen">
       <ScreenTitle>{screen.title}</ScreenTitle>
       <Paragraphs text={screen.body} />
-      {/* honeypot — משתמש אמיתי לא רואה ולא ממלא את השדה */}
+      {/* honeypot — a real user neither sees nor fills this field */}
       <input
         className="hp"
         type="text"
@@ -132,7 +137,7 @@ function OptionButton({
   onClick,
 }: {
   option: Option;
-  /** radio לבחירה יחידה, checkbox לרב-ברירה — קורא מסך מקריא "2 מתוך 4" ולא "לחצן" */
+  /** radio for single choice, checkbox for multi — a screen reader says "2 of 4" rather than "button" */
   role: 'radio' | 'checkbox';
   selected: boolean;
   disabled?: boolean;
@@ -203,8 +208,9 @@ export function MultiChoiceView({ screen, submit, initial }: ViewProps<MultiChoi
   const [selected, setSelected] = useState<string[]>(Array.isArray(initial) ? initial : []);
 
   const max = screen.maxSelections;
-  // מכסה מלאה: האפשרויות שלא נבחרו מנוטרלות במקום להתעלם בשקט מהלחיצה.
-  // אפשרות בלעדית תמיד פעילה — היא מנקה את הבחירות ולכן לעולם לא חורגת.
+  // At the cap: the unselected options are disabled rather than silently ignoring
+  // the click. An exclusive option always stays enabled — it clears the selection
+  // and so can never exceed the cap.
   const atCap = max !== undefined && max > 0 && selected.length >= max;
 
   function toggle(o: Option) {
@@ -252,7 +258,7 @@ export function MultiChoiceView({ screen, submit, initial }: ViewProps<MultiChoi
 }
 
 export function MatrixView({ screen, submit, initial }: ViewProps<MatrixScreen>) {
-  // עמודת ה-na אינה חלק מ-items ולכן נשארת מעוגנת אחרונה גם בערבוב
+  // The na column is not part of items, so it stays anchored last even when shuffling
   const items = useMemo(
     () => (screen.shuffleItems ? shuffle(screen.items) : screen.items),
     [screen],
@@ -263,10 +269,10 @@ export function MatrixView({ screen, submit, initial }: ViewProps<MatrixScreen>)
   const scale: number[] = [];
   for (let v = screen.scaleMin; v <= screen.scaleMax; v++) scale.push(v);
   const complete = items.every((it) => values[it.id] !== undefined);
-  // עמודת "לא רלוונטי" היא ערך נוסף בקבוצה, ולכן היא חלק ממסלול החיצים
+  // The "not applicable" column is another value in the group, so it is part of the arrow-key path
   const cells: (number | 'na')[] = screen.naLabel ? [...scale, 'na'] : scale;
 
-  /** קצות הסולם נושאים את המשמעות — "1" לבדו לא אומר לקורא מסך דבר. */
+  /** The ends of the scale carry the meaning — "1" on its own tells a screen reader nothing. */
   const cellLabel = (v: number | 'na'): string =>
     v === 'na'
       ? (screen.naLabel as string)
@@ -325,14 +331,17 @@ export function MatrixView({ screen, submit, initial }: ViewProps<MatrixScreen>)
 
 export function NumberView({ screen, submit, initial }: ViewProps<NumberScreen>) {
   const [raw, setRaw] = useState(typeof initial === 'number' ? String(initial) : '');
-  // ההודעה מוצגת מיד ולא ב-blur: כפתור "המשך" חסום אינו לוחיץ ולכן אינו מוציא
-  // את המיקוד מהשדה — משיב שהקליד 15 היה נשאר בלי שום הסבר עד שיילחץ במקום אחר.
+  // The message is shown immediately rather than on blur: a disabled "continue"
+  // button is not clickable and so never takes focus out of the field — a
+  // respondent who typed 15 would have been left with no explanation at all until
+  // they happened to click somewhere else.
   const error = numberFieldError(screen, raw);
   const value = numberFieldValue(screen, raw);
   const errorId = `${screen.id}-error`;
 
-  // ההסבר והיחידה הם חלק מהשאלה, ולכן הם נקראים יחד עם השדה ולא נופלים בין
-  // הכיסאות: בלי זה קורא מסך מכריז על "עריכת טקסט" בלי שום שם
+  // The help text and the unit are part of the question, so they are read out
+  // together with the field rather than falling through the cracks: without this a
+  // screen reader announces "edit text" with no name at all
   const helpId = `${screen.id}-help`;
   const unitId = `${screen.id}-unit`;
   const describedBy = [screen.help && helpId, screen.unit && unitId, error && errorId]

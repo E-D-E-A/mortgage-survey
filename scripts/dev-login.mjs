@@ -1,8 +1,10 @@
-// כניסת אדמין לקונסולה מול הסטאק המקומי — לגוגל אין ספק בסביבה המקומית,
-// ולכן מייצרים משתמש מקומי ומזריקים את הסשן ידנית לדפדפן.
-// שימוש: npm run dev:login  (דורש `npx supabase start`; netlify dev רץ בנפרד)
-// מקומי בלבד: המפתחות כאן הם מפתחות הדמו הפומביים של supabase start —
-// זהים בכל התקנה מקומית, חסרי כל תוקף מול הענן.
+// Signing in to the console against the local stack — Google has no provider in
+// the local environment, so we create a local user and inject the session into
+// the browser by hand.
+// Usage: npm run dev:login  (requires `npx supabase start`; netlify dev runs
+// separately)
+// Local only: the keys here are supabase start's public demo keys — identical in
+// every local installation and worthless against the cloud.
 
 const API = 'http://127.0.0.1:54321';
 const ANON =
@@ -12,7 +14,7 @@ const SERVICE =
 const EMAIL = 'dev-admin@first-edea.com';
 const PASSWORD = 'local-dev-password-1';
 
-// משתמש עם providers=['google'] — כמו שה-requireAdmin בשרת דורש
+// A user with providers=['google'] — as requireAdmin on the server demands
 const created = await fetch(`${API}/auth/v1/admin/users`, {
   method: 'POST',
   headers: {
@@ -43,7 +45,7 @@ if (!tokenRes.ok) {
 }
 const session = await tokenRes.json();
 
-// המפתח של supabase-js לכתובת המקומית: sb-<ref>-auth-token, ref='127'
+// supabase-js's key for the local address: sb-<ref>-auth-token, ref='127'
 const snippet = `localStorage.setItem('sb-127-auth-token', ${JSON.stringify(JSON.stringify(session))}); location.reload();`;
 
 console.log(`

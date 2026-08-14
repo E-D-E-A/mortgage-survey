@@ -7,9 +7,9 @@ import { questionnaire } from '../questionnaire/survey-v1';
 import { buildFlow } from '../admin/graph';
 
 /**
- * סימולציה של משיב אמיתי: עונה, מפעיל onSubmit ועובר ל-findNext — בדיוק
- * הסדר שב-App.submit. `route` קובע את התשובות שמנתבות; לכל שאר המסכים נבחרת
- * תשובה תקינה כלשהי.
+ * Simulates a real respondent: answers, fires onSubmit, moves on to findNext —
+ * exactly the order App.submit uses. `route` fixes the answers that route; every
+ * other screen gets some valid answer.
  */
 function run(config: SurveyConfig, route: Record<string, AnswerValue>) {
   const answers: Answers = {};
@@ -52,13 +52,13 @@ function defaultAnswer(screen: Screen): AnswerValue | undefined {
   }
 }
 
-/** תשובות סינון שעוברות: גיל 40 (16 היה מפעיל את ה-screenout של הקטינים). */
+/** Screening answers that pass: age 40 (16 would trigger the under-18 screenout). */
 const PASSES_SCREENING: Record<string, AnswerValue> = { s_age: 40 };
 
-/** מסלול A: קיימת משכנתה. */
+/** Segment A: has a mortgage. */
 const ROUTE_A: Record<string, AnswerValue> = { ...PASSES_SCREENING, s_status: 'active' };
 
-/** מסלול B: אין משכנתה, צפי קרוב ופעולה ממשית. */
+/** Segment B: no mortgage, a near-term expectation and a real action taken. */
 const ROUTE_B: Record<string, AnswerValue> = {
   ...PASSES_SCREENING,
   s_status: 'none',
@@ -66,7 +66,7 @@ const ROUTE_B: Record<string, AnswerValue> = {
   s_actions: ['bank'],
 };
 
-/** אותו מסלול, אחרי שהמשיב חזר אחורה ל-s_actions ובחר "לא ביצעתי" — מקטע C. */
+/** The same route, after the respondent went back to s_actions and picked "I did none" — segment C. */
 const ROUTE_C: Record<string, AnswerValue> = { ...ROUTE_B, s_actions: ['none'] };
 
 const ALL_ROUTES = [ROUTE_A, ROUTE_B, ROUTE_C];
@@ -99,7 +99,7 @@ describe('visitedPath', () => {
 
 describe('pruneAnswers', () => {
   it('drops answers from a segment the respondent left (QA S2)', () => {
-    // המשיב ענה על b_deal_type במסלול B, ואז חזר ושינה את s_actions ל-C
+    // The respondent answered b_deal_type on route B, then went back and changed s_actions to C
     const { answers, vars } = run(questionnaire, ROUTE_C);
     const stale = { ...answers, b_deal_type: 'first', b_stage: 'budget' };
 
@@ -107,7 +107,7 @@ describe('pruneAnswers', () => {
 
     expect(pruned).not.toHaveProperty('b_deal_type');
     expect(pruned).not.toHaveProperty('b_stage');
-    // ושום דבר מהמסלול שהמשיב באמת עבר לא נעלם
+    // and nothing from the path the respondent actually walked went missing
     expect(Object.keys(pruned).sort()).toEqual(Object.keys(answers).sort());
   });
 
@@ -136,7 +136,7 @@ describe('pruneAnswers', () => {
 });
 
 describe('progressRatio', () => {
-  /** מה שהמשיב באמת רואה: המקסימום הרץ (App.tsx לא נותן לפס לסגת). */
+  /** What the respondent actually sees: the running maximum (App.tsx never lets the bar retreat). */
   function shownPercents(route: Record<string, AnswerValue>): number[] {
     let max = 0;
     return run(questionnaire, route).steps.map((s) => {
@@ -163,7 +163,7 @@ describe('progressRatio', () => {
   });
 
   it('reflects the segment path length, not the 70-screen array', () => {
-    // ב-a_commit נשארו 8 מסכים מתוך 32 — הפס חייב להיות גבוה, לא 38%
+    // At a_commit 8 screens out of 32 are left — the bar has to be high, not 38%
     const { steps } = run(questionnaire, ROUTE_A);
     const atCommit = steps.find((s) => s.id === 'a_commit')!;
     expect(Math.round(atCommit.progress * 100)).toBeGreaterThan(70);
@@ -175,8 +175,9 @@ describe('progressRatio', () => {
 });
 
 describe('simulatePath', () => {
-  // הסימולטור בקונסולה מבטיח לאדמין "זה בדיוק מה שיקרה". הבדיקה הזו היא
-  // ההבטחה עצמה: אותו מסלול ואותם משתנים כמו הרצה מלאה של המנוע.
+  // The console's simulator promises the admin "this is exactly what will
+  // happen". This test is that promise: the same path and the same variables as
+  // a full run of the engine.
   it.each([
     ['A', ROUTE_A],
     ['B', ROUTE_B],
@@ -207,8 +208,9 @@ describe('simulatePath', () => {
     expect(simulatePath(loop, {}).map((s) => s.screen.id)).toEqual(['a', 'b']);
   });
 
-  // בדיקת המסלול בקונסולה מזינה את מצב המכסות דרך ה-seed — זה המסלול היחיד
-  // שאי אפשר לבדוק בשאלון החי בלי לחכות שהמכסה באמת תתמלא
+  // The console's path check feeds quota state in through the seed — this is the
+  // one path an admin cannot test on the live survey without waiting for a quota
+  // to genuinely fill
   it('honours quota flags handed in as seed vars', () => {
     const cfg: SurveyConfig = {
       version: 't',
@@ -234,8 +236,9 @@ describe('simulatePath', () => {
 });
 
 describe('the flow graph never lies by omission', () => {
-  // התרשים גוזם מעברים שאינם אפשריים כדי להיות קריא. כישלון הגיזום המסוכן
-  // אינו עומס אלא הסתרה: מעבר אמיתי שאין לו קשת. זו הבדיקה שחוסמת אותו.
+  // The diagram prunes transitions that cannot happen, to stay readable. The
+  // dangerous way for that pruning to fail is not clutter but concealment: a
+  // real transition with no edge. This is the test that blocks it.
   const ROUTES: [string, Record<string, AnswerValue>][] = [
     ['A', ROUTE_A],
     ['B', ROUTE_B],
@@ -257,13 +260,13 @@ describe('the flow graph never lies by omission', () => {
   });
 
   it('stays far below the quadratic blow-up it replaced', () => {
-    // 70 מסכים שרובם מותנים ייצרו 1,565 קשתות בגזירה הנאיבית
+    // 70 screens, most of them conditional, produce 1,565 edges under the naive derivation
     expect(buildFlow(questionnaire).edges.length).toBeLessThan(150);
   });
 
   it('states a reason on every edge that leaves a fork', () => {
-    // קשת שיוצאת מפיצול בלי תווית משאירה את האדמין לנחש למה הזרימה מתפצלת.
-    // קשת רציפה יחידה, לעומת זאת, מותר לה להיות שקטה.
+    // An edge leaving a fork without a label leaves the admin guessing why the
+    // flow splits. A single sequential edge, on the other hand, may stay silent.
     const all = buildFlow(questionnaire).edges;
     const outgoing = new Map<string, number>();
     for (const e of all) outgoing.set(e.from, (outgoing.get(e.from) ?? 0) + 1);

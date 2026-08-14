@@ -1,9 +1,11 @@
-// הטופס המשותף לכל מקום שבו הקונסולה מגדירה קוד אנליזה חדש: סימון, ערך של
-// סימון, ומשתנה מוגרל. יושב בקובץ משלו כי שלושת המקומות חייבים להיראות ולהתנהג
-// אותו דבר — שלוש העתקות של אותו טופס היו נפרדות זו מזו בלחיצה הראשונה.
+// The form shared by every place the console defines a new analysis code: a
+// mark, a mark value, and a random variable. It lives in its own file because
+// those three places have to look and behave identically — three copies of the
+// same form would have diverged on the first click.
 //
-// התווית קודמת לקוד בכוונה: התווית היא מה שכל הקונסולה תציג, והקוד הוא פרט
-// טכני שנחוץ רק לקובץ הנתונים — הוא מגיע מוכן ורוב האדמינים לא יגעו בו.
+// The label comes before the code on purpose: the label is what the whole console
+// will display, and the code is a technical detail needed only by the data file —
+// it arrives ready-made and most admins will never touch it.
 
 import { useState } from 'react';
 
@@ -23,7 +25,7 @@ const PLACEHOLDERS: Record<DefineKind, string> = {
 
 const CODE_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
-/** קוד פנוי הבא בסדרה — כדי שהאדמין לא יצטרך להמציא אחד. */
+/** The next free code in the series — so the admin never has to invent one. */
 export function nextCode(prefix: string, taken: readonly string[]): string {
   for (let n = 1; ; n++) {
     const candidate = `${prefix}${n}`;
@@ -33,19 +35,21 @@ export function nextCode(prefix: string, taken: readonly string[]): string {
 
 interface Props {
   kind: DefineKind;
-  /** שינוי של הגדרה קיימת — התווית תמיד נערכת, הקוד רק כשהוא עדיין פתוח */
+  /** Editing an existing definition — the label is always editable, the code only while it is still open */
   renaming: boolean;
   /**
-   * הקוד ננעל אחרי הפרסום הראשון של השאלון. הנימוק לנעילה — ניתוק מנתונים
-   * שכבר נאספו — נכון רק כשיש נתונים, ולפני הפרסום הראשון אין. לכן עד אז
-   * הקוד פתוח, ואחריו נעול לתמיד.
+   * The code locks after the survey's first publish. The reason for the lock —
+   * cutting the code off from data already collected — only holds once data
+   * exists, and before the first publish there is none. So until then the code is
+   * open, and after it, locked for good.
    */
   codeLocked?: boolean;
   suggestedCode: string;
   suggestedLabel: string;
   /**
-   * הקודים התפוסים בהקשר הזה. שני סימונים עם אותו קוד אינם ניתנים להפרדה
-   * בקובץ הנתונים, והאדמין לא יראה שום סימן לכך בקונסולה.
+   * The codes already taken in this context. Two marks sharing a code are
+   * indistinguishable in the data file, and the admin will see no sign of it in
+   * the console.
    */
   takenCodes?: readonly string[];
   onCreate: (code: string, label: string) => void;
@@ -62,14 +66,15 @@ export function DefineForm({
   onCreate,
   onCancel,
 }: Props) {
-  // הנעילה רלוונטית רק בשינוי של הגדרה קיימת; קוד חדש תמיד נכתב מאפס
+  // The lock only applies when editing an existing definition; a new code is always written from scratch
   const locked = renaming && codeLocked;
   const [label, setLabel] = useState(suggestedLabel);
   const [code, setCode] = useState(suggestedCode);
   const trimmed = code.trim();
   const codeValid = CODE_RE.test(trimmed);
-  // הקוד שהטופס נפתח עליו אינו "תפוס" מבחינת עצמו — אחרת שינוי התווית בלבד
-  // היה נחסם על ידי הקוד של המוגדר שנערך.
+  // The code the form opened on is not "taken" as far as it is concerned —
+  // otherwise editing the label alone would be blocked by the very code being
+  // edited.
   const codeTaken = trimmed !== suggestedCode && takenCodes.includes(trimmed);
   const ready = label.trim().length > 0 && codeValid && !codeTaken;
 

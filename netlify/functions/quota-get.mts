@@ -1,17 +1,20 @@
-// מצב המכסות של שאלון: כמה משיבים כבר סיימו עם כל ערך שיש עליו תקרה.
-// קצה ציבורי בלי אימות, כמו config-get — המשיב קורא לו בכניסה, לפני שיש סשן
-// כלשהו. ה-service_role key נשאר בצד השרת ולעולם לא נשלח ללקוח.
+// A survey's quota state: how many respondents have already finished with each
+// value that carries a ceiling. A public endpoint with no authentication, like
+// config-get — the respondent calls it on entry, before any session exists. The
+// service_role key stays server-side and is never sent to the client.
 //
-// ההשוואה מול התקרה נעשית בדפדפן ולא כאן, בכוונה: הקונפיג של המשיב מוצמד
-// לגרסה שבה התחיל (config-get), והתקרות שרלוונטיות לו הן אלה שבגרסה שלו —
-// לא אלה שבטיוטה שפורסמה מאז.
+// The comparison against the ceiling happens in the browser and not here, on
+// purpose: a respondent's config is pinned to the version they started on
+// (config-get), and the ceilings that apply to them are the ones in their
+// version — not the ones in whatever has been published since.
 //
-// ⚠ מה שנחשף כאן הוא ספירות מצטברות לערכים שהוגדרה להם מכסה, ולא יותר: אין
-// רשימת סימונים חופשית ואין גישה ל-vars של סשן. התקרות עצמן ממילא ציבוריות —
-// הן חלק מהקונפיג ש-config-get מגיש לכל משיב.
+// ⚠ What is exposed here is cumulative counts for values that have a quota
+// defined, and nothing more: there is no free-form mark list and no access to a
+// session's vars. The ceilings themselves are public anyway — they are part of
+// the config config-get serves to every respondent.
 //
-// כשל כלשהו כאן מוחזר כשגיאה, והלקוח ממשיך כאילו אף מכסה לא מלאה (fail open):
-// תקלה אצלנו לא חוסמת משיבים אמיתיים.
+// Any failure here comes back as an error, and the client carries on as if no
+// quota were full (fail open): a fault of ours does not block real respondents.
 //
 //   GET ?survey=<slug> → { survey, version, counts: { <mark>: { <value>: n } } }
 
@@ -37,8 +40,8 @@ export default async (req: Request): Promise<Response> => {
   const slug = new URL(req.url).searchParams.get('survey') ?? DEFAULT_SURVEY_SLUG;
   if (!isValidSlug(slug)) return new Response('invalid survey', { status: 400 });
 
-  // הגרסה הפעילה היא שקובעת אילו סימונים בכלל נספרים. שאלון שלא פורסם מעולם
-  // אינו שגיאה כאן — פשוט אין לו מכסות.
+  // The active version is what decides which marks are counted at all. A survey
+  // that has never been published is not an error here — it simply has no quotas.
   const res = await fetch(
     `${env.url}/rest/v1/survey_configs?survey_id=eq.${encodeURIComponent(slug)}` +
       `&select=version,config&order=published_at.desc&limit=1`,
@@ -58,7 +61,7 @@ export default async (req: Request): Promise<Response> => {
 
   const counts: Record<string, Record<string, number>> = {};
   for (const row of counted as CountRow[]) {
-    // ערך null = סשן שסיים בלי הסימון הזה בכלל; אין לו משבצת לספור לתוכה
+    // A null value = a session that finished without this mark at all; it has no cell to count into
     if (row.value === null) continue;
     (counts[row.mark] ??= {})[row.value] = row.n;
   }
@@ -71,8 +74,9 @@ function quotaResponse(
   counts: Record<string, Record<string, number>>,
 ): Response {
   return json({ survey, version, counts }, 200, {
-    // דקה של cache: הספירה מקורבת ממילא (ראו engine/quota.ts), והקצה הזה
-    // נקרא בכל כניסה לשאלון — כולל בגל תנועה שכולו מגיע מאותה הפצה.
+    // A minute of cache: the count is approximate anyway (see engine/quota.ts),
+    // and this endpoint is called on every entry to the survey — including a
+    // traffic spike that all arrives from the same distribution push.
     'Cache-Control': 'public, max-age=60, must-revalidate',
   });
 }

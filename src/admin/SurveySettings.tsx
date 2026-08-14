@@ -1,10 +1,11 @@
-// עורך ברמת השאלון: כל מה ששייך לשאלון כולו ולא למסך אחד.
+// The survey-level editor: everything that belongs to the survey as a whole
+// rather than to one screen.
 //
-// שני דברים יושבים כאן, ושניהם מאותה סיבה — הם לא שייכים לשום מסך:
-//   - הגרלות: משתני הסשן שהמנוע מגריל פעם אחת בכניסה, לפני המסך הראשון,
-//     ושמהם נבנית בדיקת A/B;
-//   - מכסות: תקרת משיבים לערך של סימון. הסימון נקבע במסך אחד, אבל המכסה היא
-//     החלטה על המדגם כולו.
+// Two things live here, both for the same reason — neither belongs to any screen:
+//   - draws: the session variables the engine draws once on entry, before the
+//     first screen, and out of which an A/B test is built;
+//   - quotas: a respondent ceiling for a mark value. The mark is set on one
+//     screen, but the quota is a decision about the sample as a whole.
 
 import { useState } from 'react';
 import type { SurveyConfig } from '../engine/types';
@@ -30,14 +31,14 @@ import {
 interface Props {
   config: SurveyConfig;
   naming: Naming;
-  /** קודי האנליזה ננעלו — כלומר, השאלון כבר פורסם פעם אחת לפחות */
+  /** The analysis codes are locked — that is, the survey has been published at least once */
   codesLocked: boolean;
   onUpdate: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
   onClose: () => void;
 }
 
 export function SurveySettings({ config, naming, codesLocked, onUpdate, onClose }: Props) {
-  // null = אף טופס פתוח; '' = יצירת הגרלה חדשה; שם = שינוי השם של הגרלה קיימת
+  // null = no form open; '' = creating a new draw; a name = editing an existing draw
   const [defining, setDefining] = useState<string | null>(null);
   const randomVars = Object.entries(config.randomVars ?? {});
 
@@ -112,8 +113,9 @@ export function SurveySettings({ config, naming, codesLocked, onUpdate, onClose 
 }
 
 /**
- * מכסות: תקרה לכל ערך של סימון. שדה ריק הוא "בלי הגבלה" — 0 הוא מכסה אמיתית
- * (תא שנסגר ולא מקבל עוד משיבים), ולכן אסור לו להיות ברירת המחדל של שדה ריק.
+ * Quotas: a ceiling per mark value. An empty field is "unlimited" — 0 is a real
+ * quota (a closed cell that takes no more respondents), which is exactly why it
+ * must not be what an empty field means.
  */
 function QuotaSection({
   config,
@@ -214,9 +216,11 @@ function RandomVarCard({
   const labels = naming.varMeta[name]?.values ?? {};
 
   /**
-   * מחיקה שמשאירה שאלון שבור נעצרת כאן ולא בפאנל השגיאות. הוולידציה אמנם
-   * תתפוס גם את מה שנשאר אחריה — הפניה למשתנה שאינו קיים, שיבוץ שלא ייפתר —
-   * אבל אז השאלון כבר שבור, והאדמין צריך לדעת מה הוא עומד לעשות לפני הלחיצה.
+   * A deletion that would leave the survey broken is stopped here rather than in
+   * the validation panel. Validation does catch what it leaves behind — a
+   * reference to a variable that no longer exists, an interpolation that cannot
+   * resolve — but by then the survey is already broken, and the admin should know
+   * what they are about to do before they click.
    */
   function remove() {
     const refs = varReferences(config, name);
@@ -261,8 +265,9 @@ function RandomVarCard({
           takenCodes={naming.vars}
           onCancel={onRenameDone}
           onCreate={(code, label) => {
-            // שינוי הקוד וכתיבת התווית באותו עדכון — אחרת חצי מהפעולה יכולה
-            // להתבטל לבדה ב-undo, והקונפיג נשאר עם קוד חדש ותווית של הישן
+            // The rename and the label written in the same update — otherwise
+            // half the action could be undone on its own, leaving the config with
+            // the new code and the old one's label
             onUpdate((cfg) => defineVar(renameVar(cfg, name, code), code, label));
             onRenameDone();
           }}
@@ -278,8 +283,9 @@ function RandomVarCard({
         </div>
         {values.map((value, i) => (
           <div className="option-row" key={i}>
-            {/* הערך קודם והשם אחריו — הפוך מעורך האפשרויות, כי כאן דווקא הערך
-                הוא מה שהמשיב רואה: הוא זה שנכנס לנוסח במקום ‎{code}‎ */}
+            {/* The value first and the name after it — the reverse of the options
+                editor, because here it is the value the respondent sees: it is
+                what goes into the wording in place of `{code}` */}
             <input
               className="a-input"
               value={String(value)}
@@ -290,9 +296,10 @@ function RandomVarCard({
               dir="ltr"
               placeholder="הערך עצמו"
               aria-label="הערך שמוגרל"
-              // הערך המוגרל נשמר ב-vars של המשיב ומוצג לו בתוך הנוסח, ולכן
-              // הוא נתון לכל דבר — ננעל אחרי הפרסום בדיוק כמו קוד. הוספה
-              // ומחיקה נשארות פתוחות: הן לא משנות מה שכבר נאסף.
+              // The drawn value is stored in the respondent's vars and shown to
+              // them inside the wording, so it is data in every sense — it locks
+              // after publishing exactly like a code. Adding and removing stay
+              // open: neither changes what has already been collected.
               disabled={codesLocked}
               title={
                 codesLocked

@@ -1,5 +1,6 @@
-// לוגיקת התצוגה הטהורה של מסך הסטטיסטיקות: בניית אריחי הסקירה ופורמט עברי.
-// הערכים הצפויים מחושבים ביד — לא נגזרים מהקוד הנבדק.
+// The statistics screen's pure display logic: building the overview tiles and the
+// Hebrew formatting. The expected values are computed by hand — never derived from
+// the code under test.
 import { describe, expect, it } from 'vitest';
 import {
   binNumbers,
@@ -36,7 +37,7 @@ describe('overviewTiles', () => {
     ]);
     const byKey = Object.fromEntries(tiles.map((t) => [t.key, t]));
     expect(byKey.total.count).toBe(60);
-    expect(byKey.total.ratio).toBeNull(); // 100% מעצמו — אין מה להציג
+    expect(byKey.total.ratio).toBeNull(); // 100% of itself — there is nothing to show
     expect(byKey.completed.count).toBe(30);
     expect(byKey.completed.ratio).toBeCloseTo(0.5);
     expect(byKey.screened_out.ratio).toBeCloseTo(0.2);
@@ -47,7 +48,7 @@ describe('overviewTiles', () => {
     const abandoned = overviewTiles(overview).find((t) => t.key === 'abandoned')!;
     expect(abandoned.count).toBe(15);
     expect(abandoned.ratio).toBeCloseTo(0.25);
-    expect(abandoned.sub?.map((s) => s.count)).toEqual([7, 8]); // לא ענו כלל, נטשו באמצע
+    expect(abandoned.sub?.map((s) => s.count)).toEqual([7, 8]); // never answered, abandoned mid-survey
   });
 
   it('yields null ratios when there are no sessions at all (empty state, not NaN)', () => {
@@ -81,7 +82,7 @@ describe('formatting', () => {
   });
 });
 
-// ─── משפך (ENG-14) ──────────────────────────────────────────────────────────
+// ─── the funnel (ENG-14) ───────────────────────────────────────────────────
 
 const v2config = {
   version: 'v2',
@@ -111,7 +112,7 @@ const funnelRows = [
   { screen_id: 'intro', viewed: 12, answered: 0, dropped_here: 2, median_ms: null },
 ];
 
-// ─── כרטיסי התפלגות (ENG-15) ────────────────────────────────────────────────
+// ─── distribution cards (ENG-15) ───────────────────────────────────────────
 
 const dv2 = {
   version: 'v2',
@@ -145,7 +146,7 @@ const dv1 = {
   screens: [
     {
       id: 's_status',
-      // v1 בלי considering — סט אפשרויות שונה ⇒ הערת ריבוי גרסאות
+      // v1 without considering — a different option set ⇒ the multi-version note
       type: 'single' as const,
       prompt: 'מה מצבך?',
       options: [
@@ -202,7 +203,7 @@ describe('questionCards', () => {
       ['old_removed', 'old_removed', 1],
     ]);
     expect(status.bars![3].retiredOption).toBe(true);
-    // שיעור מתוך העונים על השאלה
+    // A share of those who answered the question
     expect(status.bars![0].ratio).toBeCloseTo(0.6);
   });
 
@@ -215,13 +216,13 @@ describe('questionCards', () => {
     const [status, goals] = cards();
     expect(status.spansVersions).toBe(2);
     expect(goals.spansVersions).toBeNull();
-    // בגרסה בודדת אין מה להעיר
+    // With a single version there is nothing to note
     const single = questionCards(distRows, distFunnel, distVersions, 'v2');
     expect(single[0].spansVersions).toBeNull();
   });
 });
 
-// ─── פילוח (ENG-18) ─────────────────────────────────────────────────────────
+// ─── breakdowns (ENG-18) ───────────────────────────────────────────────────
 
 const bdConfig = {
   version: 'b1',
@@ -270,7 +271,7 @@ describe('dimensionLegend', () => {
       ['B', 'לקראת'],
       [null, 'לא ידוע'],
     ]);
-    // הצבע עוקב אחרי הזהות: A תמיד ראשון בפלטה גם אם B נפוץ יותר
+    // The colour follows identity: A is always first in the palette, even when B is more common
     expect(legend.values[0].color).not.toBe(legend.values[1].color);
     expect(legend.values[2].color).toBe('#9ca3af');
   });
@@ -283,10 +284,10 @@ describe('dimensionLegend', () => {
   it('refuses a dimension with more than 12 values — the unknown bucket counts too', () => {
     const many = rows(Array.from({ length: 13 }, (_, i) => `v${i}`));
     expect(dimensionLegend(many, 'url_source', bdConfig).mode).toBe('refused');
-    // 12 ערכים ידועים + "לא ידוע" = 13 עמודות בפועל — גם זה נדחה
+    // 12 known values + "unknown" = 13 bars in practice — that is refused too
     const twelvePlusUnknown = rows([...Array.from({ length: 12 }, (_, i) => `v${i}`), null]);
     expect(dimensionLegend(twelvePlusUnknown, 'url_source', bdConfig).mode).toBe('refused');
-    // בדיוק 12 כולל הלא-ידוע — עובר
+    // Exactly 12 including the unknown one — accepted
     const okSet = rows([...Array.from({ length: 11 }, (_, i) => `v${i}`), null]);
     expect(dimensionLegend(okSet, 'url_source', bdConfig).mode).toBe('ok');
   });
@@ -310,7 +311,7 @@ describe('questionCards with a split', () => {
     const [card] = questionCards(dist, funnel, bdVersions, 'all', { legend, bases });
     const x = card.bars!.find((b) => b.id === 'x')!;
     expect(x.groups!.map((g) => [g.key, g.count, g.ratio])).toEqual([
-      ['A', 2, 1], // כל העונים בקבוצת A ענו x
+      ['A', 2, 1], // every respondent in group A answered x
       ['B', 0, 0],
       [null, 1, 1],
     ]);
@@ -345,7 +346,7 @@ describe('questionCards with a split', () => {
   });
 });
 
-// ─── מטריצה והיסטוגרמה (ENG-17) ─────────────────────────────────────────────
+// ─── matrix and histogram (ENG-17) ─────────────────────────────────────────
 
 const mxConfig = {
   version: 'm1',
@@ -459,7 +460,7 @@ describe('orderFunnel', () => {
     const rows = orderFunnel(funnelRows, funnelVersions, 'all');
     expect(rows.map((r) => r.screenId)).toEqual(['intro', 'q1', 'q2', 'q_old']);
     expect(rows.map((r) => r.retired)).toEqual([false, false, false, true]);
-    // תוויות מהקונפיג; מסך שפרש נשאר עם המזהה הגולמי
+    // Labels from the config; a retired screen keeps its raw id
     expect(rows[0].label).toBe('פתיח');
     expect(rows[1].label).toBe('שאלה 1');
     expect(rows[3].label).toBe('q_old');

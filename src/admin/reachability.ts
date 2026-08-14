@@ -1,39 +1,46 @@
-// לאן אפשר ליפול מכאן ברצף — הבסיס גם לקשתות בתרשים וגם לפאנל ההקשר.
+// Where the flow can land from here in sequence — the basis for both the edges in
+// the diagram and the context panel.
 //
-// הבעיה שזה פותר: המנוע סורק קדימה עד המסך הראשון שעובר את תנאי התצוגה שלו,
-// ותרגום נאיבי של זה לתצוגה מצייר קשת לכל מסך עד הראשון שאינו מותנה. בשאלון
-// שבו 55 מתוך 70 המסכים מותנים יצאו מכך 1,494 קשתות דילוג — רובן המכריע
-// מעברים שלא יכולים לקרות. שני כללים מכווצים את זה, ושניהם מדויקים ולא קירוב:
+// The problem this solves: the engine scans forward to the first screen that
+// passes its display condition, and a naive translation of that into a drawing
+// puts an edge to every screen up to the first unconditional one. In a survey
+// where 55 of the 70 screens are conditional that produced 1,494 skip edges — the
+// overwhelming majority of them transitions that cannot happen. Three rules
+// shrink it, and all of them are exact rather than approximations:
 //
-//   1. ראש ענף בלבד. מסכים עוקבים עם תנאי זהה נכשלים או מצליחים יחד — בתוך
-//      סריקה אחת ההקשר קבוע — ולכן רק הראשון בהם יכול להיות יעד נחיתה.
-//   2. סתירה והבטחה. אם תנאי המקור מחייב segment=A ותנאי היעד מחייב segment=B,
-//      המעבר אינו אפשרי; ואם תנאי היעד כלול בתנאי המקור, הנחיתה ודאית והסריקה
-//      נעצרת שם.
-//   3. השתלטות. יעד שתנאו מחייב את תנאו של יעד קודם לעולם לא ייבחר לפניו.
+//   1. Lane heads only. Consecutive screens with an identical condition fail or
+//      succeed together — within one scan the context is fixed — so only the
+//      first of them can be a landing target.
+//   2. Contradiction and guarantee. If the source's condition requires segment=A
+//      and the target's requires segment=B, the transition is impossible; and if
+//      the target's condition is implied by the source's, the landing is certain
+//      and the scan stops there.
+//   3. Domination. A target whose condition implies an earlier target's condition
+//      can never be chosen ahead of it.
 //
-// ⚠ הגיזום חייב להיות שמרני: להסתיר מעבר אמיתי גרוע בהרבה מלצייר יותר מדי.
-// לכן כל מה שאינו ודאי — אופרטור שאינו eq/in, תנאי מקורב — פשוט אינו נגזם.
+// ⚠ The pruning has to be conservative: hiding a real transition is far worse
+// than drawing too many. So anything that is not certain — an operator other than
+// eq/in, an approximated condition — is simply not pruned.
 
 import type { Condition, Op, Screen } from '../engine/types';
 
 type Leaf = { q?: string; var?: string; op: Op; value?: unknown };
 
-/** פירוק ל"כל התנאים האלה חייבים להתקיים". any/not אינם מתפרקים. */
+/** Decomposing into "all of these conditions must hold". any/not are not decomposed. */
 export function conjuncts(cond: Condition | undefined): Condition[] {
   if (!cond) return [];
   if ('all' in cond) return cond.all.flatMap(conjuncts);
   return [cond];
 }
 
-/** מרחב שמות נפרד לשאלות ולמשתנים — s_status ו-segment לא מתנגשים. */
+/** A separate namespace for questions and variables — s_status and segment cannot collide. */
 function refOf(cond: Condition): string | null {
   if ('q' in cond) return `q:${cond.q}`;
   if ('var' in cond) return `var:${cond.var}`;
   return null;
 }
 
-/** קבוצת הערכים שהתנאי מתיר, או null כשאי אפשר לדעת בוודאות. */
+/** The set of values the condition permits, or null when it cannot be known for certain. */
 function allowedValues(cond: Condition): Set<string> | null {
   const leaf = cond as Leaf;
   if (leaf.op === 'eq') return new Set([String(leaf.value)]);
@@ -41,7 +48,7 @@ function allowedValues(cond: Condition): Set<string> | null {
   return null;
 }
 
-/** שני התנאים לא יכולים להתקיים יחד: אותו נושא, וקבוצות ערכים זרות. */
+/** The two conditions cannot hold together: the same subject, and disjoint value sets. */
 export function excludes(a: Condition[], b: Condition[]): boolean {
   for (const x of a) {
     const ref = refOf(x);
@@ -58,7 +65,7 @@ export function excludes(a: Condition[], b: Condition[]): boolean {
   return false;
 }
 
-/** תנאי המקור כבר מכיל את כל מה שהיעד דורש — הנחיתה ודאית. */
+/** The source's condition already contains everything the target requires — the landing is certain. */
 export function guarantees(a: Condition[], b: Condition[]): boolean {
   if (b.length === 0) return true;
   const have = new Set(a.map((c) => JSON.stringify(c)));
@@ -66,12 +73,14 @@ export function guarantees(a: Condition[], b: Condition[]): boolean {
 }
 
 /**
- * מה מתנאי התצוגה של המקור עדיין נכון ברגע הסריקה קדימה.
+ * How much of the source's display condition is still true at the moment of the
+ * forward scan.
  *
- * הסריקה רצה *אחרי* ה-onSubmit של המקור, ולכן תנאי שנשען על משתנה שהמקור
- * עצמו מציב, או על התשובה למקור עצמו, כבר אינו בהכרח מה שהיה כשהמסך הוצג.
- * בשאלון הנוכחי זה לא קורה, אבל בלי הסינון הזה קונפיג עתידי היה מקבל קשתות
- * שגויות בשקט.
+ * The scan runs *after* the source's onSubmit, so a condition leaning on a
+ * variable the source itself assigns, or on the answer to the source itself, is
+ * no longer necessarily what it was when the screen was displayed. In the current
+ * survey this does not arise, but without this filter a future config would
+ * silently get wrong edges.
  */
 function usableContext(source: Screen): Condition[] {
   const written = new Set((source.onSubmit ?? []).map((r) => r.var));
@@ -82,14 +91,15 @@ function usableContext(source: Screen): Condition[] {
   });
 }
 
-/** תנאי ניתוב ללא תנאי נתפס תמיד — אין נפילה קדימה בכלל. */
+/** An unconditional routing rule always catches — there is no fall-through at all. */
 function alwaysJumps(screen: Screen): boolean {
   return (screen.next ?? []).some((r) => !r.if);
 }
 
 /**
- * המסכים שהמנוע יכול לנחות עליהם כשהוא ממשיך מ-`index` ברצף, לפי הסדר.
- * הראשון הוא ההמשך הרגיל; השאר הם החלופות אם הוא מדולג.
+ * The screens the engine can land on when continuing from `index` in sequence,
+ * in order. The first is the ordinary continuation; the rest are the alternatives
+ * if it is skipped.
  */
 export function fallThroughTargets(screens: Screen[], index: number): Screen[] {
   const source = screens[index];
@@ -102,18 +112,19 @@ export function fallThroughTargets(screens: Screen[], index: number): Screen[] {
     const target = screens[j];
     if (!target.showIf) {
       out.push(target);
-      break; // מוצג תמיד — אי אפשר להמשיך מעבר לו
+      break; // always displayed — there is no continuing past it
     }
     const targetConjuncts = conjuncts(target.showIf);
-    // יעד שתנאו מחייב את תנאו של יעד קודם לא יכול להיות הנחיתה: אם תנאו
-    // מתקיים, אז גם של הקודם — והסריקה הייתה נעצרת שם. זה מה שמכווץ "כל
-    // מסכי מסלול A" ליעד אחד: ראש המסלול.
+    // A target whose condition implies an earlier target's cannot be the landing:
+    // if its condition holds then so does the earlier one's — and the scan would
+    // have stopped there. This is what shrinks "all the track A screens" down to a
+    // single target: the head of the track.
     const dominated = out.some((earlier) => guarantees(targetConjuncts, conjuncts(earlier.showIf)));
     if (!dominated && !excludes(context, targetConjuncts)) {
       out.push(target);
       if (guarantees(context, targetConjuncts)) break;
     }
-    // דילוג על יתר הענף: תנאי זהה נכשל או מצליח יחד עם ראשו
+    // Skipping the rest of the lane: an identical condition fails or succeeds together with its head
     const key = JSON.stringify(target.showIf);
     while (j + 1 < screens.length && screens[j + 1].showIf && JSON.stringify(screens[j + 1].showIf) === key) {
       j++;
@@ -124,9 +135,11 @@ export function fallThroughTargets(screens: Screen[], index: number): Screen[] {
 }
 
 /**
- * מי יכול ליפול לכאן ברצף — מוגדר כהיפוך של fallThroughTargets ולא כהליכה
- * אחורה נפרדת, כדי שהתרשים והפאנל לא יוכלו לספר שני סיפורים שונים.
- * מוחזר מהקרוב לרחוק: המקור הסמוך הוא הסיפור הרגיל, והרחוקים הם החריגים.
+ * Who can land here in sequence — defined as the inverse of fallThroughTargets
+ * rather than as a separate backwards walk, so the diagram and the panel cannot
+ * tell two different stories.
+ * Returned nearest first: the adjacent source is the ordinary story, and the
+ * distant ones are the exceptions.
  */
 export function fallThroughSources(screens: Screen[], index: number): Screen[] {
   const id = screens[index]?.id;

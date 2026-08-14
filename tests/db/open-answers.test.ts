@@ -1,5 +1,6 @@
-// ENG-16: דפדוף תשובות פתוחות — שלושת המצבים (ענו/דילגו/נטשו), אחוזוני אורך,
-// רשימה מדופדפת חדש-ראשון עם סינון. הציפיות חושבו ביד. רץ רק עם DB_TESTS=1.
+// ENG-16: paging through open-text answers — the three states (answered/skipped/
+// abandoned), length percentiles, and a newest-first paged list with filtering.
+// The expectations were worked out by hand. Runs only with DB_TESTS=1.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   applySchema,
@@ -16,8 +17,9 @@ import { ensureSurvey, idFactory, resetEvents, sessionEvents } from './fixtures'
 const V = '2026-08-01.1-oatest';
 const ids = idFactory('f6');
 
-// why (טקסט): s1 ענה טקסט ארוך · s2 ענה קצר · s3 דילג (null) · s4 צפה ונטש
-// s5 סשן בדיקה עם תשובה — מוחרג · s6 ענה, segment B
+// why (text): s1 answered at length · s2 answered briefly · s3 skipped (null) ·
+// s4 viewed and abandoned · s5 a test session with an answer — excluded · s6
+// answered, segment B
 const LONG = 'הריבית מפחידה אותי ואני לא מבין את המסלולים בכלל';
 const fixture = [
   ...sessionEvents(ids, 1, V, {
@@ -77,7 +79,7 @@ describe.runIf(dbTestsEnabled)('open answers SQL (ENG-16)', () => {
       select * from open_answers('oatest', null, false, array['why'], null, 2, 0)`;
     expect(page).toHaveLength(2);
     expect(Number(page[0].total)).toBe(3);
-    // חדש-ראשון: s6 נזרע אחרון (atBase גדול יותר)
+    // Newest first: s6 was seeded last (a larger atBase)
     expect(page[0].value).toBe('הבירוקרטיה');
     expect(page[0].segment).toBe('B');
     expect(page[0].outcome).toBe('complete');
@@ -92,7 +94,7 @@ describe.runIf(dbTestsEnabled)('open answers SQL (ENG-16)', () => {
     expect(b.map((r) => r.value)).toEqual(['הבירוקרטיה']);
     const unknown = await sql`
       select * from open_answers('oatest', null, false, array['why'], '__unknown__', 50, 0)`;
-    expect(unknown).toHaveLength(0); // כל העונים כאן עם segment ידוע
+    expect(unknown).toHaveLength(0); // every respondent here has a known segment
   });
 });
 

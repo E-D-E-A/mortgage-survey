@@ -1,6 +1,7 @@
-// קונסולת הניהול (/admin): שער כניסה (Supabase Auth, first-edea.com בלבד),
-// ואחריו שני מסכים — רשימת השאלונים (/admin) ועורך של שאלון אחד
-// (/admin/<slug>): רשימת מסכים עם גרירה, עורך מסך, בדיקת תקינות חיה, שמירה ופרסום.
+// The admin console (/admin): a sign-in gate (Supabase Auth, first-edea.com
+// only), and behind it two screens — the survey list (/admin) and the editor for
+// one survey (/admin/<slug>): a draggable screen list, a screen editor, live
+// validation, saving and publishing.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
@@ -36,13 +37,14 @@ import './admin.css';
 const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
 /**
- * מתחת לרוחב הזה הקונסולה לא נבנתה לעבוד: תרשים הזרימה, רשימת המסכים ומגירת
- * העריכה צריכים שלוש עמודות במקביל. עדיף מסך הסבר מפורש מאשר ממשק שקורס.
- * הערך תואם לנקודת השבירה של .admin-body ב-admin.css.
+ * Below this width the console was never built to work: the flow diagram, the
+ * screen list and the editing drawer need three columns side by side. An explicit
+ * explanation screen beats an interface that collapses.
+ * The value matches the .admin-body breakpoint in admin.css.
  */
 const MIN_CONSOLE_WIDTH = 900;
 
-/* ---------- רוחב הפאנלים ---------- */
+/* ---------- panel widths ---------- */
 
 const SIDEBAR_KEY = 'admin:sidebar-width';
 const DRAWER_KEY = 'admin:drawer-width';
@@ -50,19 +52,19 @@ const SIDEBAR_DEFAULT = 320;
 const DRAWER_DEFAULT = 440;
 const PANEL_MIN = 240;
 const PANEL_MAX = 680;
-/** התרשים הוא המשטח הראשי — הפאנלים לא מורשים לבלוע אותו */
+/** The diagram is the primary surface — the panels are not allowed to swallow it */
 const GRAPH_MIN = 360;
 
 const clampWidth = (w: number, max: number) => Math.min(Math.max(w, PANEL_MIN), Math.max(PANEL_MIN, max));
 
-/** רוחב שנשמר על מסך רחב לא יבלע את התרשים כשפותחים את הקונסולה על מסך צר */
+/** A width saved on a wide screen must not swallow the diagram when the console opens on a narrow one */
 function readWidth(key: string, fallback: number): number {
   let stored = fallback;
   try {
     const raw = Number(localStorage.getItem(key));
     if (Number.isFinite(raw) && raw > 0) stored = raw;
   } catch {
-    /* אחסון חסום — נשארים עם ברירת המחדל */
+    /* Storage blocked — we stay with the default */
   }
   return clampWidth(stored, Math.min(PANEL_MAX, window.innerWidth - GRAPH_MIN));
 }
@@ -71,14 +73,15 @@ function saveWidth(key: string, w: number) {
   try {
     localStorage.setItem(key, String(w));
   } catch {
-    /* מצב פרטי / אחסון חסום — הרוחב פשוט לא ייזכר */
+    /* Private mode / storage blocked — the width simply is not remembered */
   }
 }
 
 /**
- * מודד את הגובה האמיתי של הסרגל העליון ומזין אותו ל-CSS כ---topbar-h.
- * הפאנלים הדביקים (רשימה, תרשים, מגירה) מחשבים את גובהם ממנו — קבוע קשיח
- * (49px) נשבר בכל פעם שהסרגל גדל בפיקסל, וכל הפאנלים חרגו מתחתית המסך.
+ * Measures the topbar's real height and feeds it to CSS as --topbar-h. The sticky
+ * panels (list, diagram, drawer) compute their own height from it — a hard-coded
+ * constant (49px) broke every time the bar grew by a pixel, and all the panels
+ * overflowed past the bottom of the screen.
  */
 function useMeasuredTopbar(): {
   appRef: RefObject<HTMLDivElement | null>;
@@ -114,7 +117,7 @@ function useTooNarrow(): boolean {
 
 type Auth = { phase: 'checking' } | { phase: 'login' } | { phase: 'in'; email: string };
 
-/** ‎/admin‎ → רשימה, ‎/admin/<slug>‎ → עורך, ‎/admin/<slug>/stats‎ → סטטיסטיקות. */
+/** `/admin` → the list, `/admin/<slug>` → the editor, `/admin/<slug>/stats` → statistics. */
 type Route = { view: 'list' } | { view: 'editor'; slug: string } | { view: 'stats'; slug: string };
 
 function parseRoute(pathname: string): Route {
@@ -129,13 +132,15 @@ export default function AdminApp() {
   const [auth, setAuth] = useState<Auth>({ phase: 'checking' });
 
   useEffect(() => {
-    // נורה גם בטעינה (INITIAL_SESSION) וגם בחזרה מגוגל (SIGNED_IN),
-    // כי detectSessionInUrl קולט את הטוקנים מה-URL בעצמו.
+    // Fires both on load (INITIAL_SESSION) and on the return from Google
+    // (SIGNED_IN), because detectSessionInUrl picks the tokens out of the URL by
+    // itself.
     //
-    // supabase-js מאזין בעצמו ל-visibilitychange ומשדר SIGNED_IN בכל חזרה
-    // ללשונית, גם כשהסשן לא השתנה. אובייקט state חדש בכל שידור כזה מרנדר
-    // מחדש את כל הקונסולה — ובעקבותיו useDraft טוען את הטיוטה מהשרת ומוחק
-    // עריכות שלא נשמרו. לכן מחליפים state רק כשהוא באמת השתנה.
+    // supabase-js listens to visibilitychange on its own and broadcasts SIGNED_IN
+    // on every return to the tab, even when the session has not changed. A fresh
+    // state object on each such broadcast re-renders the whole console — and in
+    // its wake useDraft reloads the draft from the server and wipes unsaved
+    // edits. So the state object is replaced only when it has genuinely changed.
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setAuth((prev) => {
         if (!session) return prev.phase === 'login' ? prev : { phase: 'login' };
@@ -146,8 +151,9 @@ export default function AdminApp() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  // זהות יציבה: onAuthError הוא תלות של reload ב-useDraft/useSurveys, וסגור
-  // חדש בכל רינדור של AdminApp היה מפעיל טעינה מחדש של הטיוטה.
+  // A stable identity: onAuthError is a dependency of reload in
+  // useDraft/useSurveys, and a fresh closure on every AdminApp render would
+  // trigger a reload of the draft.
   const onAuthError = useCallback(() => {
     void supabase.auth.signOut();
     setAuth({ phase: 'login' });
@@ -174,7 +180,7 @@ export default function AdminApp() {
   return <Console email={auth.email} onAuthError={onAuthError} />;
 }
 
-/** ניווט בין רשימת השאלונים לעורך, בלי ראוטר חיצוני (שני מסכים בלבד). */
+/** Navigation between the survey list and the editor, with no external router (two screens only). */
 function Console({ email, onAuthError }: { email: string; onAuthError: () => void }) {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const surveys = useSurveys(onAuthError);
@@ -227,9 +233,10 @@ function Console({ email, onAuthError }: { email: string; onAuthError: () => voi
       slug={route.slug}
       name={survey?.name ?? route.slug}
       archived={Boolean(survey?.archived_at)}
-      // קודי האנליזה ננעלים בפרסום הראשון. כל עוד הרשימה לא נטענה עוד לא ידוע
-      // אם השאלון פורסם — ואז ננעלים: נעילה מיותרת מעצבנת, שחרור מיותר משנה
-      // קוד שנתונים שכבר נאספו מפנים אליו.
+      // Analysis codes lock on the first publish. Until the list has loaded we do
+      // not yet know whether this survey has been published — and then they lock:
+      // an unnecessary lock is an annoyance, an unnecessary unlock rewrites a
+      // code that collected data points at.
       codesLocked={survey ? survey.versions > 0 : true}
       email={email}
       onBack={() => {
@@ -298,7 +305,7 @@ interface EditorProps {
   slug: string;
   name: string;
   archived: boolean;
-  /** האם קודי האנליזה כבר נעולים — כלומר, האם השאלון פורסם אי-פעם */
+  /** Whether the analysis codes are already locked — that is, whether the survey has ever been published */
   codesLocked: boolean;
   email: string;
   onBack: () => void;
@@ -322,9 +329,11 @@ function Editor({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [publishOpen, setPublishOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // null = בדיקת המסלול כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
+  // null = the path check is off. An object (even an empty one) = it is open and
+  // marking a path on the diagram.
   const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
-  // מצב המכסות שהבדיקה רצה בו — נפרד מהתשובות, כי הוא לא משהו שהמשיב עונה
+  // The quota state the check runs under — kept apart from the answers, because
+  // it is not something the respondent answers
   const [simQuota, setSimQuota] = useState<Vars>({});
   const closeSim = useCallback(() => {
     setSimAnswers(null);
@@ -333,20 +342,22 @@ function Editor({
   const [sidebarW, setSidebarW] = useState(() => readWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT));
   const [drawerW, setDrawerW] = useState(() => readWidth(DRAWER_KEY, DRAWER_DEFAULT));
 
-  // חזרה לרשימה עם שינויים לא שמורים מאבדת אותם — אותה אזהרה כמו ביציאה מהדף
+  // Going back to the list with unsaved changes loses them — the same warning as leaving the page
   const leave = useCallback(() => {
     if (draft.dirty && !window.confirm('יש שינויים שלא נשמרו. לצאת בכל זאת ולאבד אותם?')) return;
     onBack();
   }, [draft.dirty, onBack]);
 
-  // בחירת מסך מכל מקום (תרשים, רשימה, פאנל השגיאות) פותחת את מגירת העריכה
+  // Selecting a screen from anywhere (diagram, list, validation panel) opens the editing drawer
   const selectScreen = useCallback((id: string | null) => {
     setSelectedId(id);
   }, []);
 
-  // בחירה מחוץ לתרשים (רשימה, פאנל השגיאות, הקשר במגירה, בדיקת מסלול) היא גם בקשה
-  // "קח אותי לשם": בשאלון עם 70 מסכים סימון צומת שנמצא מחוץ למסך לא עוזר.
-  // מונה ולא רק מזהה — לחיצה חוזרת על אותו קישור מחזירה את המבט אליו.
+  // A selection made outside the diagram (the list, the validation panel, the
+  // context block in the drawer, the path check) is also a "take me there"
+  // request: in a 70-screen survey, highlighting a node that is off-screen helps
+  // no one. A counter and not just an id — clicking the same link again brings
+  // the view back to it.
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
   const focusNonce = useRef(0);
   const revealScreen = useCallback((id: string) => {
@@ -363,8 +374,8 @@ function Editor({
 
   const selected = config?.screens.find((s) => s.id === selectedId) ?? null;
 
-  // הגבול נקבע מול מה שכבר תפוס: מתחת ל-1280 המגירה צפה מעל התרשים ולא
-  // גוזלת ממנו רוחב, ולכן שם היא לא נכנסת לחשבון
+  // The limit is set against what is already taken: below 1280 the drawer floats
+  // over the diagram rather than taking width from it, so there it does not count
   const takenBy = (w: number) => (window.innerWidth > 1280 ? w : 0);
   const clampSidebar = useCallback(
     (w: number) => clampWidth(w, Math.min(PANEL_MAX, window.innerWidth - GRAPH_MIN - takenBy(selected ? drawerW : 0))),
@@ -375,11 +386,12 @@ function Editor({
     [sidebarOpen, sidebarW],
   );
 
-  // הרוחבים השמורים נאכפים רק בזמן גרירה — אבל חלון שהוצר אחרי הטעינה (או
-  // שני פאנלים שנשמרו רחבים) הופך את הגריד לרחב מהחלון, וב-RTL העודף נשפך
-  // שמאלה: המגירה נחתכת בקצה המסך. לכן הרוחב בפועל מחושב מחדש בכל רינדור
-  // מול רוחב החלון: המגירה נסוגה ראשונה, אחריה הרשימה, והתרשים שומר על
-  // המינימום שלו.
+  // The saved widths are enforced only while dragging — but a window narrowed
+  // after load (or two panels that were saved wide) makes the grid wider than the
+  // window, and in RTL the overflow spills to the left: the drawer is cut off at
+  // the edge of the screen. So the effective width is recomputed on every render
+  // against the window width: the drawer gives way first, then the list, and the
+  // diagram keeps its minimum.
   const [viewportW, setViewportW] = useState(() => window.innerWidth);
   useEffect(() => {
     const onResize = () => setViewportW(window.innerWidth);
@@ -408,7 +420,7 @@ function Editor({
     [config, simAnswers, simQuota],
   );
 
-  // אזהרת יציאה עם שינויים לא שמורים
+  // The leave-with-unsaved-changes warning
   useEffect(() => {
     if (!draft.dirty) return;
     const handler = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -416,8 +428,9 @@ function Editor({
     return () => window.removeEventListener('beforeunload', handler);
   }, [draft.dirty]);
 
-  // קיצורי מקלדת: Ctrl/Cmd+S שמירה, Ctrl/Cmd+Z ביטול, Ctrl/Cmd+Shift+Z או
-  // Ctrl+Y חזרה. בתוך שדה טקסט לא מתערבים — שם פועל ה-undo של הדפדפן.
+  // Keyboard shortcuts: Ctrl/Cmd+S saves, Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or
+  // Ctrl+Y redoes. Inside a text field we do not interfere — the browser's own
+  // undo belongs there.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -446,9 +459,10 @@ function Editor({
     return () => window.removeEventListener('keydown', handler);
   }, [draft]);
 
-  // עצירת מעגלים לפני שהם קורים: כל עריכה (חיבור, שינוי יעד, סידור מחדש,
-  // מחיקה) נבחנת קודם על עותק — אם נוצר מעגל ניתוב חדש, העריכה לא מוחלת
-  // כלל ובמקומה מוצג הסבר עם מסלול המעגל.
+  // Stopping cycles before they happen: every edit (connecting, changing a
+  // target, reordering, deleting) is first tried on a copy — if a new routing
+  // cycle appears, the edit is not applied at all and an explanation showing the
+  // cycle's path is displayed instead.
   const [cycleBlock, setCycleBlock] = useState<string | null>(null);
   const cycleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const guardedUpdate = useCallback(
@@ -483,15 +497,16 @@ function Editor({
     [guardedUpdate],
   );
 
-  // שכבת השמות: כל תווית שהאדמין קורא נגזרת מכאן, ולכן היא נבנית פעם אחת
+  // The naming layer: every label the admin reads is derived from here, so it is built once
   const naming = useMemo(
     () => makeNaming(config ?? { version: '', screens: [] }),
     [config],
   );
 
-  // סימון חדש נרשם ברמת השאלון, לא על המסך — אחרת רק המסך שיצר אותו יידע את
-  // שמו. שינוי קוד (`renamedFrom`) נעשה באותה עדכון בדיוק: שתי פעולות נפרדות
-  // היו שתי רשומות undo, ואחת מהן לבדה משאירה קונפיג לא עקבי.
+  // A new mark is recorded at survey level and not on the screen — otherwise only
+  // the screen that created it would know its name. A code rename (`renamedFrom`)
+  // happens in that very same update: two separate actions would be two undo
+  // entries, and either one alone leaves an inconsistent config.
   const defineVar = useCallback(
     (name: string, label: string, renamedFrom?: string) =>
       draft.update((cfg) =>
@@ -678,7 +693,7 @@ function Editor({
                   })
                 }
                 onAdd={(type, id) => {
-                  // מסך חדש לא יכול ליצור מעגל, ולכן update ישיר ולא guardedUpdate
+                  // A new screen cannot create a cycle, hence a direct update and not guardedUpdate
                   draft.update((cfg) => ({
                     ...cfg,
                     screens: insertScreen(cfg.screens, newScreen(type, id), selectedId),
@@ -846,8 +861,9 @@ function Editor({
         </div>
       )}
 
-      {/* שכבה מעל ולא החלפה של העץ: הצרת החלון באמצע עבודה לא תפרק את העורך
-          ולא תמחק שינויים שלא נשמרו */}
+      {/* A layer on top rather than a replacement of the tree: narrowing the
+          window mid-session will not tear the editor down or discard unsaved
+          changes */}
       {tooNarrow && (
         <div className="narrow-notice" role="alert">
           <div className="narrow-notice-card">
@@ -892,8 +908,8 @@ function Editor({
 }
 
 /**
- * מוצא יחיד מדיאלוג ההתנגשות: העבודה שעל המסך עומדת להימחק, ובלי זה אין שום
- * דרך להציל אותה.
+ * The only way out of the conflict dialog: the work on screen is about to be
+ * discarded, and without this there is no way at all to rescue it.
  */
 function CopyConfigButton({ config }: { config: SurveyConfig }) {
   const [state, setState] = useState<'idle' | 'copied' | 'downloaded'>('idle');
@@ -904,7 +920,7 @@ function CopyConfigButton({ config }: { config: SurveyConfig }) {
       await navigator.clipboard.writeText(json);
       setState('copied');
     } catch {
-      // דפדפן שחוסם את הלוח — מורידים קובץ במקום. העיקר שהעבודה לא תאבד.
+      // A browser that blocks the clipboard — download a file instead. What matters is not losing the work.
       const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
       const link = document.createElement('a');
       link.href = url;

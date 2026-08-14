@@ -1,6 +1,7 @@
-// רשימת השאלונים בקונסולה: טעינה ופעולות ניהול (יצירה, שינוי שם, ארכיון,
-// מחיקה). כל פעולה מסתיימת בטעינה מחדש של הרשימה — היא המקור היחיד לאמת,
-// ובמיוחד ל-versions, שקובע אם מחיקה בכלל אפשרית.
+// The survey list in the console: loading and management actions (create,
+// rename, archive, delete). Every action ends with a reload of the list — it is
+// the single source of truth, and especially so for versions, which decides
+// whether deletion is possible at all.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -20,7 +21,7 @@ export interface Surveys {
   phase: SurveysPhase;
   items: SurveySummary[];
   busy: boolean;
-  /** כשל של פעולה (לא של הטעינה) — טקסט להצגה, או null */
+  /** An action failure (not a load failure) — text to display, or null */
   error: string | null;
   dismissError: () => void;
   reload: () => Promise<void>;

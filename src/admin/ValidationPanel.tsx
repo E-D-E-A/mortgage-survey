@@ -1,5 +1,5 @@
-// פאנל השגיאות: שגיאות (חוסמות פרסום) ואזהרות, בזמן אמת על כל שינוי.
-// לחיצה על ממצא בוחרת את המסך הרלוונטי.
+// The validation panel: errors (which block publishing) and warnings, live on
+// every change. Clicking a finding selects the screen it belongs to.
 
 import type { ValidationIssue } from '../engine/validate';
 import type { Naming } from './display';

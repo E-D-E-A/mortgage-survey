@@ -162,7 +162,7 @@ describe('setQuota', () => {
   });
 });
 
-// ── שינוי קוד לפני הפרסום הראשון (ENG-22) ──
+// ── renaming a code before the first publish (ENG-22) ──
 
 describe('renameVar', () => {
   const cfg: SurveyConfig = {
@@ -264,7 +264,7 @@ describe('renameVarValue', () => {
     };
     const next = renameVarValue(numeric, 'price', '99', '149');
     expect(next.screens[0].onSubmit).toEqual([{ var: 'price', value: '149' }]);
-    // ברשימת ההגרלה הערך נשמר כמספר, כי משם הוא מוזן לתנאים מספריים
+    // In the draw list the value stays a number, because from there it feeds numeric conditions
     expect(next.randomVars?.price).toEqual([149, 199]);
   });
 

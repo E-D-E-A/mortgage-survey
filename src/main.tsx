@@ -5,14 +5,14 @@ import { slugFromPath } from './data/surveys';
 import { setSurveyScope } from './data/session-scope';
 import './styles.css';
 
-// קונסולת הניהול נטענת כ-chunk נפרד — קוד העריכה (dnd-kit, Supabase Auth)
-// לא נכנס לבאנדל שהמשיבים מורידים.
+// The admin console loads as a separate chunk — the editing code (dnd-kit,
+// Supabase Auth) never enters the bundle respondents download.
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 const isAdmin = window.location.pathname.startsWith('/admin');
 
-// ‎/s/<slug>‎ בוחר שאלון; ‎/‎ הוא שאלון ברירת המחדל (קישורים ותיקים).
-// ההגבלה חייבת להיקבע לפני הרינדור — כל מפתחות הסשן נגזרים ממנה.
+// `/s/<slug>` selects a survey; `/` is the default survey (old links). The scope
+// has to be set before rendering — every session key is derived from it.
 const slug = isAdmin ? null : slugFromPath(window.location.pathname);
 if (slug) setSurveyScope(slug);
 

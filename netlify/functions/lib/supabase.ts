@@ -1,12 +1,13 @@
-// עזרי צד-שרת ל-PostgREST, משותפים לכל הפונקציות.
-// ה-service_role key חי רק כאן (משתני סביבה של Netlify) ולעולם לא בדפדפן.
+// Server-side PostgREST helpers, shared by every function.
+// The service_role key lives only here (Netlify environment variables) and never
+// in the browser.
 
 export interface SupabaseEnv {
   url: string;
   key: string;
 }
 
-/** קורא את הסודות; Response עם 503 אם הסביבה לא מוגדרת. */
+/** Reads the secrets; a Response with 503 if the environment is not configured. */
 export function supabaseEnv(): SupabaseEnv | Response {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -26,10 +27,12 @@ export function json(body: unknown, status = 200, headers: Record<string, string
 }
 
 /**
- * קריאת פונקציית SQL דרך PostgREST (rpc). הפרמטרים עוברים כגוף JSON —
- * אין בניית SQL במחרוזות. Response = כשל upstream, אחרת ה-JSON שחזר.
- * ⚠ שמות הפונקציות מסונכרנים עם schema.sql — נאכף ב-tests/sync/stats-sql.test.ts,
- * שמזהה קריאות בצורה rpc(<env>, '<name>', ...).
+ * Calling a SQL function through PostgREST (rpc). The parameters travel as a JSON
+ * body — no SQL is ever built from strings. A Response means an upstream failure;
+ * otherwise the JSON that came back.
+ * ⚠ The function names are kept in sync with schema.sql — enforced by
+ * tests/sync/stats-sql.test.ts, which recognises calls of the form
+ * rpc(<env>, '<name>', ...).
  */
 export async function rpc(
   env: SupabaseEnv,

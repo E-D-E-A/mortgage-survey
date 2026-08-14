@@ -1,4 +1,4 @@
-/** Fisher–Yates — מחזיר עותק מעורבב, לא נוגע במקור. */
+/** Fisher–Yates — returns a shuffled copy, leaves the original untouched. */
 export function shuffle<T>(arr: readonly T[]): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {

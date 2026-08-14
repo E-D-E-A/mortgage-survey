@@ -66,7 +66,7 @@ describe('findNext', () => {
   });
 });
 
-// ── ניתוב אוטומטי למכסה מלאה (ENG-21) ──
+// ── automatic routing on a full quota (ENG-21) ──
 
 describe('findNext · full quotas', () => {
   const quotaCfg = (extra: Partial<SurveyConfig> = {}): SurveyConfig => ({

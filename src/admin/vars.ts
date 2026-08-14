@@ -1,9 +1,11 @@
-// עריכות ברמת השאלון על משתני הסשן, כפונקציות טהורות: הגדרת סימון, הגדרת ערך,
-// יצירה ומחיקה של הגרלה, ועריכת רשימת הערכים שלה — וגם איתור כל מה שעדיין
-// מפנה למשתנה, לפני שמוחקים אותו.
+// Survey-level edits to the session variables, as pure functions: defining a
+// mark, defining a value, creating and deleting a draw and editing its value
+// list — plus finding everything that still points at a variable, before it is
+// deleted.
 //
-// טהורות ובלי React, מאותה סיבה שבגללה edits.ts קיים: זו הלוגיקה שאפשר וצריך
-// לבדוק ביחידה, והרכיב שמעליה נשאר רינדור בלבד.
+// Pure and React-free, for the same reason edits.ts exists: this is the logic
+// that can and should be unit-tested, which leaves the component above it as
+// rendering only.
 
 import {
   interpolatedTexts,
@@ -13,26 +15,27 @@ import {
 import { screenConditions } from '../engine/validate';
 import type { Condition, Screen, SurveyConfig, VarMeta } from '../engine/types';
 
-/** ערך בהגרלה: מספר נשמר כמספר, כדי שתנאי מספרי ימשיך להשוות מספרים. */
+/** A value in a draw: a number stays a number, so a numeric condition keeps comparing numbers. */
 export type RandomValue = string | number;
 
-/** היכן משתנה עדיין בשימוש — מה בדיוק תשבור מחיקה שלו. */
+/** Where a variable is still in use — exactly what deleting it would break. */
 export interface VarReference {
   screenId: string;
-  /** 'condition' — showIf / כלל ניתוב / כלל סימון; 'text' — שיבוץ ‎{name}‎ בנוסח */
+  /** 'condition' — showIf / a routing rule / a marking rule; 'text' — `{name}` interpolation in the wording */
   kind: 'condition' | 'text';
 }
 
 /**
- * ‎"79"‎ → 79, כל השאר נשאר טקסט. ההגרלה מזינה תנאים, ומחיר ששמור כמחרוזת
- * לעולם לא יעבור תנאי "גדול מ־100" — בלי שום סימן לכך בקונסולה.
+ * `"79"` → 79, everything else stays text. The draw feeds conditions, and a price
+ * stored as a string will never pass a "greater than 100" test — with nothing in
+ * the console to hint at why.
  */
 export function parseRandomValue(raw: string): RandomValue {
   const trimmed = raw.trim();
   return /^-?\d+(\.\d+)?$/.test(trimmed) ? Number(trimmed) : trimmed;
 }
 
-/** סימון חדש נרשם ברמת השאלון (varMeta), כדי שכל מסך יראה אותו בשמו. */
+/** A new mark is recorded at survey level (varMeta), so every screen sees it by its name. */
 export function defineVar(config: SurveyConfig, name: string, label: string): SurveyConfig {
   return {
     ...config,
@@ -60,9 +63,10 @@ export function defineVarValue(
 }
 
 /**
- * תווית ריקה נמחקת ולא נשמרת כמחרוזת ריקה: varValueLabel נופל למזהה רק כשאין
- * תווית כלל, ולכן תווית ריקה שמורה הייתה מציגה את הערך כשורה ריקה בכל מקום
- * שבו הקונסולה מזכירה אותו.
+ * An emptied label is deleted rather than stored as an empty string:
+ * varValueLabel falls back to the id only when there is no label at all, so a
+ * stored empty label would render the value as a blank line everywhere the
+ * console mentions it.
  */
 export function setVarValueLabel(
   config: SurveyConfig,
@@ -75,9 +79,10 @@ export function setVarValueLabel(
 }
 
 /**
- * הגרלה חדשה נולדת עם שתי משבצות ריקות ולא עם רשימה ריקה: שניים הם המינימום
- * שבלעדיו אין הגרלה, ושתי שורות שממתינות להקלדה מסבירות את זה טוב יותר
- * מכפתור "הוספת ערך" שעומד ליד שגיאה שאומרת שחסרים שניים.
+ * A new draw is born with two empty slots rather than an empty list: two is the
+ * minimum below which there is no draw at all, and two rows waiting to be typed
+ * into explain that better than an "add a value" button sitting next to an error
+ * saying two are missing.
  */
 export function addRandomVar(config: SurveyConfig, name: string, label: string): SurveyConfig {
   return defineVar({ ...config, randomVars: { ...config.randomVars, [name]: ['', ''] } }, name, label);
@@ -92,9 +97,9 @@ export function addRandomValue(config: SurveyConfig, name: string): SurveyConfig
 }
 
 /**
- * עריכת ערך במקום גוררת איתו את התווית שלו. התווית ממופתחת לפי הערך, ולכן
- * השארתה מאחור לא רק מאבדת את השם שהאדמין הרגע כתב — היא מדביקה אותו לערך
- * הבא שיוקלד באותו מקום.
+ * Editing a value in place drags its label along. The label is keyed by the
+ * value, so leaving it behind does not merely lose the name the admin just
+ * wrote — it attaches that name to whatever value is typed there next.
  */
 export function setRandomValueAt(
   config: SurveyConfig,
@@ -115,12 +120,12 @@ export function removeRandomValueAt(config: SurveyConfig, name: string, index: n
   if (index < 0 || index >= values.length) return config;
   const [dropped] = values.splice(index, 1);
   const next = withValues(config, name, values);
-  // התווית נמחקת רק כשאף ערך אחר לא נושא את אותו הערך (רשימה עם כפילות)
+  // The label is dropped only when no other slot carries the same value (a list with a duplicate)
   if (values.some((v) => String(v) === String(dropped))) return next;
   return moveValueLabel(next, name, String(dropped), null);
 }
 
-/** מעביר תווית של ערך ממפתח למפתח; יעד null מוחק אותה. */
+/** Moves a value's label from one key to another; a null target deletes it. */
 function moveValueLabel(
   config: SurveyConfig,
   name: string,
@@ -141,8 +146,9 @@ function moveValueLabel(
 }
 
 /**
- * מחיקת הגרלה מוחקת גם את התוויות שלה. תווית יתומה לא מזיקה למנוע, אבל היא כן
- * חוזרת: הקוד הבא שייווצר באותו שם יירש שם תצוגה של משהו אחר לגמרי.
+ * Deleting a draw deletes its labels too. An orphaned label does the engine no
+ * harm, but it does come back: the next code created under that name would
+ * inherit the display name of something else entirely.
  */
 export function removeRandomVar(config: SurveyConfig, name: string): SurveyConfig {
   const { [name]: _values, ...randomVars } = config.randomVars ?? {};
@@ -155,18 +161,19 @@ export function removeRandomVar(config: SurveyConfig, name: string): SurveyConfi
   return next;
 }
 
-/** סימון עם כל הערכים שידועים לו — הבסיס לעריכת מכסות. */
+/** A mark together with every value known for it — the basis for editing quotas. */
 export interface Mark {
   name: string;
-  /** מ-varMeta קודם (שם הסדר שהאדמין קבע), ואחריו ערכים שרק כללי onSubmit מכירים */
+  /** From varMeta first (the order the admin chose), then values only the onSubmit rules know about */
   values: string[];
 }
 
 /**
- * הסימונים שהמסכים קובעים — להבדיל מהגרלות (שנקבעות בכניסה) ומפרמטרי URL.
- * הערכים נאספים משני מקורות בכוונה: varMeta מחזיק את מה שהוגדר בקונסולה,
- * אבל קונפיג שנכתב ביד יכול לקבוע ערך שמעולם לא קיבל תווית — ומכסה שאי אפשר
- * להגדיר לו היא בדיוק המקרה שבו האדמין יחשוב שהמכסה קיימת.
+ * The marks the screens set — as opposed to draws (settled on entry) and URL
+ * parameters. The values are gathered from two sources deliberately: varMeta
+ * holds what was defined in the console, but a hand-written config can set a
+ * value that never got a label — and a quota you cannot type for it is exactly
+ * the case where the admin will believe one exists.
  */
 export function marks(config: SurveyConfig): Mark[] {
   const drawn = new Set(Object.keys(config.randomVars ?? {}));
@@ -190,8 +197,9 @@ export function marks(config: SurveyConfig): Mark[] {
 }
 
 /**
- * מכסה ריקה נמחקת ולא נשמרת כ-0: היעדר רשומה הוא "בלי הגבלה", וכל מספר במפה
- * הוא מכסה אמיתית — כולל 0, שמשמעותו תא שנסגר ולא מקבל עוד משיבים.
+ * An emptied quota is deleted rather than stored as 0: the absence of an entry is
+ * "unlimited", and every number in the map is a real quota — including 0, which
+ * means a cell that is closed and takes no more respondents.
  */
 export function setQuota(
   config: SurveyConfig,
@@ -210,14 +218,16 @@ export function setQuota(
   return { ...config, varMeta: { ...config.varMeta, [name]: next } };
 }
 
-/* ---------- שינוי קוד ---------- */
+/* ---------- renaming a code ---------- */
 //
-// קוד נעול אחרי הפרסום הראשון, אבל עד אליו הוא פתוח — ואז שינוי שלו חייב
-// לגרור *כל* הפניה אליו בבת אחת. קוד שהשתנה במקום אחד ולא באחר משאיר שאלון
-// שנראה תקין ומתנהג אחרת: תנאי שמפסיק להתקיים, מכסה שמפסיקה להיספר, שיבוץ
-// שמדפיס סוגריים. לכן הכל יושב בפונקציה אחת, ולא באוסף עריכות שהקורא מרכיב.
+// A code locks after the first publish, but until then it is open — and changing
+// it then has to drag *every* reference along in one go. A code that changed in
+// one place and not another leaves a survey that looks fine and behaves
+// differently: a condition that stops matching, a quota that stops counting, an
+// interpolation that prints its braces. So it all lives in one function, rather
+// than a set of edits the caller has to assemble.
 
-/** מחליף מפתח במפה בלי לשנות את סדר המפתחות (הסדר הוא מה שהאדמין רואה). */
+/** Renames a key in a map without changing the key order (the order is what the admin sees). */
 function renameKey<T>(
   map: Record<string, T> | undefined,
   from: string,
@@ -229,7 +239,7 @@ function renameKey<T>(
   return out;
 }
 
-/** מחיל טרנספורמציה על כל התנאים של המסך — showIf, כללי ניתוב וכללי סימון. */
+/** Applies a transformation to all of a screen's conditions — showIf, routing rules and marking rules. */
 function mapScreenConditions(screen: Screen, fn: (cond: Condition) => Condition): Screen {
   const next: Screen = { ...screen };
   if (next.showIf) next.showIf = fn(next.showIf);
@@ -246,11 +256,13 @@ function mapLeaves(cond: Condition, fn: (leaf: Condition) => Condition): Conditi
 }
 
 /**
- * שינוי הקוד של סימון או הגרלה, על כל ההפניות אליו: כללי סימון, תנאים,
- * תוויות, מכסות, רשימת ההגרלה ושיבוץ ‎{name}‎ בנוסח המסכים.
+ * Renaming a mark's or a draw's code, along with every reference to it: marking
+ * rules, conditions, labels, quotas, the draw's value list and `{name}`
+ * interpolation in the screen text.
  *
- * ⚠ מניח שהקוד החדש פנוי — הבדיקה נעשית בטופס (DefineForm.takenCodes), כי שם
- * אפשר להסביר לאדמין מה לא בסדר לפני שהוא לוחץ.
+ * ⚠ Assumes the new code is free — that check happens in the form
+ * (DefineForm.takenCodes), because there it can explain the problem to the admin
+ * before they click.
  */
 export function renameVar(config: SurveyConfig, from: string, to: string): SurveyConfig {
   if (from === to) return config;
@@ -262,8 +274,9 @@ export function renameVar(config: SurveyConfig, from: string, to: string): Surve
     if (next.onSubmit?.some((r) => r.var === from)) {
       next = { ...next, onSubmit: next.onSubmit.map((r) => (r.var === from ? { ...r, var: to } : r)) };
     }
-    // split/join ולא regex: הקוד מגיע מטופס ולא מהקוד שלנו, ואין סיבה להעביר
-    // אותו דרך מנוע שמפרש תווים
+    // split/join and not a regex: the code comes from a form rather than from our
+    // own source, and there is no reason to run it through an engine that
+    // interprets characters
     return mapInterpolatedTexts(next, (text) => text.split(`{${from}}`).join(`{${to}}`));
   });
 
@@ -276,11 +289,12 @@ export function renameVar(config: SurveyConfig, from: string, to: string): Surve
 }
 
 /**
- * שינוי הקוד של *ערך* של סימון, על כל ההפניות אליו: הערך בכללי הסימון,
- * הערכים בתנאים (כולל בתוך רשימות של "אחד מאלה"), התווית והמכסה.
+ * Renaming the code of a mark *value*, along with every reference to it: the
+ * value in the marking rules, the values in conditions (including inside "one
+ * of these" lists), the label and the quota.
  *
- * ההשוואה נעשית על String(value) כי ערך יכול להיות שמור כמספר (הגרלה) בעוד
- * הקוד שהטופס מחזיר הוא תמיד מחרוזת.
+ * The comparison runs on String(value) because a value may be stored as a number
+ * (a draw) while the code the form hands back is always a string.
  */
 export function renameVarValue(
   config: SurveyConfig,
@@ -339,9 +353,10 @@ function conditionUsesVar(cond: Condition, name: string): boolean {
 }
 
 /**
- * כל מה שיישבר אם המשתנה ייעלם. הוולידציה תתפוס את זה גם אחרי המחיקה (הפניה
- * לא קיימת, שיבוץ שלא ייפתר) — אבל אז השאלון כבר שבור, והאדמין צריך להבין
- * מה הוא עומד לעשות *לפני* שהוא לוחץ.
+ * Everything that would break if the variable disappeared. Validation catches it
+ * after the deletion too (a reference that no longer exists, an interpolation
+ * that cannot resolve) — but by then the survey is already broken, and the admin
+ * needs to understand what they are about to do *before* they click.
  */
 export function varReferences(config: SurveyConfig, name: string): VarReference[] {
   const refs: VarReference[] = [];

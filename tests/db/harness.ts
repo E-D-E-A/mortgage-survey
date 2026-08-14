@@ -1,16 +1,17 @@
-// תשתית בדיקות ה-DB: חיבור מקומי-בלבד והחלת הסכמה על הסטאק של `supabase start`.
-// ההגנה כאן קשיחה בכוונה — הבדיקות מסרבות לכל מארח שאינו מקומי, כדי שריצה עם
-// ‎.env‎ שמצביע על הענן לא תוכל לגעת בנתוני אמת לעולם.
+// The DB tests' harness: a local-only connection, and applying the schema to the
+// `supabase start` stack. The guard here is deliberately hard — the tests refuse
+// any non-local host, so that a run with a .env pointing at the cloud can never
+// touch real data.
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import postgres from 'postgres';
 
 export type Sql = ReturnType<typeof postgres>;
 
-/** הקבוצה רצה רק בהפעלה מפורשת: DB_TESTS=1 (ו-`npx supabase start` פעיל) */
+/** The suite runs only when asked for explicitly: DB_TESTS=1 (with `npx supabase start` running) */
 export const dbTestsEnabled = process.env.DB_TESTS === '1';
 
-/** ברירת המחדל של הסטאק המקומי (פורט ה-DB מ-supabase/config.toml) */
+/** The local stack's default (the DB port from supabase/config.toml) */
 export const LOCAL_DB_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
 export function connectLocal(): Sql {
@@ -24,17 +25,18 @@ export function connectLocal(): Sql {
 
 export async function applySchema(sql: Sql): Promise<void> {
   const ddl = readFileSync(new URL('../../supabase/schema.sql', import.meta.url), 'utf8');
-  // vitest מריץ קבצי בדיקה במקביל מול אותו DB; advisory lock מסדר את ה-DDL
-  // (drop/create חוזרים) כך ששני קבצים לא יחילו את הסכמה בו-זמנית.
+  // vitest runs test files in parallel against the same DB; an advisory lock
+  // serialises the DDL (repeated drop/create) so two files never apply the schema
+  // at the same time.
   await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(732912)`;
     await tx.unsafe(ddl);
   });
 }
 
-// ─── Auth מקומי: משתמשים וטוקנים אמיתיים ל-requireAdmin ─────────────────────
-// המפתחות האלה הם מפתחות הדמו הפומביים של `supabase start` — זהים בכל התקנה
-// מקומית, לא סוד. אין להם שום תוקף מול הענן.
+// ─── local Auth: real users and tokens for requireAdmin ─────────────────────
+// These keys are `supabase start`'s public demo keys — identical in every local
+// installation, and not a secret. They are worthless against the cloud.
 export const LOCAL_API_URL = 'http://127.0.0.1:54321';
 export const LOCAL_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
@@ -44,9 +46,10 @@ export const LOCAL_SERVICE_ROLE_KEY =
 const TEST_PASSWORD = 'local-test-password-1';
 
 /**
- * יוצר משתמש דרך ה-admin API המקומי, מאומת-מייל ועם providers=['google'] —
- * כמו משתמש אמיתי של הקונסולה (requireAdmin דורש זהות Google). כניסה בבדיקות
- * נעשית עם סיסמה; app_metadata נשאר כפי שהוגדר כאן.
+ * Creates a user through the local admin API, email-confirmed and with
+ * providers=['google'] — like a real console user (requireAdmin demands a Google
+ * identity). Signing in from the tests uses a password; app_metadata stays as it
+ * is set here.
  */
 export async function createAdminUser(email: string): Promise<void> {
   const res = await fetch(`${LOCAL_API_URL}/auth/v1/admin/users`, {
@@ -63,7 +66,7 @@ export async function createAdminUser(email: string): Promise<void> {
       app_metadata: { provider: 'google', providers: ['google'] },
     }),
   });
-  // 422 = כבר קיים מריצה קודמת — תקין
+  // 422 = already exists from an earlier run — that is fine
   if (!res.ok && res.status !== 422) {
     throw new Error(`createAdminUser(${email}) failed: ${res.status} ${await res.text()}`);
   }

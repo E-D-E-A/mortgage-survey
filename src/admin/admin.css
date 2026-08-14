@@ -1,15 +1,18 @@
-/* עיצוב קונסולת הניהול — נטען רק ב-chunk של /admin.
-   כלל הצבע: ניטרלי כברירת מחדל. כחול = בחירה ופעולה ראשית בלבד.
-   אדום = שגיאה בלבד. ענבר = אזהרה, ובפאנל השגיאות בלבד.
-   כל שאר המידע (ענפים, משתנים, תנאים) מסומן בצורה וטיפוגרפיה, לא בצבע.
-   RTL בירושה מ-<html dir="rtl">; מאפיינים לוגיים בלבד. */
+/* The admin console's styling — loaded only in the /admin chunk.
+   The colour rule: neutral by default. Blue = selection and the primary action,
+   nothing else. Red = errors only. Amber = warnings, and only in the validation
+   panel. Everything else (lanes, variables, conditions) is distinguished by shape
+   and typography, not by colour.
+   RTL is inherited from <html dir="rtl">; logical properties only. */
 
 @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap');
 
 .admin-app {
-  /* סביבת עבודה ניטרלית (בסגנון עורכי-זרימה כמו Linear/n8n): כרום אפור קריר,
-     והמותג (טורקיז/כחול-לילה) שמור לבחירה ולפעולה הראשית בלבד.
-     הדריסה כאן בלבד — השאלון עצמו נשאר בפלטת המותג המלאה. */
+  /* A neutral workspace (in the manner of flow editors like Linear/n8n): cool
+     grey chrome, with the brand (turquoise/midnight blue) reserved for selection
+     and the primary action alone.
+     The override lives here only — the survey itself keeps the full brand
+     palette. */
   --bg: #f6f7f9;
   --card: #ffffff;
   --surface-raised: #ffffff;
@@ -33,11 +36,12 @@
   font-size: var(--text-sm);
 }
 
-/* ---------- סרגל עליון ---------- */
+/* ---------- the topbar ---------- */
 
 .topbar {
-  /* סרגל כחול-לילה (מותג) — כרום "מוצר" כהה מעל סביבת עבודה בהירה.
-     הטוקנים נדרסים מקומית כדי שכל הפקדים שבתוכו יתואמו לרקע הכהה. */
+  /* A midnight-blue bar (brand) — dark "product" chrome above a light workspace.
+     The tokens are overridden locally so every control inside it matches the dark
+     background. */
   --text: #ffffff;
   --muted: rgba(255, 255, 255, 0.66);
   --chip-bg: rgba(255, 255, 255, 0.1);
@@ -56,8 +60,9 @@
   padding: var(--space-2) var(--space-4);
   background: #03071e;
   color: var(--text);
-  /* הגובה בפועל נמדד ב-AdminApp ומוזן כ---topbar-h — פאנלים דביקים
-     שמחושבים לפי קבוע היו נחתכים בתחתית המסך בכל פעם שהסרגל גדל בפיקסל */
+  /* The real height is measured in AdminApp and fed in as --topbar-h — sticky
+     panels computed from a constant were cut off at the bottom of the screen every
+     time the bar grew by a pixel */
   border-block-end: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -120,27 +125,28 @@
   background: var(--primary-strong);
 }
 
-/* ---------- פריסה ---------- */
+/* ---------- layout ---------- */
 
 .admin-body {
-  /* רוחב שני הפאנלים נשלט מ-AdminApp (ידיות הגרירה) ונזכר בין ביקורים */
+  /* Both panels' widths are driven from AdminApp (the drag handles) and remembered between visits */
   --sidebar-w: 320px;
   --drawer-w: 440px;
   flex: 1;
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr 0;
   min-height: 0;
-  /* פתיחת/סגירת המגירה והרשימה — מעבר רך במקום קפיצת פריסה */
+  /* Opening and closing the drawer and the list — a smooth transition instead of a layout jump */
   transition: grid-template-columns 0.32s ease;
 }
 
-/* בגרירה אין מעבר: המעבר רץ אחרי הסמן במקום מתחתיו */
+/* No transition while dragging: the transition would trail the cursor instead of tracking it */
 body.resizing-x .admin-body { transition: none; }
 body.resizing-x { cursor: col-resize; user-select: none; }
 
-/* ⚠ מיקום מפורש, לא זרימה אוטומטית. display:none על הרשימה (או מגירה שיצאה
-   מהגריד ל-position:fixed) מוציא פריט מהזרימה, והתרשים היה גולש לעמודה
-   הראשונה שרוחבה 0 — מה שכיווץ אותו ל-2px בכל פעם שהרשימה הוסתרה. */
+/* ⚠ Explicit placement, not automatic flow. display:none on the list (or a
+   drawer that left the grid for position:fixed) removes an item from the flow, and
+   the diagram would slide into the first column, whose width is 0 — which shrank
+   it to 2px every time the list was hidden. */
 .admin-sidebar { grid-column: 1; }
 .admin-main { grid-column: 2; }
 .editor-drawer { grid-column: 3; }
@@ -150,9 +156,9 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 .admin-body.sidebar-closed.drawer-open { grid-template-columns: 0 1fr var(--drawer-w); }
 .admin-body.sidebar-closed .admin-sidebar { display: none; }
 
-/* ---------- ידית שינוי הרוחב ---------- */
+/* ---------- the resize handle ---------- */
 
-/* יושבת על הגבול הפנימי של הפאנל — זה שפונה אל התרשים */
+/* It sits on the panel's inner border — the one facing the diagram */
 .panel-resizer {
   position: absolute;
   inset-block: 0;
@@ -165,7 +171,7 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 .admin-sidebar .panel-resizer { inset-inline-end: 0; }
 .editor-drawer .panel-resizer { inset-inline-start: 0; }
 
-/* קו דק שנצבע בריחוף — בלי לגזול רוחב מהתוכן */
+/* A thin line that colours on hover — without taking width from the content */
 .panel-resizer::after {
   content: '';
   position: absolute;
@@ -182,7 +188,7 @@ body.resizing-x { cursor: col-resize; user-select: none; }
 
 .panel-resizer:focus-visible { outline: none; }
 
-/* ---------- מגירת העריכה ---------- */
+/* ---------- the editing drawer ---------- */
 
 .editor-drawer {
   border-inline-start: 1px solid var(--border);
@@ -212,9 +218,10 @@ body.resizing-x { cursor: col-resize; user-select: none; }
   max-width: none;
 }
 
-/* ברוחב בינוני המגירה כבר לא יכולה להיות עמודה בגריד: ב-1024px היא לקחה
-   584px, הרשימה התכווצה ל-0 והתרשים נשאר ברוחב 2px. מ-1280 ומטה היא הופכת
-   לשכבה מעל התרשים — התרשים והרשימה שומרים על הרוחב שלהם. */
+/* At medium widths the drawer can no longer be a grid column: at 1024px it took
+   584px, the list shrank to 0 and the diagram was left 2px wide. From 1280 down it
+   becomes a layer over the diagram — and the diagram and the list keep their
+   widths. */
 @media (max-width: 1280px) {
   .admin-body.drawer-open { grid-template-columns: var(--sidebar-w) 1fr 0; }
 
@@ -233,7 +240,7 @@ body.resizing-x { cursor: col-resize; user-select: none; }
   .admin-body.drawer-open .admin-sidebar { display: none; }
 }
 
-/* המכל עצמו לא גולל — אחרת ידית שינוי הרוחב שבתוכו הייתה נגללת עם הרשימה */
+/* The container itself does not scroll — otherwise the resize handle inside it would scroll away with the list */
 .admin-sidebar {
   border-inline-end: 1px solid var(--border);
   background: var(--card);
@@ -246,11 +253,12 @@ body.resizing-x { cursor: col-resize; user-select: none; }
   overflow: hidden;
 }
 
-/* גלילה אנכית בלבד: אין ברשימה שום דבר לגלול אליו לרוחב, ופס גלילה אופקי
-   על שטח ריק הוא רק רעש.
-   ⚠ direction: ltr בכוונה — בדף RTL פס הגלילה מצויר בצד שמאל, בדיוק במקום
-   שבו יושבת ידית שינוי הרוחב, והידית הייתה חוסמת אותו. ההיפוך מזיז את הפס
-   אל הקצה החיצוני של הפאנל; כיוון הכתיבה של התוכן מוחזר מיד מתחת. */
+/* Vertical scrolling only: there is nothing in the list to scroll to sideways,
+   and a horizontal scrollbar over empty space is pure noise.
+   ⚠ direction: ltr is deliberate — on an RTL page the scrollbar is drawn on the
+   left, exactly where the resize handle sits, and the handle would block it.
+   Reversing it moves the bar to the panel's outer edge; the content's writing
+   direction is restored immediately below. */
 .admin-sidebar-scroll {
   flex: 1;
   min-height: 0;
@@ -269,7 +277,7 @@ body.resizing-x { cursor: col-resize; user-select: none; }
   gap: var(--space-3);
   min-width: 0;
   overflow: hidden;
-  /* עוגן להרצה היבשה, שצפה מעל התרשים ולא גוזלת ממנו רוחב */
+  /* An anchor for the dry run, which floats over the diagram rather than taking width from it */
   position: relative;
 }
 
@@ -291,13 +299,16 @@ body.resizing-x { cursor: col-resize; user-select: none; }
   min-height: 200px;
 }
 
-/* מתחת ל-900px מוצג מסך "דסקטופ בלבד" (MIN_CONSOLE_WIDTH ב-AdminApp.tsx)
-   במקום ממשק שקורס — שלוש העמודות פשוט לא נכנסות. */
-/* העורך נשאר מורכב מאחורי השכבה בכוונה — הצרת החלון לא אמורה למחוק שינויים
-   שלא נשמרו. display:none מסתיר רק את הפריסה (מצב React נשמר), ובלעדיו
-   הפריסה הרחבה הייתה משאירה גלישה אופקית מתחת להודעה.
-   ההודעה עצמה יושבת בתוך ‎.admin-app‎ (רק העורך מציג אותה), ולכן מסתירים את
-   אחיה ולא את המכל — אחרת ההודעה הייתה מסתירה את עצמה. */
+/* Below 900px a "desktop only" screen is shown (MIN_CONSOLE_WIDTH in
+   AdminApp.tsx) instead of an interface that collapses — the three columns simply
+   do not fit. */
+/* The editor stays mounted behind the layer deliberately — narrowing the window
+   must not discard unsaved changes. display:none hides the layout only (the React
+   state survives), and without it the wide layout would leave horizontal overflow
+   under the message.
+   The message itself lives inside .admin-app (only the editor shows it), so we
+   hide its siblings and not the container — otherwise the message would hide
+   itself. */
 body:has(.narrow-notice) .admin-app > .topbar,
 body:has(.narrow-notice) .admin-app > .admin-body,
 body:has(.narrow-notice) .admin-app > .admin-empty {
@@ -329,7 +340,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   color: var(--text);
 }
 
-/* ---------- תרשים הזרימה ---------- */
+/* ---------- the flow diagram ---------- */
 
 .flow-graph {
   flex: 1;
@@ -379,8 +390,8 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .fg-world {
   position: absolute;
-  /* עיגון מפורש לפינה — בלעדיו RTL ממקם את הבלוק מהקצה הימני
-     וכל תרגומי הקואורדינטות (גרירה, חלוניות) זזים */
+  /* An explicit anchor to the corner — without it RTL positions the block from the
+     right edge and every coordinate translation (dragging, popovers) shifts */
   left: 0;
   top: 0;
   transform-origin: 0 0;
@@ -391,8 +402,8 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   inset: 0;
   overflow: visible;
   pointer-events: none;
-  /* שכבת הקשתות מתחלפת בעמעום כשהגאומטריה משתנה — מסווה את קפיצת
-     המסלולים בזמן שהצמתים גולשים */
+  /* The edge layer cross-fades when the geometry changes — it masks the paths
+     jumping while the nodes glide */
   animation: fg-edges-in 0.75s ease;
 }
 
@@ -408,13 +419,13 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   stroke-width: 1.5;
 }
 
-/* קו מקווקו = מעבר מותנה; קו מלא = המשך רגיל */
+/* A dashed line = a conditional transition; a solid line = an ordinary continuation */
 .fg-edge.conditional { stroke-dasharray: 5 4; }
 
-/* נחיתה רחוקה אחרי דילוג על מסכים מותנים — קיימת, אך לא מושכת את העין */
+/* A distant landing after conditional screens are skipped — present, but not eye-catching */
 .fg-edge.skip { opacity: 0.3; stroke-width: 1; }
 
-/* כניסה לענף מקביל (מזלג בין שורות) — חלק מהמבנה, נראית תמיד */
+/* Entering a parallel lane (a fork between rows) — part of the structure, always visible */
 .fg-edge.skip.branch { opacity: 0.55; stroke-width: 1.5; }
 
 .fg-edge.active {
@@ -423,7 +434,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   opacity: 1;
 }
 
-/* מצב מיקוד — נבחר מסך, וכל מה שאינו על מסלולו הישיר נסוג לרקע */
+/* Focus mode — a screen is selected, and everything not on its immediate path recedes into the background */
 .fg-edge.dim { opacity: 0.08; }
 .fg-edge.skip.dim, .fg-edge.skip.branch.dim { opacity: 0.06; }
 .fg-edge-label.dim { opacity: 0.15; }
@@ -434,7 +445,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 .fg-arrow-head { fill: var(--edge); }
 .fg-arrow-head.active { fill: var(--primary-strong); }
 
-/* קו רחב ושקוף מעל כל קשת — שטח פגיעה לריחוף */
+/* A wide transparent line over every edge — a hit area for hovering */
 .fg-edge-hit {
   fill: none;
   stroke: transparent;
@@ -443,7 +454,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   cursor: pointer;
 }
 
-/* שטח ריחוף בלבד (טולטיפ על מסלול שנחשף) — בלי סמן לחיצה */
+/* A hover area only (a tooltip on a revealed path) — with no click cursor */
 .fg-edge-hit.passive { cursor: default; }
 
 .fg-connect-line {
@@ -486,7 +497,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   border-color: var(--primary-strong);
 }
 
-/* + על קשת — הוספת מסך בתוך המעבר */
+/* + on an edge — inserting a screen inside that transition */
 .fg-insert-btn {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -506,11 +517,11 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 .fg-insert-btn:hover { background: var(--selected-bg); }
 .fg-insert-btn svg { width: 12px; height: 12px; }
 
-/* ---------- צמתים ---------- */
+/* ---------- nodes ---------- */
 
 .fg-node-wrap {
   position: absolute;
-  /* פריסה שהשתנתה — הצמתים גולשים למקומם החדש במקום לקפוץ */
+  /* The layout changed — the nodes glide to their new places instead of jumping */
   transition:
     left 0.5s cubic-bezier(0.3, 0, 0.15, 1),
     top 0.5s cubic-bezier(0.3, 0, 0.15, 1),
@@ -519,7 +530,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
     opacity 0.18s ease;
 }
 
-/* שלט סיום — "המסלול נגמר כאן" במקום קו שחוצה את כל הקנבס */
+/* An end sign — "the path ends here" instead of a line crossing the whole canvas */
 .fg-stub {
   position: absolute;
   z-index: 4;
@@ -557,7 +568,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 .fg-stub.active { box-shadow: 0 0 0 2px var(--focus-ring); }
 .fg-stub.dim { opacity: 0.2; }
 
-/* תג נגדי על מסך הסיום: כמה מסלולים מסתיימים בו (במקום חצים נכנסים) */
+/* A counter badge on the end screen: how many paths end there (in place of incoming arrows) */
 .fg-stub-in {
   position: absolute;
   top: -11px;
@@ -577,7 +588,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .fg-stub-in svg { width: 11px; height: 11px; }
 
-/* הצומת שהעריכה האחרונה נגעה בו — טבעת הבהוב שדועכת */
+/* The node the last edit touched — a flashing ring that fades out */
 .fg-node-wrap.changed .fg-node {
   animation: fg-changed-pulse 1.6s ease-out;
 }
@@ -599,7 +610,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
-/* יעד שהחיבור אליו היה יוצר מעגל — נחסם, מסומן באדום */
+/* A target that connecting to would create a cycle — blocked, marked in red */
 .fg-node-wrap.connect-target.blocked .fg-node {
   border-color: var(--danger);
   box-shadow: 0 0 0 2px var(--danger-bg);
@@ -624,7 +635,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   padding: var(--space-2) var(--space-3);
   cursor: grab;
   overflow: hidden;
-  /* הצללה דו-שכבתית עדינה — מרימה את הצומת מהקנבס בלי להכביד */
+  /* A subtle two-layer shadow — it lifts the node off the canvas without weighing it down */
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   user-select: none;
@@ -640,18 +651,20 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .fg-node.has-error { border-color: var(--danger); }
 
-/* מסך סיום — מסגרת מקווקוות מסמנת קצה מסלול */
+/* An end screen — a dashed border marks the end of a path */
 .fg-node.is-end {
   background: var(--bg);
   border-style: dashed;
   justify-content: center;
 }
 
-/* סרגל פעולות שמופיע בריחוף על הצומת.
-   ⚠ ‎scale(1 / --fg-k)‎ מבטל את ההקטנה של התרשים: הפקדים כאן הם מטרות עכבר,
-   ולכן הם נמדדים בפיקסלים של המסך ולא של עולם התרשים. בזום שבו שאלון בן
-   38 מסכים נפתח (26%) הם היו 7×7 פיקסלים — קטנים מכדי ללחוץ עליהם.
-   ה-origin הוא הפינה שאליה הסרגל מעוגן (inset-inline-end ב-RTL = שמאל). */
+/* The action bar that appears on hovering a node.
+   ⚠ scale(1 / --fg-k) undoes the diagram's scaling: these controls are mouse
+   targets, so they are measured in screen pixels and not in the diagram's world.
+   At the zoom a 38-screen survey opens at (26%) they were 7×7 pixels — too small
+   to click.
+   The origin is the corner the bar is anchored to (inset-inline-end in RTL = the
+   left). */
 .fg-node-toolbar {
   position: absolute;
   top: -32px;
@@ -671,13 +684,14 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 .fg-node-toolbar:hover { display: flex; }
 .fg-node-toolbar .a-icon-btn { width: 26px; height: 26px; }
 
-/* נקודת חיבור: גוררים ממנה אל מסך אחר ליצירת כלל ניתוב */
+/* The connection port: drag from it to another screen to create a routing rule */
 .fg-port {
   position: absolute;
   bottom: -7px;
   left: 50%;
-  /* כמו סרגל הפעולות: הנקודה נגררת באצבע/עכבר ולכן שומרת על גודלה במסך.
-     ההקטנה סביב המרכז, ולכן ‎translateX(-50%)‎ ממשיך למרכז אותה מדויק */
+  /* Like the action bar: the port is dragged with a finger or a mouse, so it keeps
+     its size on screen. The scaling is about its centre, so translateX(-50%) keeps
+     centring it exactly */
   transform: translateX(-50%) scale(calc(1 / var(--fg-k, 1)));
   width: 14px;
   height: 14px;
@@ -698,7 +712,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .fg-port:hover { background: var(--selected-bg); }
 
-/* עריכת נוסח במקום (לחיצה כפולה) */
+/* Editing the wording in place (double click) */
 .fg-inline-edit {
   position: absolute;
   inset: 0;
@@ -715,7 +729,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   resize: none;
 }
 
-/* מחוון הוספה בזמן גרירת צומת */
+/* The insertion indicator while dragging a node */
 .fg-drop-indicator {
   position: absolute;
   height: 3px;
@@ -725,10 +739,11 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   z-index: 15;
 }
 
-/* ---------- חלונית צפה (תנאי קשת / מסך חדש) ---------- */
+/* ---------- the floating popover (an edge condition / a new screen) ---------- */
 
-/* יושבת על הקנבס בקואורדינטות מסך (ולא בתוך השכבה המוגדלת): המיקום מחושב
-   ב-FlowGraph וכבר צמוד לגבולות, וכאן רק דואגים שלא תגלוש מהם בשום מצב */
+/* It sits on the canvas in screen coordinates (and not inside the scaled layer):
+   the position is computed in FlowGraph and already clamped to the bounds, and all
+   we do here is make sure it never overflows them */
 .fg-popover {
   position: absolute;
   z-index: 30;
@@ -762,7 +777,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   gap: var(--space-2);
 }
 
-/* תפריט קליק-ימני על קשת */
+/* The right-click menu on an edge */
 .fg-edge-menu {
   display: flex;
   flex-direction: column;
@@ -772,7 +787,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .fg-edge-menu .a-btn { justify-content: flex-start; }
 
-/* הודעות צפות: חסימת מעגל, כשל שמירה. יכולות להופיע יחד ולכן נערמות. */
+/* Floating messages: a blocked cycle, a failed save. They can appear together, so they stack. */
 .toast-stack {
   position: fixed;
   bottom: 24px;
@@ -840,7 +855,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .fg-node-text.end { color: var(--muted); -webkit-line-clamp: 1; line-clamp: 1; }
 
-/* ---------- רשימת מסכים ---------- */
+/* ---------- the screen list ---------- */
 
 .screen-list {
   display: flex;
@@ -949,7 +964,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .screen-badges { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 
-/* תגיות ניטרליות — ההבחנה באייקון ובטקסט, לא בצבע */
+/* Neutral tags — the distinction is in the icon and the text, not in colour */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -977,13 +992,13 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 
 .add-screen-form .a-input { flex: 1; min-width: 140px; }
 
-/* ---------- עורך מסך ---------- */
+/* ---------- the screen editor ---------- */
 
 .editor {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* השדות מתכווצים עם המגירה (min-width: 0 למטה) ואין לאן לגלול לרוחב */
+  /* The fields shrink with the drawer (min-width: 0 below) and there is nowhere to scroll sideways */
   overflow-x: hidden;
   max-width: 880px;
   background: var(--card);
@@ -1021,7 +1036,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
 }
 
 
-/* ---------- קטעי העורך ---------- */
+/* ---------- the editor's sections ---------- */
 
 .ed-section {
   border-block-start: 1px solid var(--border);
@@ -1036,7 +1051,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 28px; /* גם עם כפתור וגם בלעדיו — הכותרות באותו קו */
+  min-height: 28px; /* with a button and without one — the headings stay on the same line */
 }
 
 .ed-section-title {
@@ -1047,7 +1062,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   letter-spacing: 0.02em;
 }
 
-/* קטע ריק הוא שורה שקטה אחת — לא טופס ריק */
+/* An empty section is one quiet line — not an empty form */
 .ed-empty {
   margin: 0;
   font-size: var(--text-xs);
@@ -1071,7 +1086,7 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   border-radius: 4px;
 }
 
-/* ---------- שדות טופס ---------- */
+/* ---------- form fields ---------- */
 
 .a-field { display: flex; flex-direction: column; gap: var(--space-1); }
 
@@ -1094,8 +1109,9 @@ body:has(.narrow-notice) .admin-app > .admin-empty {
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
   min-height: 34px;
-  /* שדות מתכווצים עם הפאנל. ברירת המחדל של דפדפנים היא רוחב מובנה שלא
-     מתכווץ, וכל שורה עם שני שדות הייתה מרחיבה את המגירה ומוסיפה גלילה. */
+  /* Fields shrink with the panel. The browser default is an intrinsic width that
+     does not shrink, and any row with two fields would widen the drawer and add
+     scrolling. */
   min-width: 0;
 }
 
@@ -1124,27 +1140,28 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
 
 .a-check input { width: 16px; height: 16px; accent-color: var(--primary-strong); cursor: pointer; }
 
-/* ⚠ בלי שבירת שורה: רשימות הסימון האלה נושאות נוסחי תשובה מלאים, ותווית
-   באורך 500px דחפה את כל מגירת העריכה אל מחוץ למסך (הן ברוחב ברירת המחדל
-   והן בצר). התיבה עצמה לא מתכווצת, והטקסט יורד שורה לצדה. */
+/* ⚠ No line breaking: these checkbox lists carry full answer wordings, and a
+   500px label pushed the whole editing drawer off the screen (at the default width
+   and at narrow ones alike). The box itself does not shrink, and the text wraps
+   beside it. */
 .a-check.compact { font-size: var(--text-xs); align-items: flex-start; min-width: 0; }
 .a-check.compact > input { flex: 0 0 auto; margin-block-start: 2px; }
 .a-check.compact > span { min-width: 0; overflow-wrap: anywhere; }
 
-/* היוצא מן הכלל — "בלעדית" בשורת האפשרות היא תווית קצרה וקבועה, ושבירה
-   שלה לשתי שורות נראית כתקלה */
+/* The exception — "exclusive" on an option row is a short, fixed label, and
+   breaking it across two lines reads as a fault */
 .option-row .a-check.compact { white-space: nowrap; align-items: center; }
 
 .a-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-/* בלי זה תא הגריד לא יורד מתחת לרוחב המובנה של שדה הקלט, והשורה דוחפת
-   פס גלילה אופקי החוצה במקום להצטמצם */
+/* Without this the grid cell will not go below the input's intrinsic width, and
+   the row pushes a horizontal scrollbar out instead of shrinking */
 .a-grid-2 > * { min-width: 0; }
 
 
 .a-hint { font-size: var(--text-xs); color: var(--muted); }
 .error-text { color: var(--danger); }
 
-/* ---------- כפתורים ---------- */
+/* ---------- buttons ---------- */
 
 .a-btn {
   display: inline-flex;
@@ -1163,7 +1180,7 @@ textarea.a-input { resize: vertical; line-height: 1.5; }
 
 .a-btn:disabled { opacity: 0.45; cursor: default; }
 
-/* קישור שמעוצב ככפתור (למשל "צפייה" בסרגל העורך) — בלי קו תחתון וירושת צבע */
+/* A link styled as a button ("view" in the editor's toolbar, for instance) — no underline, and it inherits the colour */
 a.a-btn { text-decoration: none; }
 
 .a-btn.primary { background: var(--primary); color: var(--on-primary); }
@@ -1201,7 +1218,7 @@ a.a-btn { text-decoration: none; }
 .a-icon-btn:disabled { opacity: 0.35; cursor: default; }
 .a-icon-btn.danger:not(:disabled):hover { background: var(--danger-bg); color: var(--danger); }
 
-/* ---------- כללי ניתוב / משתנים ---------- */
+/* ---------- routing rules / variables ---------- */
 
 .rule-card {
   border: 1px solid var(--border);
@@ -1215,12 +1232,13 @@ a.a-btn { text-decoration: none; }
 
 .rule-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 
-/* דוחף את כפתורי הפעולה לקצה הנגדי של הכותרת */
+/* Pushes the action buttons to the opposite end of the heading */
 .rule-head .spacer { flex: 1 1 auto; }
 
-/* שורת מכסה: שם הערך והקוד שלו מימין, שדה המכסה בקצה — כל השדות מיושרים
-   בעמודה אחת, כדי שאפשר יהיה לקרוא את המכסות בסריקה אחת */
-/* בורר המכסות בבדיקת המסלול — קבוצה משלו, כי הוא לא תשובה של המשיב */
+/* A quota row: the value's name and its code on the right, the quota field at the
+   end — every field lined up in one column, so the quotas can be read in a single
+   scan */
+/* The quota picker in the path check — a group of its own, because it is not an answer the respondent gives */
 .sim-quotas {
   display: flex;
   flex-direction: column;
@@ -1232,7 +1250,7 @@ a.a-btn { text-decoration: none; }
 .quota-row .quota-value { flex: 0 1 auto; font-size: var(--text-sm); }
 .quota-row .quota-limit { flex: 0 0 110px; text-align: start; }
 
-/* הקוד לקובץ הנתונים לצד השם — נוכח, ולא מתחרה בו על תשומת הלב */
+/* The data-file code alongside the name — present, without competing with it for attention */
 .var-code {
   font-size: var(--text-xs);
   color: var(--muted);
@@ -1257,15 +1275,16 @@ a.a-btn { text-decoration: none; }
 
 .rule-actions { display: flex; gap: 2px; margin-inline-start: auto; }
 
-/* השורה נשברת לשתיים במגירה צרה. בלי זה הנוסח — השדה החשוב בשורה — נמעך
-   עד 16px בזמן שהקוד, ה"בלעדית" והמחיקה שומרים על רוחבם, ואי אפשר היה
-   לערוך אפשרות בלי להרחיב את המגירה חזרה */
+/* The row breaks in two in a narrow drawer. Without this the wording — the field
+   that matters on that row — was crushed to 16px while the code, the "exclusive"
+   checkbox and the delete button kept their widths, and an option could not be
+   edited without widening the drawer again */
 .option-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .option-row .a-input { flex: 1 1 140px; min-width: 0; }
 .option-row .option-id { flex: 0 1 96px; min-width: 64px; font-size: 10px; color: var(--muted); opacity: 0.75; }
 .option-row .option-id:focus { opacity: 1; color: var(--text); }
 
-/* ---------- בונה תנאים ---------- */
+/* ---------- the condition builder ---------- */
 
 .cond-node {
   border: 1px solid var(--border);
@@ -1295,7 +1314,7 @@ a.a-btn { text-decoration: none; }
 .cond-var { flex: 0 1 140px; direction: ltr; }
 .cond-value { flex: 1; min-width: 120px; }
 
-/* ---------- פאנל השגיאות ---------- */
+/* ---------- the validation panel ---------- */
 
 .validation-panel {
   border: 1px solid var(--border);
@@ -1337,7 +1356,7 @@ a.a-btn { text-decoration: none; }
   border-radius: 4px;
 }
 
-/* ---------- דיאלוגים ---------- */
+/* ---------- dialogs ---------- */
 
 .dialog-backdrop {
   position: fixed;
@@ -1367,8 +1386,8 @@ a.a-btn { text-decoration: none; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; }
 .dialog-head h2 { font-size: var(--text-lg); }
 
-/* דיאלוג שמכיל טבלה של שדות ולא פסקת אישור — 520 פיקסלים דוחסים שם שלוש
-   עמודות לשורה אחת צרה */
+/* A dialog holding a table of fields rather than a confirmation paragraph — 520
+   pixels squeeze three columns into one narrow row there */
 .dialog.wide { max-width: 680px; }
 
 .dialog-note {
@@ -1386,7 +1405,7 @@ a.a-btn { text-decoration: none; }
 
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
-/* ---------- מסך כניסה ---------- */
+/* ---------- the sign-in screen ---------- */
 
 .login-screen {
   flex: 1;
@@ -1441,7 +1460,7 @@ a.a-btn { text-decoration: none; }
 
 .btn-google svg { flex: none; }
 
-/* ---------- הפחתת תנועה ---------- */
+/* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
   .admin-app *,
@@ -1452,7 +1471,7 @@ a.a-btn { text-decoration: none; }
   }
 }
 
-/* ---------- רשימת השאלונים (מסך הבית של הקונסולה) ---------- */
+/* ---------- the survey list (the console's home screen) ---------- */
 
 .admin-scroll {
   flex: 1;
@@ -1520,7 +1539,7 @@ a.a-btn { text-decoration: none; }
   padding: 1px 6px;
 }
 
-/* ירוק = "משיבים יכולים להיכנס עכשיו". שאר המצבים ניטרליים בכוונה. */
+/* Green = "respondents can enter right now". Every other state is deliberately neutral. */
 .chip-live { color: var(--success); }
 
 .survey-link {
@@ -1562,7 +1581,7 @@ a.a-btn { text-decoration: none; }
   opacity: 0.7;
 }
 
-/* ---------- שכבת השמות: מספר מיקום במקום מזהה ---------- */
+/* ---------- the naming layer: a position number in place of an id ---------- */
 
 .fg-node-pos {
   font-weight: 700;
@@ -1579,7 +1598,7 @@ a.a-btn { text-decoration: none; }
   max-width: 90px;
 }
 
-/* ---------- פאנל ההקשר במגירת העריכה ---------- */
+/* ---------- the context panel in the editing drawer ---------- */
 
 .flow-context {
   background: var(--chip-bg);
@@ -1600,7 +1619,7 @@ a.a-btn { text-decoration: none; }
   letter-spacing: 0.02em;
 }
 
-/* קבוצה = שאלה אחת (מגיעים לכאן / מוצג רק כאשר / ממשיכים מכאן / נקבע כאן) */
+/* A group = one question (how you get here / when it is shown / where it continues to / what is set here) */
 .flow-group {
   display: flex;
   flex-direction: column;
@@ -1616,7 +1635,7 @@ a.a-btn { text-decoration: none; }
   letter-spacing: 0.04em;
 }
 
-/* שרשרת "המסך הראשון שמתאים" — רשימה ממוספרת, הסדר הוא המשמעות */
+/* The "first matching screen" chain — a numbered list, where the order *is* the meaning */
 .flow-cascade {
   margin: 0;
   padding-inline-start: var(--space-4);
@@ -1659,7 +1678,7 @@ a.a-btn { text-decoration: none; }
 .flow-ref:hover { color: var(--primary, #00947f); }
 .flow-ref.missing { text-decoration: line-through; color: var(--danger); cursor: default; }
 
-/* ---------- תנאים: המשפט מעל העץ ---------- */
+/* ---------- conditions: the sentence above the tree ---------- */
 
 .cond-sentence {
   margin: 0 0 var(--space-2);
@@ -1682,7 +1701,7 @@ a.a-btn { text-decoration: none; }
   padding: var(--space-1) 0;
 }
 
-/* ---------- יצירת סימון חדש ---------- */
+/* ---------- defining a new mark ---------- */
 
 .define-form {
   border: 1px dashed var(--border);
@@ -1699,7 +1718,7 @@ a.a-btn { text-decoration: none; }
 .add-screen-code { font-size: var(--text-xs); color: var(--muted); width: 100%; }
 .add-screen-code summary { cursor: pointer; padding: var(--space-1) 0; }
 
-/* ---------- בדיקת מסלול ---------- */
+/* ---------- the path check ---------- */
 
 .simulator {
   position: absolute;
@@ -1800,13 +1819,13 @@ a.a-btn { text-decoration: none; }
   padding: 1px var(--space-2);
 }
 
-/* מסלול ההרצה גובר על העמעום הרגיל: מה שמחוץ למסלול נסוג, מה שבתוכו מודגש */
+/* The run's path takes precedence over the ordinary dimming: whatever is off the path recedes, whatever is on it is highlighted */
 .fg-node-wrap.off-path { opacity: 0.18; }
 .fg-node-wrap.on-path .fg-node { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
 .fg-edge.off-path { opacity: 0.1; }
 .fg-edge.on-path { stroke: var(--text); stroke-width: 2.2; opacity: 1; }
 
-/* ---------- כותרת ענף ---------- */
+/* ---------- the lane heading ---------- */
 
 .fg-lane {
   position: absolute;
@@ -1839,7 +1858,7 @@ a.a-btn { text-decoration: none; }
 
 .fg-lane-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ---------- מסך הסטטיסטיקות (ENG-13+) ---------- */
+/* ---------- the statistics screen (ENG-13+) ---------- */
 
 .stats-body {
   width: 100%;
@@ -1910,7 +1929,7 @@ a.a-btn { text-decoration: none; }
   padding-block: 48px;
 }
 
-/* משפך פר-מסך */
+/* The per-screen funnel */
 
 .stats-section-title {
   font-size: var(--text-base);
@@ -1957,7 +1976,7 @@ a.a-btn { text-decoration: none; }
 
 .funnel-retired td { color: var(--muted); background: var(--chip-bg); }
 
-/* כרטיסי התפלגות */
+/* Distribution cards */
 
 .q-cards {
   display: grid;
@@ -2006,7 +2025,7 @@ a.a-btn { text-decoration: none; }
 
 .q-bar-track { display: block; block-size: 16px; }
 
-/* העמודה: בסיס ישר בצד ימין (inline-start), קצה-נתון מעוגל 4px בלבד */
+/* The bar: a straight base on the right (inline-start), only the data end rounded by 4px */
 .q-bar-fill {
   display: block;
   block-size: 100%;
@@ -2026,7 +2045,7 @@ a.a-btn { text-decoration: none; }
 
 .q-note { margin-block-start: var(--space-2); }
 
-/* מטריצה: פס מוערם 100% לכל פריט + מקרא סולם */
+/* Matrix: a 100% stacked bar per item + a scale legend */
 
 .mx-chart { display: flex; flex-direction: column; gap: var(--space-2); }
 
@@ -2056,7 +2075,7 @@ a.a-btn { text-decoration: none; }
   font-size: var(--text-xs);
 }
 
-/* המרווח הלבן בין מקטעים (2px) הוא המפריד — בלי מסגרות על הסימנים */
+/* The white gap between segments (2px) is the separator — no borders on the marks */
 .mx-track {
   display: flex;
   gap: 2px;
@@ -2067,7 +2086,7 @@ a.a-btn { text-decoration: none; }
 
 .mx-seg { display: block; block-size: 100%; min-inline-size: 2px; }
 
-/* היסטוגרמה: עמודות HTML, כיוון ציר LTR */
+/* Histogram: HTML bars, with an LTR axis direction */
 
 .nh-plot {
   display: flex;
@@ -2108,7 +2127,7 @@ a.a-btn { text-decoration: none; }
   margin-block-start: 2px;
 }
 
-/* פילוח (ENG-18): מקרא, עמודות מקובצות, שורות דקות */
+/* Breakdowns (ENG-18): a legend, grouped bars, thin rows */
 
 .dim-legend {
   display: flex;
@@ -2172,7 +2191,7 @@ a.a-btn { text-decoration: none; }
 
 .nh-col.slim { inline-size: 8px; border-start-start-radius: 3px; border-start-end-radius: 3px; }
 
-/* לשוניות ולשונית התשובות הפתוחות (ENG-16) */
+/* The tabs, and the open-text answers tab (ENG-16) */
 
 .stats-tabs {
   display: flex;

@@ -7,13 +7,16 @@ import { hitsFullQuota, quotaFullScreen } from './quota';
 import type { Screen, SurveyConfig, SurveyContext } from './types';
 
 /**
- * ניתוב: קודם כללי next מפורשים (הראשון שתנאו מתקיים), אחרת סריקה קדימה
- * בסדר המערך אל המסך הראשון שעובר showIf. null = אין מסך הבא.
+ * Routing: explicit next rules first (the first one whose condition holds),
+ * otherwise a forward scan in array order to the first screen that passes its
+ * showIf. null = there is no next screen.
  *
- * מכסה מלאה נכנסת כאן ולא ככלל ניתוב שהאדמין כותב: היא חלה על *כל* מסך
- * שמסמן ערך שהתמלא, וכתיבה ידנית שלה בכל מסך כזה הייתה עבודה שחוזרת על עצמה
- * וגם נשכחת בדיוק במסך אחד. בלי מסך סיום מסוג quotafull אין לאן לנתב, והמנוע
- * ממשיך כרגיל — הוולידציה היא זו שמתריעה על ההגדרה החסרה.
+ * A full quota is handled here rather than as a routing rule the admin writes:
+ * it applies to *every* screen that marks a value which has filled up, and
+ * writing it by hand on each such screen would be work that repeats itself —
+ * and gets forgotten on exactly one screen. With no quotafull end screen there
+ * is nowhere to route, so the engine carries on as usual; the validator is what
+ * reports the missing definition.
  */
 export function findNext(config: SurveyConfig, from: Screen, ctx: SurveyContext): Screen | null {
   const quotaFull = () => (hitsFullQuota(from, ctx) ? quotaFullScreen(config) : null);
@@ -21,8 +24,9 @@ export function findNext(config: SurveyConfig, from: Screen, ctx: SurveyContext)
   for (const rule of from.next ?? []) {
     if (!rule.if || evaluate(rule.if, ctx)) {
       const target = config.screens.find((s) => s.id === rule.goto) ?? null;
-      // סינון מפורש גובר על מכסה מלאה: "לא מתאים למחקר" הוא אמירה חזקה יותר
-      // מ"כבר יש לנו מספיק כאלה", ובניתוח השניים נספרים אחרת לגמרי.
+      // An explicit screenout beats a full quota: "not qualified for the study"
+      // is a stronger statement than "we already have enough people like you",
+      // and the two are counted completely differently in analysis.
       if (target?.type === 'end' && target.variant === 'screenout') return target;
       return quotaFull() ?? target;
     }

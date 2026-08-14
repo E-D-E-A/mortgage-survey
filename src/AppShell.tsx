@@ -1,9 +1,10 @@
-// מעטפת טעינה לשאלון: מביאה את הקונפיג (עם הצמדת גרסה לסשן) ורק אז
-// מרנדרת את App. ארבעה מצבים: טוען / שאלון שלא נמצא / שאלון שנסגר /
-// תקלה זמנית עם ניסיון חוזר.
+// The survey's loading shell: it fetches the config (with the version pinned to
+// the session) and only then renders App. Four states: loading / survey not
+// found / survey closed / a temporary fault with a retry.
 //
-// ההבחנה בין "נסגר" ל"תקלה" חשובה: משיב שקיבל קישור לשאלון מאורכב צריך
-// לדעת שאין מה לנסות שוב, ומשיב עם רשת גרועה צריך בדיוק את ההפך.
+// The distinction between "closed" and "fault" matters: a respondent holding a
+// link to an archived survey needs to know there is no point retrying, and a
+// respondent on a bad network needs exactly the opposite.
 
 import { useCallback, useEffect, useState } from 'react';
 import App from './App';
@@ -39,15 +40,16 @@ export default function AppShell({ slug }: { slug: string | null }) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
 
   const load = useCallback(() => {
-    // slug === null — הנתיב עצמו פגום (‎/s/…‎ עם מזהה לא חוקי)
+    // slug === null — the path itself is malformed (`/s/…` with an invalid id)
     if (!slug) {
       setState({ phase: 'error', kind: 'missing' });
       return;
     }
     setState({ phase: 'loading' });
-    // שתי הבקשות במקביל: מצב המכסות אינו תלוי בקונפיג, וסידור טורי היה מוסיף
-    // סיבוב רשת שלם לפני המסך הראשון. הספירות נכשלות בשקט (fail open) ולכן
-    // Promise.all לא ייפול בגללן — רק טעינת הקונפיג יכולה להיכשל כאן.
+    // Both requests in parallel: the quota state does not depend on the config,
+    // and running them in series would add a whole network round trip before the
+    // first screen. The counts fail silently (fail open), so Promise.all will not
+    // reject because of them — only the config load can fail here.
     Promise.all([loadConfig(slug), fetchQuotaCounts(slug)])
       .then(([config, counts]) =>
         setState({ phase: 'ready', config, quota: quotaVars(config, counts) }),

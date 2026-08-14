@@ -1,5 +1,6 @@
-// דיאלוג פרסום: מסכם את בדיקת התקינות, מפרסם גרסה קבועה חדשה ומציג את מספרה.
-// פרסום לא נוגע במשיבים באמצע שאלון — הגרסה שלהם מוצמדת לסשן.
+// The publish dialog: it summarises the validation, publishes a new permanent
+// version and shows its number. Publishing does not touch respondents who are
+// mid-survey — their version is pinned to the session.
 
 import { useState } from 'react';
 import type { ValidationIssue } from '../engine/validate';
@@ -7,11 +8,11 @@ import { publish } from './api';
 import { CheckIcon, CloseIcon, ErrorIcon, WarningIcon } from './Icons';
 
 interface Props {
-  /** השאלון שמפרסמים — הקצה בשרת מקבל אותו כפרמטר */
+  /** The survey being published — the server endpoint takes it as a parameter */
   slug: string;
   issues: ValidationIssue[];
   dirty: boolean;
-  /** שמירת הטיוטה; מחזירה false אם נכשלה */
+  /** Saves the draft; returns false if it failed */
   onSave: () => Promise<boolean>;
   onClose: () => void;
 }
@@ -22,9 +23,9 @@ type Phase =
   | { step: 'publishing' }
   | { step: 'done'; version: string; warnings: ValidationIssue[] }
   /**
-   * `found` — מה שהשרת מצא, כשהוא מצא משהו קונקרטי. `retry` כבוי כשניסיון
-   * חוזר על אותו תוכן בדיוק יחזיר בוודאות את אותה תשובה; כפתור שלא יכול
-   * להצליח גרוע מהיעדרו.
+   * `found` — what the server found, when it found something concrete. `retry` is
+   * off when retrying the exact same content is certain to give the same answer;
+   * a button that cannot succeed is worse than no button at all.
    */
   | { step: 'failed'; message: string; found?: ValidationIssue[]; retry?: boolean };
 
@@ -36,9 +37,10 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
   const busy = phase.step === 'saving' || phase.step === 'publishing';
 
   /**
-   * פרסום מפרסם את הטיוטה השמורה בשרת, לא את מה שעל המסך. אזהרה בטקסט לא
-   * מספיקה — עורך שדילג עליה פרסם גרסה ישנה וקיבל הודעת הצלחה מלאה. לכן
-   * כשיש שינויים לא שמורים הפעולה היחידה היא "שמירה ופרסום".
+   * Publishing publishes the draft saved on the server, not what is on screen. A
+   * warning in text is not enough — an editor who skipped past it published an
+   * old version and got a full success message. So when there are unsaved
+   * changes the only available action is "save and publish".
    */
   async function saveThenPublish() {
     setPhase({ step: 'saving' });
@@ -56,8 +58,9 @@ export function PublishDialog({ slug, issues, dirty, onSave, onClose }: Props) {
       if (status === 200 && data.version) {
         setPhase({ step: 'done', version: data.version, warnings: data.warnings ?? [] });
       } else if (status === 422) {
-        // 422 = הבדיקה בשרת מצאה מה שהבדיקה כאן פספסה. השגיאות עצמן מגיעות
-        // בתשובה, ובלעדיהן העורך נשלח לחפש בעצמו מה בדיוק לא בסדר.
+        // 422 = the server-side check found what the check here missed. The
+        // errors themselves come back in the response; without them the editor
+        // is sent off to work out what exactly is wrong on their own.
         setPhase({
           step: 'failed',
           message: 'הבדיקה בשרת מצאה שגיאות שלא מופיעות כאן, ולכן הגרסה לא פורסמה. רעננו את הדף כדי לראות את המצב העדכני, תקנו ופרסמו שוב.',

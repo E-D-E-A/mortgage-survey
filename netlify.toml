@@ -5,21 +5,22 @@
 [functions]
   directory = "netlify/functions"
 
-# פיתוח מקומי — פורט vite קבוע ומפורש, אחרת netlify dev עלול "לאמץ"
-# שרת vite של פרויקט אחר שכבר רץ על פורט ברירת-המחדל 5173
+# Local development — an explicit, fixed vite port, otherwise netlify dev can
+# "adopt" another project's vite server already running on the default port 5173
 #
-# vite מורץ ישירות דרך node ולא דרך npx: netlify מחכה לפורט 20 ניסיונות
-# בלבד (~15 שניות, ‎lib/wait-port.js‎) ואז נכשל ב-"Timed out waiting for port".
-# npx מוסיף כמה שניות ושתי שכבות תהליך (‎npx → cmd → node‎) — בהרצה קרה זה
-# חוצה את התקציב, netlify מת, ו-vite שנולד אחריו נשאר יתום ותופס את הפורט.
+# vite is launched through node directly and not through npx: netlify waits for
+# the port for 20 attempts only (~15 seconds, lib/wait-port.js) and then fails
+# with "Timed out waiting for port". npx adds a few seconds and two process layers
+# (npx → cmd → node) — on a cold run that blows the budget, netlify dies, and the
+# vite born after it is orphaned and holds the port.
 [dev]
   command = "node node_modules/vite/bin/vite.js --port 5199 --strictPort"
   targetPort = 5199
   port = 8888
   framework = "#custom"
 
-# SPA — כל נתיב מוגש מ-index.html
-# (נתיבי ‎/.netlify/functions/*‎ מטופלים לפני ה-redirect ולא נבלעים בו)
+# SPA — every path is served from index.html
+# (/.netlify/functions/* paths are handled before the redirect and are not swallowed by it)
 [[redirects]]
   from = "/*"
   to = "/index.html"

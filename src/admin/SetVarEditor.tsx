@@ -1,9 +1,10 @@
-// עורך כללי onSubmit: סימון המשיב אחרי שהוא עונה ("מסלול המשיב = מסלול A"),
-// כדי שמסכים מאוחרים יוכלו להיפתח לפיו.
+// The onSubmit rules editor: marking the respondent after they answer ("the
+// respondent's track = track A"), so that later screens can open based on it.
 //
-// האדמין לא כותב כאן שמות משתנים ולא קודי ערכים — הוא בוחר מרשימה, ויוצר
-// חדשים דרך טופס שמבקש קודם תווית בעברית ורק אחריה את הקוד לאנליזה.
-// אזהרת הטוטאליות (ערך ישן אחרי ניווט אחורה) מוצגת בפאנל השגיאות.
+// The admin writes no variable names and no value codes here — they pick from a
+// list, and create new ones through a form that asks first for a Hebrew label and
+// only then for the analysis code. The totality warning (a stale value after
+// navigating back) is surfaced in the validation panel.
 
 import { useState } from 'react';
 import type { SetVarRule } from '../engine/types';
@@ -17,11 +18,12 @@ interface Props {
   rules: SetVarRule[];
   onChange: (rules: SetVarRule[] | undefined) => void;
   naming: Naming;
-  /** קודי האנליזה ננעלו — כלומר, השאלון כבר פורסם פעם אחת לפחות */
+  /** The analysis codes are locked — that is, the survey has been published at least once */
   codesLocked: boolean;
   /**
-   * יוצר סימון חדש ברמת השאלון (varMeta), כדי שכל מסך יראה אותו בשמו.
-   * ‎renamedFrom‎ — הקוד הקודם, כששינו אותו: ההפניות אליו מתעדכנות עם השם.
+   * Creates a new mark at survey level (varMeta), so every screen sees it by its
+   * name. `renamedFrom` — the previous code, when it was changed: every
+   * reference to it is updated along with the name.
    */
   onDefineVar: (name: string, label: string, renamedFrom?: string) => void;
   onDefineVarValue: (name: string, value: string, label: string, renamedFrom?: string) => void;
@@ -131,8 +133,9 @@ export function SetVarEditor({
 
             {creating?.index === i && (
               <DefineForm
-                // מפתח לפי מה שנערך: הטופס מאותחל מהערכים הקיימים, ולכן הוא
-                // חייב להיבנות מחדש כשעוברים לשדה או לסימון אחר
+                // Keyed by what is being edited: the form initialises from the
+                // existing values, so it has to be rebuilt when moving to a
+                // different field or a different mark
                 key={`${creating.field}-${creating.renaming ?? 'new'}`}
                 kind={creating.field}
                 renaming={Boolean(creating.renaming)}
@@ -155,9 +158,10 @@ export function SetVarEditor({
                 }
                 onCancel={() => setCreating(null)}
                 onCreate={(code, label) => {
-                  // הכלל נוגעים בו רק כשמגדירים משהו חדש: שינוי של הגדרה קיימת
-                  // כבר עדכן את כל ההפניות אליה, וכתיבה נוספת כאן הייתה דורסת
-                  // אותה בעותק ישן של המסך
+                  // The rule is only touched when defining something new:
+                  // editing an existing definition has already updated every
+                  // reference to it, and writing again here would overwrite that
+                  // with a stale copy of the screen
                   const from = creating.renaming;
                   if (creating.field === 'var') {
                     onDefineVar(code, label, from);

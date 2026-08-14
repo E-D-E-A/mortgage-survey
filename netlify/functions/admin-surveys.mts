@@ -1,12 +1,14 @@
-// ניהול רשימת השאלונים. עורכי first-edea בלבד (requireAdmin לפני הכל).
-//   GET                       → { surveys: [...] } כולל מצב הטיוטה והגרסה האחרונה
-//   POST   { slug, name }     → יצירת שאלון + טיוטת שלד
-//   PATCH  { slug, name?, archived? } → שינוי שם / ארכוב / החזרה מארכיון
-//   DELETE ?survey=<slug>     → מחיקה אמיתית, רק לשאלון שלא פורסם מעולם
+// Managing the list of surveys. first-edea editors only (requireAdmin before
+// anything else).
+//   GET                       → { surveys: [...] } including draft state and the latest version
+//   POST   { slug, name }     → create a survey + a skeleton draft
+//   PATCH  { slug, name?, archived? } → rename / archive / restore from archive
+//   DELETE ?survey=<slug>     → a real delete, only for a survey never published
 //
-// מחיקה מול ארכוב: גרסה שפורסמה היא immutable ואירועי משיבים מפנים אליה,
-// ולכן שאלון שכבר פורסם לא נמחק לעולם — מארכבים אותו. הארכוב מפסיק להגיש
-// אותו לסשנים חדשים, אבל משיב שכבר באמצע ממשיך (הגרסה שלו מוצמדת לסשן).
+// Delete versus archive: a published version is immutable and respondent events
+// point at it, so a survey that has been published is never deleted — it is
+// archived. Archiving stops it being served to new sessions, but a respondent
+// already mid-survey carries on (their version is pinned to the session).
 
 import { requireAdmin } from './lib/session';
 import { json, supaHeaders, supabaseEnv } from './lib/supabase';
@@ -39,8 +41,8 @@ export default async (req: Request): Promise<Response> => {
 };
 
 /**
- * שלוש שאילתות מקבילות ואיחוד בזיכרון, במקום embed של PostgREST: הרשימה
- * קטנה, והצירוף כאן לא תלוי בשמות ה-FK בסכמה.
+ * Three parallel queries joined in memory, instead of a PostgREST embed: the list
+ * is small, and joining here does not depend on the FK names in the schema.
  */
 async function listSurveys(url: string, headers: Record<string, string>): Promise<Response> {
   const [surveysRes, draftsRes, configsRes] = await Promise.all([
@@ -69,7 +71,7 @@ async function listSurveys(url: string, headers: Record<string, string>): Promis
   const latest = new Map<string, { version: string; published_at: string }>();
   for (const c of configs) {
     versionCount.set(c.survey_id, (versionCount.get(c.survey_id) ?? 0) + 1);
-    // הרשימה מסודרת published_at יורד — הראשון לכל שאלון הוא האחרון שפורסם
+    // The list is ordered by published_at descending — the first row per survey is its latest publish
     if (!latest.has(c.survey_id)) latest.set(c.survey_id, c);
   }
 
@@ -122,8 +124,9 @@ async function createSurvey(
   if (created.status === 409) return new Response('slug already exists', { status: 409 });
   if (!created.ok) return new Response('upstream error', { status: 502 });
 
-  // טיוטת שלד מיד עם היצירה — שאלון בלי טיוטה הוא מצב שהעורך לא יכול לתקן
-  // מתוך רשימת השאלונים. כשל כאן לא מבטל את השאלון: הכניסה לעורך תיצור אותה.
+  // A skeleton draft right at creation — a survey with no draft is a state the
+  // editor cannot fix from the survey list. A failure here does not undo the
+  // survey: opening the editor will create one.
   const now = new Date().toISOString();
   await fetch(`${url}/rest/v1/survey_drafts`, {
     method: 'POST',
@@ -179,9 +182,9 @@ async function deleteSurvey(
   const slug = new URL(req.url).searchParams.get('survey') ?? '';
   if (!isValidSlug(slug)) return new Response('invalid slug', { status: 400 });
 
-  // שאלון שפורסם לא נמחק — אירועי משיבים מפנים לגרסאות שלו. ה-FK מ-
-  // survey_configs חוסם את זה גם ברמת ה-DB; הבדיקה כאן היא כדי להחזיר
-  // הסבר במקום 409 סתום.
+  // A published survey is not deleted — respondent events point at its versions.
+  // The FK from survey_configs blocks this at the DB level too; the check here
+  // exists to return an explanation instead of a bare 409.
   const published = await fetch(
     `${url}/rest/v1/survey_configs?survey_id=eq.${encodeURIComponent(slug)}&select=version&limit=1`,
     { headers },
@@ -191,8 +194,9 @@ async function deleteSurvey(
     return new Response('survey has published versions', { status: 409 });
   }
 
-  // הטיוטה יורדת עם השאלון (on delete cascade), אבל מחיקה מפורשת קודם
-  // שומרת על התנהגות זהה גם אם ה-cascade חסר בהתקנה ותיקה
+  // The draft goes with the survey (on delete cascade), but deleting it
+  // explicitly first keeps the behaviour identical even if the cascade is
+  // missing on an older installation
   await fetch(`${url}/rest/v1/survey_drafts?survey_id=eq.${encodeURIComponent(slug)}`, {
     method: 'DELETE',
     headers,

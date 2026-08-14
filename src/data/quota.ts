@@ -1,11 +1,12 @@
-// שליפת מצב המכסות בכניסה לשאלון, והמרתו למשתני סשן.
+// Fetching the quota state on entry to the survey, and turning it into session vars.
 //
-// נקרא פעם אחת, לצד טעינת הקונפיג (AppShell), ורק לסשן חדש: משיב שכבר התחיל
-// נושא את הדגלים שקיבל אז, ומכסה שהתמלאה תוך כדי לא זורקת אותו באמצע.
+// Called once, alongside the config load (AppShell), and only for a new session:
+// a respondent who already started carries the flags they got then, and a quota
+// that fills mid-survey does not throw them out.
 //
-// ⚠ fail open בכל מסלול כשל — רשת, שרת, JSON פגום. משיב אמיתי לעולם לא נחסם
-// בגלל תקלה אצלנו; המחיר הוא כמה משיבים מעבר למכסה, שזה בדיוק הכיוון הנכון
-// לטעות בו.
+// ⚠ Fail open on every failure path — network, server, malformed JSON. A real
+// respondent is never blocked by a fault of ours; the price is a few respondents
+// over quota, which is exactly the right direction to err in.
 
 import type { QuotaCounts } from '../engine/quota';
 import { pinnedVersion } from './config';
@@ -13,15 +14,18 @@ import { pinnedVersion } from './config';
 const ENDPOINT = '/.netlify/functions/quota-get';
 
 /**
- * הספירות מהשרת, או מפה ריקה. נקרא במקביל לטעינת הקונפיג ולא אחריה: הבקשה
- * אינה תלויה בו, וסידור טורי היה מוסיף סיבוב רשת שלם לפני המסך הראשון.
- * ההשוואה מול התקרות נעשית אצל הקורא, מול הקונפיג שהוצמד לסשן.
+ * The counts from the server, or an empty map. Called in parallel with the
+ * config load rather than after it: the request does not depend on it, and
+ * running them in series would add a whole network round trip before the first
+ * screen. The comparison against the ceilings happens at the caller, against the
+ * config pinned to the session.
  */
 export async function fetchQuotaCounts(slug: string): Promise<QuotaCounts> {
-  // אותו גבול כמו באירועים: בפיתוח (vite dev) אין פונקציות, ואין מה לספור
+  // The same boundary as the events layer: in development (vite dev) there are
+  // no functions, and nothing to count
   if (!import.meta.env.PROD) return {};
-  // סשן קיים כבר נושא את הדגלים שלו — הבקשה כאן הייתה מעכבת כל רענון באמצע
-  // השאלון בשביל תשובה שתיזרק
+  // An existing session already carries its flags — the request here would delay
+  // every mid-survey refresh for an answer that gets thrown away
   if (pinnedVersion()) return {};
 
   try {

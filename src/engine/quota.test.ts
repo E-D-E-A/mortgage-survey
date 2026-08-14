@@ -36,7 +36,7 @@ describe('quotaCells', () => {
 describe('quotaVars', () => {
   it('flags only the cells that are full, and treats a missing count as zero', () => {
     expect(quotaVars(config, { persona: { young_couple: 49 } })).toEqual({
-      // 0 היא מכסה סגורה: היא מלאה עוד לפני שסופרים
+      // 0 is a closed cell: it is full before anything is counted
       quota_full_persona_upgrader: true,
     });
   });
@@ -70,7 +70,7 @@ describe('hitsFullQuota', () => {
 
   it('needs both: this screen sets the value, and the respondent holds it', () => {
     expect(hitsFullQuota(screen, ctx({ persona: 'young_couple', quota_full_persona_young_couple: true }))).toBe(true);
-    // הסימון שונה — המסך אמנם יכול היה לקבוע אותו, אבל התנאי שלו לא התקיים
+    // A different mark value — this screen could have set it, but its condition did not hold
     expect(hitsFullQuota(screen, ctx({ persona: 'upgrader', quota_full_persona_young_couple: true }))).toBe(false);
     expect(hitsFullQuota(screen, ctx({ persona: 'young_couple' }))).toBe(false);
   });

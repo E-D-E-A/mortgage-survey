@@ -1,4 +1,4 @@
-// אייקוני SVG מוטמעים (בסגנון lucide, קו 2px) — בלי תלות חיצונית ובלי אימוג'ים.
+// Inline SVG icons (lucide-style, 2px stroke) — no external dependency and no emoji.
 
 import type { SVGProps } from 'react';
 
@@ -47,7 +47,7 @@ export const CheckIcon = (props: SVGProps<SVGSVGElement>) => (
   <Svg {...props}><polyline points="20 6 9 17 4 12" /></Svg>
 );
 
-/** מחבר-סיום: "המסלול נגמר כאן" — במקום קו ארוך אל מסך סיום מרוחק */
+/** An end connector: "the path ends here" — instead of a long line to a distant end screen */
 export const StopIcon = (props: SVGProps<SVGSVGElement>) => (
   <Svg {...props}><circle cx="12" cy="12" r="9" /><line x1="8" y1="12" x2="16" y2="12" /></Svg>
 );
@@ -127,7 +127,7 @@ export const PencilIcon = () => (
   </Svg>
 );
 
-/** המשך ברצף — חץ שמאלה, כיוון הזרימה בממשק RTL */
+/** A sequential continuation — a left-pointing arrow, the flow direction in an RTL interface */
 export const ArrowIcon = (props: SVGProps<SVGSVGElement>) => (
   <Svg {...props}>
     <line x1="19" y1="12" x2="5" y2="12" />
@@ -142,7 +142,7 @@ export const CloseIcon = () => (
   <Svg><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Svg>
 );
 
-/** אייקון לפי סוג מסך */
+/** An icon per screen type */
 export function TypeIcon({ type }: { type: string }) {
   switch (type) {
     case 'info':

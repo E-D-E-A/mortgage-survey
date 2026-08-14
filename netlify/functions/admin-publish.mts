@@ -1,7 +1,8 @@
-// פרסום טיוטת שאלון כגרסה חדשה וקבועה. עורכי first-edea בלבד.
-// הפרמטר ?survey=<slug> בוחר את השאלון; בהיעדרו — שאלון ברירת המחדל.
-// שער הוולידציה האמיתי: אותו validateConfig שרץ בעורך רץ גם כאן —
-// שגיאות חוסמות (422), אזהרות עוברות ומוחזרות למידע.
+// Publishing a survey draft as a new, permanent version. first-edea editors only.
+// The ?survey=<slug> parameter selects the survey; without it — the default survey.
+// The real validation gate: the same validateConfig that runs in the editor runs
+// here too — errors block (422), warnings pass through and are returned for
+// information.
 // POST { label? } → { version, warnings }
 
 import { requireAdmin } from './lib/session';
@@ -31,7 +32,7 @@ export default async (req: Request): Promise<Response> => {
   try {
     const body = (await req.json()) as { label?: unknown };
     if (typeof body.label === 'string') {
-      // תווית חופשית → סיומת בטוחה לגרסה (אותיות/ספרות/מקף בלבד)
+      // A free-form label → a safe version suffix (letters/digits/hyphen only)
       label = body.label
         .trim()
         .toLowerCase()
@@ -40,7 +41,7 @@ export default async (req: Request): Promise<Response> => {
         .slice(0, 40);
     }
   } catch {
-    /* גוף ריק מותר */
+    /* an empty body is allowed */
   }
 
   const draftRes = await fetch(
@@ -61,9 +62,10 @@ export default async (req: Request): Promise<Response> => {
     return json({ errors, warnings }, 422);
   }
 
-  // מספור גרסה: YYYY-MM-DD.N-<slug> לפי גרסאות אותו שאלון באותו יום.
-  // ה-slug הוא חלק מהמחרוזת ולכן version נשאר ייחודי גלובלית — וזה קריטי,
-  // כי survey_events נושא רק survey_version בלי מזהה שאלון.
+  // Version numbering: YYYY-MM-DD.N-<slug>, counting that survey's versions on
+  // that day. The slug is part of the string, which keeps version globally
+  // unique — and that is critical, because survey_events carries only
+  // survey_version, with no survey id of its own.
   const date = new Date().toISOString().slice(0, 10);
   const existingRes = await fetch(
     `${env.url}/rest/v1/survey_configs?survey_id=eq.${encodeURIComponent(slug)}` +
@@ -78,8 +80,8 @@ export default async (req: Request): Promise<Response> => {
     if (m) n = Math.max(n, Number(m[1]) + 1);
   }
 
-  // ניסיון חוזר: התנגשות PK (פרסום מקבילי, או צירוף slug+label שכבר קיים)
-  // → ניסיון נוסף עם N+1
+  // Retry: a PK collision (a concurrent publish, or a slug+label combination that
+  // already exists) → another attempt with N+1
   for (let attempt = 0; attempt < 3; attempt++) {
     const version = `${date}.${n + attempt}-${slug}${label ? `-${label}` : ''}`.slice(
       0,

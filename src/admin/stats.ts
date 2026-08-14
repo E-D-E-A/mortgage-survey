@@ -1,5 +1,6 @@
-// לוגיקה טהורה של מסך הסטטיסטיקות: עיצוב תשובת ה-API לאריחי תצוגה ופורמט עברי.
-// בכוונה בלי React ובלי רשת — זה התפר שנבדק ביחידות (stats.test.ts).
+// The statistics screen's pure logic: shaping the API response into display tiles
+// and Hebrew formatting. Deliberately free of React and of the network — this is
+// the seam that is unit-tested (stats.test.ts).
 
 import type { Screen, SurveyConfig } from '../engine/types';
 import type { BaseStat, DistStat, FunnelStat, StatsOverview, StatsVersion } from './api';
@@ -8,9 +9,9 @@ export interface OverviewTile {
   key: 'total' | 'completed' | 'screened_out' | 'quota_full' | 'abandoned';
   label: string;
   count: number;
-  /** שיעור מתוך סה״כ הסשנים; null כשאין ממה לחשב (אפס סשנים, או האריח הכולל) */
+  /** A share of all sessions; null when there is nothing to compute it from (zero sessions, or the total tile) */
   ratio: number | null;
-  /** פירוט משני — פיצול הנטישה לשני סוגיה */
+  /** A secondary breakdown — splitting abandonment into its two kinds */
   sub?: { label: string; count: number }[];
 }
 
@@ -28,8 +29,9 @@ export function overviewTiles(o: StatsOverview): OverviewTile[] {
       label: 'נטישה',
       count: abandoned,
       ratio: ratio(abandoned),
-      // הסדר קבוע: קודם מי שלא ענה כלל (בעיית קישור/בוטים), אז נטישת אמצע
-      // (בעיית שאלון) — אבחנת ה-QC המרכזית של פיילוט
+      // The order is fixed: first those who never answered at all (a link problem
+      // or bots), then mid-survey abandonment (a survey problem) — the central QC
+      // distinction in a pilot
       sub: [
         { label: 'נכנסו ולא ענו כלל', count: o.abandoned_bounce },
         { label: 'התחילו לענות ונטשו', count: o.abandoned_mid },
@@ -42,10 +44,10 @@ const nf = new Intl.NumberFormat('he-IL');
 
 export const formatCount = (n: number): string => nf.format(n);
 
-/** אחוז עם ספרה עשרונית אחת לכל היותר: 50% · 16.7% */
+/** A percentage with at most one decimal place: 50% · 16.7% */
 export const formatPercent = (ratio: number): string => `${nf.format(Math.round(ratio * 1000) / 10)}%`;
 
-/** משך במסך: שניות מתחת לדקה, m:ss מעליה; null (אין תשובות) → קו מפריד */
+/** Time on screen: seconds below a minute, m:ss above it; null (no answers) → a dash */
 export function formatDuration(ms: number | null): string {
   if (ms === null) return '—';
   const totalSec = Math.round(ms / 1000);
@@ -55,7 +57,7 @@ export function formatDuration(ms: number | null): string {
   return `${min}:${String(sec).padStart(2, '0')} דק׳`;
 }
 
-// ─── משפך (ENG-14) ──────────────────────────────────────────────────────────
+// ─── the funnel (ENG-14) ────────────────────────────────────────────────────
 
 export interface FunnelRow {
   screenId: string;
@@ -70,15 +72,17 @@ export interface FunnelRow {
 const screenLabel = (s: Screen): string =>
   'prompt' in s && s.prompt ? s.prompt : 'title' in s && s.title ? s.title : s.id;
 
-/** הקונפיג שמכתיב סדר ותוויות: האחרון ב"כל הגרסאות", או הגרסה שנבחרה */
+/** The config that dictates order and labels: the latest under "all versions", or the version selected */
 export const chosenConfig = (versions: StatsVersion[], selected: string): SurveyConfig | undefined =>
   (selected === 'all' ? versions[0] : versions.find((v) => v.version === selected))?.config;
 
 /**
- * סדר שורות המשפך נקבע ע"י קונפיג — לאירועים עצמם אין סדר. ב"כל הגרסאות"
- * מסדרת הגרסה האחרונה, ומסכים שקיימים רק בגרסאות ישנות מצטרפים בסוף
- * כ"פורשים" (retired) עם המזהה הגולמי — סשן אמיתי לא נעלם מהסיפור.
- * מסך שאיש לא הגיע אליו מקבל אפסים; מסכי end אינם חלק מהמשפך (הם התוצאה).
+ * The funnel's row order is set by a config — the events themselves have no
+ * order. Under "all versions" the latest version does the ordering, and screens
+ * that exist only in older versions join at the end as "retired", carrying their
+ * raw id — a real session never vanishes from the story.
+ * A screen nobody reached gets zeros; end screens are not part of the funnel
+ * (they are the outcome).
  */
 export function orderFunnel(
   rows: FunnelStat[],
@@ -122,12 +126,12 @@ export function orderFunnel(
   return out;
 }
 
-// ─── כרטיסי התפלגות (ENG-15/17) ─────────────────────────────────────────────
+// ─── distribution cards (ENG-15/17) ─────────────────────────────────────────
 
 export interface BarGroup {
   key: string | null;
   count: number;
-  /** שיעור מתוך העונים בקבוצת המימד (המכנה מ-stats_bases) */
+  /** A share of the respondents within the dimension group (the denominator comes from stats_bases) */
   ratio: number | null;
 }
 
@@ -135,11 +139,11 @@ export interface ChoiceBar {
   id: string;
   label: string;
   count: number;
-  /** שיעור מתוך העונים על השאלה (base); ברב-ברירה הסכום עשוי לעבור 100% */
+  /** A share of those who answered the question (base); on multi-choice the total may exceed 100% */
   ratio: number | null;
-  /** אפשרות שקיימת בנתונים אך לא בקונפיג הנוכחי — מוצגת עם המזהה הגולמי */
+  /** An option present in the data but not in the current config — shown with its raw id */
   retiredOption?: boolean;
-  /** בפילוח פעיל: תת-עמודה לכל ערך מימד, בסדר המקרא */
+  /** With a breakdown active: a sub-bar per dimension value, in the legend's order */
   groups?: BarGroup[];
 }
 
@@ -156,16 +160,16 @@ export interface MatrixItemVariant {
 export interface MatrixItemModel {
   id: string;
   label: string;
-  /** ספירה לפי מפתח ציון ('1'..'5'); na אינו כאן */
+  /** Counts keyed by rating ('1'..'5'); na is not here */
   counts: Record<string, number>;
   na: number;
-  /** מספר העונים המספריים (בלי na) */
+  /** How many gave a numeric answer (excluding na) */
   n: number;
-  /** ממוצע הציונים המספריים; null כשאין אף ציון */
+  /** The mean of the numeric ratings; null when there is not a single rating */
   mean: number | null;
-  /** פריט שקיים בנתונים אך לא בקונפיג הנוכחי */
+  /** An item present in the data but not in the current config */
   retiredItem?: boolean;
-  /** בפילוח פעיל: אותו חישוב לכל ערך מימד בנפרד, בסדר המקרא */
+  /** With a breakdown active: the same computation per dimension value, in the legend's order */
   variants?: MatrixItemVariant[];
 }
 
@@ -182,23 +186,23 @@ export interface QuestionCardModel {
   screenId: string;
   label: string;
   type: ClosedType;
-  /** כמה ענו על השאלה (בסיס האחוזים) — נגזר מנתוני המשפך */
+  /** How many answered the question (the percentage base) — derived from the funnel data */
   base: number;
-  /** מספר הגרסאות המשולבות כשסט התשובות שונה ביניהן; null = אין מה להעיר */
+  /** The number of versions combined when the answer set differs between them; null = nothing worth noting */
   spansVersions: number | null;
-  /** single/multi בלבד */
+  /** single/multi only */
   bars?: ChoiceBar[];
-  /** מטריצה בלבד */
+  /** matrix only */
   matrix?: MatrixCardModel;
-  /** number בלבד: ערכים מספריים ממוינים — ה-binning קורה בהיסטוגרמה */
+  /** number only: sorted numeric values — the binning happens in the histogram */
   numberValues?: { value: number; count: number }[];
-  /** האטומים הגולמיים של המסך */
+  /** The screen's raw atoms */
   atoms: DistStat[];
 }
 
 const CLOSED_TYPES = new Set<Screen['type']>(['single', 'multi', 'matrix', 'number']);
 
-/** זהות סט-התשובות של שאלה בגרסה — השוואה בין גרסאות להערת "מתפרס על N גרסאות" */
+/** The identity of a question's answer set in a version — compared across versions for the "spans N versions" note */
 function answerSetKey(screen: Screen): string {
   switch (screen.type) {
     case 'single':
@@ -212,10 +216,12 @@ function answerSetKey(screen: Screen): string {
 }
 
 /**
- * מודל כרטיס לכל שאלה סגורה, בסדר הקונפיג הקובע. תוויות — מהקונפיג; מפתח
- * שקיים בנתונים אך לא בקונפיג (אפשרות שהוסרה) מצטרף בסוף עם המזהה הגולמי.
- * שאלות פתוחות (text) אינן כאן בכוונה — הן מוצגות כלשונן בלשונית הנפרדת,
- * בלי שום ניתוח תוכן. consent/info שייכים למשפך, לא להתפלגויות.
+ * A card model per closed question, in the order of the governing config. Labels
+ * come from the config; a key present in the data but not in the config (an
+ * option that was removed) joins at the end with its raw id.
+ * Open questions (text) are deliberately not here — they are shown verbatim in
+ * their own tab, with no content analysis at all. consent/info belong to the
+ * funnel, not to the distributions.
  */
 export function questionCards(
   dist: DistStat[],
@@ -226,10 +232,11 @@ export function questionCards(
 ): QuestionCardModel[] {
   const config = chosenConfig(versions, selected);
   if (!config) return [];
-  // base = "ענו" מהמשפך (סשנים עם אירוע answer כלשהו). לשאלות סגורות זה שווה
-  // בהגדרה למספר התשובות הסופיות שאינן null — תשובת null קיימת רק בשאלות
-  // טקסט (דילוג מכוון), ולהן אין כרטיס. מכני הפילוח (stats_bases) סופרים
-  // תשובות סופיות לא-null — אותו מספר בדיוק עבור המסכים שמצוירים כאן.
+  // base = "answered" from the funnel (sessions with any answer event). For closed
+  // questions that equals, by definition, the number of final answers that are not
+  // null — a null answer only exists on text questions (a deliberate skip), and
+  // those have no card. The breakdown denominators (stats_bases) count non-null
+  // final answers — exactly the same number for the screens drawn here.
   const answeredBy = new Map(funnel.map((f) => [f.screen_id, f.answered]));
   const byScreen = new Map<string, DistStat[]>();
   for (const row of dist) {
@@ -260,7 +267,7 @@ export function questionCards(
 
     let bars: ChoiceBar[] | undefined;
     if (screen.type === 'single' || screen.type === 'multi') {
-      // בפילוח פעיל יש שורה לכל (מפתח, מימד) — הסכימה כאן, לא הנחת שורה-למפתח
+      // With a breakdown active there is a row per (key, dimension) — the summing happens here, rather than assuming one row per key
       const totals = new Map<string, number>();
       for (const a of atoms) totals.set(a.answer_key, (totals.get(a.answer_key) ?? 0) + a.n);
       bars = screen.options.map((o) => ({
@@ -281,7 +288,7 @@ export function questionCards(
         });
       }
       if (split && split.legend.mode === 'ok') {
-        // מפתח מורכב חד-משמעי — מזהי אפשרויות וערכי מימד יכולים להכיל כל תו
+        // An unambiguous composite key — option ids and dimension values may contain any character
         const byDim = new Map<string, number>();
         for (const a of atoms) byDim.set(JSON.stringify([a.answer_key, a.dim_value]), a.n);
         const baseOf = new Map(
@@ -353,7 +360,7 @@ export function questionCards(
 
     let numberValues: { value: number; count: number }[] | undefined;
     if (screen.type === 'number') {
-      // סכימה פר ערך — בפילוח אותו ערך מגיע בשורה לכל מימד
+      // Summing per value — under a breakdown the same value arrives in a row per dimension
       const perValue = new Map<number, number>();
       for (const a of atoms) {
         const value = Number(a.answer_key);
@@ -379,7 +386,7 @@ export function questionCards(
   return cards;
 }
 
-// ─── פילוח (ENG-18) ─────────────────────────────────────────────────────────
+// ─── breakdowns (ENG-18) ────────────────────────────────────────────────────
 
 export interface DimensionOption {
   key: string;
@@ -387,9 +394,10 @@ export interface DimensionOption {
 }
 
 /**
- * המימדים המוצעים לפילוח: משתני varMeta (התוויות שלהם), משתני randomVars
- * (זרועות ניסוי), מקור ההגעה url_source, ותוצאת הסשן. בכוונה לא כל url_*
- * (מזהי פאנל = קרדינליות של אדם-לערך).
+ * The dimensions offered for a breakdown: varMeta variables (by their labels),
+ * randomVars variables (experiment arms), the arrival source url_source, and the
+ * session outcome. Deliberately not every url_* (panel ids = one value per
+ * person's worth of cardinality).
  */
 export function dimensionOptions(versions: StatsVersion[], selected: string): DimensionOption[] {
   const config = chosenConfig(versions, selected);
@@ -407,7 +415,7 @@ export function dimensionOptions(versions: StatsVersion[], selected: string): Di
   return out;
 }
 
-/** ערך מימד במקרא: key=null הוא "לא ידוע" (סשן בלי ערך למימד) */
+/** A dimension value in the legend: key=null is "unknown" (a session with no value for the dimension) */
 export interface DimValue {
   key: string | null;
   label: string;
@@ -415,16 +423,17 @@ export interface DimValue {
 }
 
 export interface DimensionLegend {
-  /** refused = יותר מ-12 ערכים — אין דרך לצייר את זה בכנות */
+  /** refused = more than 12 values — there is no honest way to draw that */
   mode: 'ok' | 'refused';
   values: DimValue[];
   distinct: number;
 }
 
 /**
- * פלטת הסדרות: סדר הגוונים הקבוע של מיומנות ה-dataviz (מאומת ל-CVD בסדר
- * הזה — הסדר הוא מנגנון הבטיחות, לא קוסמטיקה). הצבע צמוד לזהות הערך, לא
- * לשכיחות שלו. אפור שמור ל"לא ידוע" ואינו חלק מהסדרה.
+ * The series palette: the dataviz skill's fixed hue order (validated for colour
+ * vision deficiency *in that order* — the order is the safety mechanism, not
+ * cosmetics). The colour is bound to the value's identity, not to its frequency.
+ * Grey is reserved for "unknown" and is not part of the series.
  */
 const SERIES_PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 const UNKNOWN_COLOR = '#9ca3af';
@@ -438,11 +447,11 @@ const OUTCOME_LABELS: Record<string, string> = {
   abandoned_bounce: 'לא ענו כלל',
 };
 
-/** תווית עברית לתוצאת סשן בשורת תשובה בודדת (abandoned = כל נטישה) */
+/** A Hebrew label for a session outcome on a single answer row (abandoned = any abandonment) */
 export const outcomeLabel = (outcome: string): string =>
   outcome === 'abandoned' ? 'נטישה' : (OUTCOME_LABELS[outcome] ?? outcome);
 
-/** שאלות הטקסט של הקונפיג הקובע — הרשימה שלשונית התשובות הפתוחות מדפדפת */
+/** The governing config's text questions — the list the open-answers tab pages through */
 export function textScreens(
   versions: StatsVersion[],
   selected: string,
@@ -466,14 +475,15 @@ export function dimensionLegend(
     if (row.dim_value === null) hasUnknown = true;
     else present.add(row.dim_value);
   }
-  // "לא ידוע" הוא עמודה בתרשים לכל דבר — נספר בתקרה יחד עם הערכים הידועים
+  // "Unknown" is a bar in the chart like any other — it counts towards the ceiling alongside the known values
   const distinct = present.size + (hasUnknown ? 1 : 0);
   if (distinct > MAX_DIMENSION_VALUES) {
     return { mode: 'refused', values: [], distinct };
   }
 
-  // סדר יציב שאינו תלוי בשכיחות: הסדר המוצהר (varMeta / סדר התוצאות הקבוע),
-  // וערכים שאינם מוצהרים — לקסיקוגרפית. כך פילטר לא "צובע מחדש" קבוצות.
+  // A stable order that does not depend on frequency: the declared order (varMeta
+  // / the fixed outcome order), and undeclared values lexicographically. That way
+  // a filter never "recolours" the groups.
   const declared =
     by === '_outcome'
       ? OUTCOME_ORDER
@@ -500,7 +510,7 @@ export interface SplitSpec {
   bases: BaseStat[];
 }
 
-// ─── היסטוגרמה (ENG-17) ─────────────────────────────────────────────────────
+// ─── the histogram (ENG-17) ─────────────────────────────────────────────────
 
 export interface NumberBin {
   from: number;
@@ -508,7 +518,7 @@ export interface NumberBin {
   count: number;
 }
 
-/** רוחב-סל "נקי": 1/2/5 × 10^k — הקרוב מלמעלה לרוחב הגולמי */
+/** A "clean" bucket width: 1/2/5 × 10^k — the nearest one at or above the raw width */
 function niceWidth(raw: number): number {
   const pow = 10 ** Math.floor(Math.log10(raw));
   const frac = raw / pow;
@@ -517,8 +527,9 @@ function niceWidth(raw: number): number {
 }
 
 /**
- * חלוקת ערכים לסלים בגבולות עגולים: הרוחב נבחר כך שמספר הסלים ≤ target,
- * והקצוות מיושרים לכפולות הרוחב — "0–500,000" ולא "400,123–723,456".
+ * Bucketing values on round boundaries: the width is chosen so the bucket count
+ * is ≤ target, and the edges are aligned to multiples of the width — "0–500,000"
+ * and not "400,123–723,456".
  */
 export function binNumbers(
   values: { value: number; count: number }[],
@@ -543,17 +554,17 @@ export function binNumbers(
   return bins;
 }
 
-/** מפתח-מימד לספירות ההיסטוגרמה: null (לא ידוע) מקבל מפתח שמור */
+/** The dimension key for the histogram counts: null (unknown) gets a reserved key */
 export const UNKNOWN_DIM_KEY = '__unknown__';
 
 export interface NumberBinByDim {
   from: number;
   to: number;
-  /** ספירה לכל ערך מימד; המפתח לערך לא-ידוע הוא UNKNOWN_DIM_KEY */
+  /** A count per dimension value; the key for an unknown value is UNKNOWN_DIM_KEY */
   counts: Record<string, number>;
 }
 
-/** היסטוגרמה מפולחת: אותם סלים לכל הקבוצות (השוואה בין קבוצות דורשת צירים זהים) */
+/** A broken-down histogram: the same buckets for every group (comparing groups requires identical axes) */
 export function binNumbersByDim(atoms: DistStat[], targetBins: number): NumberBinByDim[] {
   const numeric = atoms
     .map((a) => ({ value: Number(a.answer_key), dim: a.dim_value, count: a.n }))

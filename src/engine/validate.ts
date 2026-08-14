@@ -43,15 +43,15 @@ type Leaf =
   | { q: string; op: string; value?: unknown }
   | { var: string; op: string; value?: unknown };
 
-/** אופרטורים שערכם אמור להיות מזהה אפשרות של המסך המופנה. */
+/** Operators whose value is meant to be an option id on the screen they point at. */
 const OPTION_VALUE_OPS = new Set(['eq', 'ne', 'in', 'includes', 'includesAny']);
 
-/** אפשרויות הבחירה של המסך, או null למסך שאין לו אפשרויות. */
+/** The screen's choice options, or null for a screen that has none. */
 function optionsOf(screen: Screen): Option[] | null {
   return screen.type === 'single' || screen.type === 'multi' ? screen.options : null;
 }
 
-/** הכותרת שהמשיב רואה, והשם של השדה שמחזיק אותה (להודעה בעברית). */
+/** The heading the respondent sees, and the name of the field holding it (for the Hebrew message). */
 function headingOf(screen: Screen): { text: unknown; field: string } {
   switch (screen.type) {
     case 'info':
@@ -64,9 +64,10 @@ function headingOf(screen: Screen): { text: unknown; field: string } {
 }
 
 /**
- * שלמות רשימת פריטים (אפשרויות במסך בחירה, שורות במטריצה): רשימה לא ריקה,
- * מזהים קיימים וייחודיים, ותוויות לא ריקות. כל אחד מאלה שובר את המסך למשיב
- * או את הקידוד בניתוח.
+ * Integrity of an item list (options on a choice screen, rows in a matrix): a
+ * non-empty list, ids that exist and are unique, and labels that are not blank.
+ * Each of these breaks either the screen for the respondent or the coding in
+ * analysis.
  */
 function checkChoiceList(
   screenId: string,
@@ -116,7 +117,7 @@ function collectLeaves(cond: Condition, out: Leaf[]): void {
   else out.push(cond);
 }
 
-/** כל התנאים שמופיעים על מסך: showIf, next[].if, onSubmit[].if */
+/** Every condition that appears on a screen: showIf, next[].if, onSubmit[].if */
 export function screenConditions(screen: Screen): Condition[] {
   const out: Condition[] = [];
   if (screen.showIf) out.push(screen.showIf);
@@ -126,11 +127,13 @@ export function screenConditions(screen: Screen): Condition[] {
 }
 
 /**
- * קשתות יציאה ממסך, לפי סמנטיקת findNext:
- * - כל יעד goto בכללי next (כללים אחרי כלל ללא-תנאי הם קוד מת ולא נספרים);
- * - אם אין כלל ללא-תנאי — נפילה קדימה: המסך הבא במערך, וכל עוד למסך הבא יש
- *   showIf (כלומר הוא עשוי להידלג) גם המסך שאחריו, עד המסך הראשון בלי showIf.
- * - ממסך end אין קשתות (הסשן מסתיים).
+ * A screen's outgoing edges, following findNext's semantics:
+ * - every goto target in the next rules (rules after an unconditional one are
+ *   dead code and are not counted);
+ * - with no unconditional rule — fall-through: the next screen in the array, and
+ *   as long as that screen has a showIf (meaning it may be skipped) the one
+ *   after it too, up to the first screen with no showIf.
+ * - an end screen has no edges (the session is over).
  */
 function edgesFrom(screens: Screen[], idToIndex: Map<string, number>, index: number): number[] {
   const screen = screens[index];
@@ -154,11 +157,11 @@ function edgesFrom(screens: Screen[], idToIndex: Map<string, number>, index: num
   return targets;
 }
 
-/** האם קבוצת כללי onSubmit של משתנה במסך אחד היא "טוטאלית" — תמיד מציבה ערך. */
+/** Whether one screen's onSubmit rules for a variable are "total" — they always assign a value. */
 function assignsTotally(screen: Screen, varName: string): boolean {
   const rules = (screen.onSubmit ?? []).filter((r) => r.var === varName);
   if (rules.some((r) => !r.if)) return true;
-  // זוג משלים: כלל עם תנאי X וכלל עם תנאי not(X)
+  // A complementary pair: a rule with condition X and a rule with condition not(X)
   for (const a of rules) {
     for (const b of rules) {
       if (a === b || !a.if || !b.if) continue;
@@ -169,12 +172,14 @@ function assignsTotally(screen: Screen, varName: string): boolean {
 }
 
 /**
- * ערך בתנאי שאמור להיות מזהה אפשרות — ואינו אחת מהאפשרויות של המסך המופנה.
- * זה מה שקורה כששמו של id של אפשרות משתנה או שהאפשרות נמחקת: התנאי נשאר
- * תקין תחבירית, והענף פשוט מת בלי שום סימן חיצוני.
+ * A condition value that is meant to be an option id — and is not one of the
+ * options on the screen it points at. This is what happens when an option's id
+ * is renamed or the option is deleted: the condition stays syntactically valid,
+ * and the branch simply dies with no outward sign.
  *
- * ⚠ רק ערכים מחרוזתיים נבדקים. השוואה מול מספר (למשל על מסך שהיה בעבר מסוג
- * אחר) עשויה להיות מכוונת, ואזהרת שווא כאן גרועה יותר מהחמצה.
+ * ⚠ Only string values are checked. A comparison against a number (on a screen
+ * that used to be of another type, say) may well be intentional, and a false
+ * warning here is worse than a miss.
  */
 function checkOptionValues(
   screenId: string,
@@ -185,7 +190,7 @@ function checkOptionValues(
 ): void {
   if (!OPTION_VALUE_OPS.has(leaf.op)) return;
   const targetIndex = idToIndex.get(leaf.q);
-  if (targetIndex === undefined) return; // כבר דווח כ-unknown-ref
+  if (targetIndex === undefined) return; // already reported as unknown-ref
   const options = optionsOf(screens[targetIndex]);
   if (!options) return;
 
@@ -193,7 +198,7 @@ function checkOptionValues(
   const values = Array.isArray(leaf.value) ? leaf.value : [leaf.value];
   for (const value of values) {
     if (typeof value !== 'string' || ids.has(value)) continue;
-    // ne הפוך: ערך שלא קיים הופך את התנאי לאמת תמידית ולא לענף מת
+    // ne is the mirror image: a value that does not exist makes the condition always true, not a dead branch
     const effect =
       leaf.op === 'ne' ? 'התנאי יתקיים אצל כל משיב' : 'המסלול הזה לעולם לא ייפתח';
     issues.push({
@@ -213,7 +218,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     return [{ level: 'error', code: 'empty-config', message: 'השאלון ריק — אין בו אף מסך' }];
   }
 
-  // --- זהויות ---
+  // --- identities ---
   const idToIndex = new Map<string, number>();
   screens.forEach((s, i) => {
     if (!s.id || !s.id.trim()) {
@@ -253,11 +258,12 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     });
   }
 
-  // --- משתנים מוגרלים ---
-  // ההגרלה נעשית פעם אחת בכניסה (initVars ב-App.tsx) ומשם הערך קבוע למשיב.
-  // רשימה של ערך אחד אינה ניסוי — כל המשיבים יקבלו אותו ערך, ושתי הזרועות
-  // שהאדמין חשב שהוא מודד יהיו זרוע אחת. ערך ריק גרוע אף יותר: מי שיוגרל
-  // אליו יראה מחרוזת ריקה בתוך נוסח השאלה.
+  // --- random variables ---
+  // The draw happens once on entry (initVars in App.tsx) and the value is fixed
+  // for that respondent from then on. A list of one value is not an experiment —
+  // every respondent gets the same value, and the two arms the admin thought
+  // they were measuring are one arm. An empty value is worse still: whoever
+  // draws it reads a hole in the middle of the question.
   for (const [name, values] of Object.entries(config.randomVars ?? {})) {
     const list = Array.isArray(values) ? values : [];
     if (list.length < 2) {
@@ -289,10 +295,12 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     }
   }
 
-  // --- מכסות ---
-  // מכסה על ערך של סימון היא הבטחה שמישהו יאכוף אותה: ברגע שהיא מתמלאת המשיב
-  // מנותב למסך סיום מסוג "המכסה כבר מלאה" (ראו engine/quota.ts). בלי מסך כזה
-  // אין לאן לשלוח אותו והמכסה פשוט לא תיאכף — כישלון שקט מול הגדרה שנראית תקינה.
+  // --- quotas ---
+  // A quota on a mark value is a promise that someone will enforce it: the
+  // moment it fills, the respondent is routed to a "quota already full" end
+  // screen (see engine/quota.ts). With no such screen there is nowhere to send
+  // them and the quota simply never applies — a silent failure behind a
+  // definition that looks perfectly fine.
   const quotas = quotaCells(config);
 
   if (quotas.length > 0 && !quotaFullScreen(config)) {
@@ -313,8 +321,8 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
       });
       continue;
     }
-    // ערך שאף מסך לא קובע לא ייספר לעולם, ולכן המכסה שלו היא הגדרה מתה: היא
-    // נראית פעילה בקונסולה ולא תעצור אף משיב.
+    // A value no screen ever sets will never be counted, so its quota is dead
+    // config: it looks active in the console and will stop no one.
     const setBy = screens.some((s) =>
       (s.onSubmit ?? []).some((r) => r.var === mark && String(r.value) === value),
     );
@@ -327,9 +335,10 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     }
   }
 
-  // --- שלמות תוכן המסך ---
-  // עריכה שנראית תמימה (שינוי מזהה אפשרות, מחיקת האפשרות האחרונה, סולם הפוך)
-  // יכולה להשאיר את המשיב מול מסך ריק או תקוע בלי דרך להמשיך ובלי דרך לחזור.
+  // --- screen content integrity ---
+  // An edit that looks harmless (renaming an option id, deleting the last
+  // option, inverting a scale) can leave the respondent staring at an empty
+  // screen, or stuck with no way forward and no way back.
   for (const s of screens) {
     const heading = headingOf(s);
     if (typeof heading.text !== 'string' || !heading.text.trim()) {
@@ -424,7 +433,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     }
   }
 
-  // --- שלמות הפניות ---
+  // --- reference integrity ---
   const producedVars = new Set<string>(Object.keys(config.randomVars ?? {}));
   for (const s of screens) for (const r of s.onSubmit ?? []) producedVars.add(r.var);
 
@@ -461,9 +470,11 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
       if ('q' in leaf) checkOptionValues(s.id, leaf, screens, idToIndex, issues);
     }
 
-    // שיבוץ ‎{name}‎ בנוסח המסך. interpolate משאיר את הטוקן כמו שהוא כשאין לו
-    // ערך, ולכן הפניה שבורה אינה כשל שקט: המשיב קורא ‎{price}‎ עם הסוגריים
-    // בתוך השאלה. הפניה לשאלה לגיטימית — interpolate נופל גם על התשובות.
+    // `{name}` interpolation in the screen text. interpolate leaves the token as
+    // it is when there is no value behind it, so a broken reference is not a
+    // silent failure: the respondent reads `{price}`, braces and all, inside the
+    // question. Pointing at a question is legitimate — interpolate falls back to
+    // the answers too.
     const interpolated = new Set<string>();
     for (const text of interpolatedTexts(s)) {
       if (typeof text !== 'string') continue;
@@ -481,11 +492,11 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     }
   }
 
-  // אם הזהויות שבורות אין טעם בבדיקות גרף — התוצאות יטעו
+  // With broken identities the graph checks are pointless — their results would mislead
   if (issues.some((i) => i.code === 'duplicate-id' || i.code === 'empty-id')) return issues;
 
-  // --- גרף: מעגלים ---
-  // צביעה: 0=לבן 1=אפור(במסלול הנוכחי) 2=שחור. קשת אל אפור = מעגל.
+  // --- graph: cycles ---
+  // Colouring: 0=white 1=grey (on the current path) 2=black. An edge into grey = a cycle.
   const color = new Array<number>(screens.length).fill(0);
   const stack: number[] = [];
   let cycleReported = false;
@@ -502,7 +513,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
           level: 'error',
           code: 'cycle',
           screenId: screens[v].id,
-          // מזהים במרכאות כדי שהקונסולה תוכל להחליף אותם בשמות המסכים
+          // Ids in quotes so the console can swap them for the screen names
           message: `הזרימה חוזרת על עצמה: ${path.map((id) => `"${id}"`).join(' ← ')} — משיב עלול להסתובב כאן בלי סוף`,
         });
         cycleReported = true;
@@ -515,7 +526,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   }
   for (let i = 0; i < screens.length && !cycleReported; i++) if (color[i] === 0) dfs(i);
 
-  // --- גרף: נגישות מהמסך הראשון ---
+  // --- graph: reachability from the first screen ---
   const reachable = new Set<number>([0]);
   const queue = [0];
   while (queue.length > 0) {
@@ -550,17 +561,19 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     });
   }
 
-  // --- סדר: משתנה שנבדק לפני שהוא מוצב ---
-  // גרירה אחת בעכבר יכולה להקדים מסך מותנה לפני המסך שמייצר את המשתנה שלו.
-  // התוצאה שקטה לחלוטין: המסך פשוט לא יוצג לאף משיב, כי בזמן הבדיקה למשתנה
-  // עדיין אין ערך.
+  // --- order: a variable tested before it is assigned ---
+  // A single drag of the mouse can move a conditional screen ahead of the screen
+  // that produces its variable. The result is completely silent: the screen is
+  // simply never shown to anyone, because at the moment the condition is tested
+  // the variable still has no value.
   //
-  // showIf נבדק *לפני* שהמסך נשלח ולכן דורש יצרן במסך קודם ממש; כללי next
-  // ו-onSubmit נבדקים אחרי שכללי ה-onSubmit של המסך עצמו כבר רצו (App.tsx
-  // ממקם אותם על אותו ctx), ולכן המסך עצמו נחשב יצרן לגיטימי עבורם.
+  // showIf is tested *before* the screen is submitted and so needs a producer on
+  // a strictly earlier screen; next and onSubmit rules are tested after the
+  // screen's own onSubmit rules have already run (App.tsx applies them to the
+  // same ctx), so for those the screen itself counts as a legitimate producer.
   //
-  // אזהרה ולא שגיאה: כללי goto יכולים לשנות את סדר ההגעה בפועל, וסדר המערך
-  // הוא רק ברירת המחדל.
+  // A warning and not an error: goto rules can change the order of arrival in
+  // practice, and the array order is only the default.
   const varProducers = new Map<string, number[]>();
   screens.forEach((s, i) => {
     for (const rule of s.onSubmit ?? []) {
@@ -583,7 +596,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         if (leaf.var.startsWith('url_')) continue;
         if (config.randomVars && leaf.var in config.randomVars) continue;
         const producers = varProducers.get(leaf.var);
-        if (!producers || producers.length === 0) continue; // כבר דווח כ-unknown-ref
+        if (!producers || producers.length === 0) continue; // already reported as unknown-ref
         if (producers.some((p) => p <= latestProducer)) continue;
         reported.add(leaf.var);
         issues.push({
@@ -596,9 +609,10 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     }
   });
 
-  // --- אינווריאנטת הטוטאליות של onSubmit ---
-  // משתנה שמשמש בתנאים חייב להיות מוצב באופן טוטאלי לפחות במסך אחד, אחרת
-  // חזרה אחורה ושינוי תשובה עלולים להשאיר ערך ישן (ראו placeholder.ts).
+  // --- the onSubmit totality invariant ---
+  // A variable used in conditions has to be assigned totally on at least one
+  // screen; otherwise going back and changing an answer can leave the old value
+  // in place (see placeholder.ts).
   const varsUsedInConditions = new Set<string>();
   for (const s of screens) {
     const leaves: Leaf[] = [];
@@ -609,7 +623,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     if (varName.startsWith('url_')) continue;
     if (config.randomVars && varName in config.randomVars) continue;
     const settingScreens = screens.filter((s) => (s.onSubmit ?? []).some((r) => r.var === varName));
-    if (settingScreens.length === 0) continue; // כבר דווח כ-unknown-ref
+    if (settingScreens.length === 0) continue; // already reported as unknown-ref
     if (!settingScreens.some((s) => assignsTotally(s, varName))) {
       issues.push({
         level: 'warning',

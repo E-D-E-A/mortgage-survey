@@ -1,13 +1,14 @@
-// בדיקות אינטגרציה מול ה-Supabase המקומי (ENG-12). לא רצות בסתם `npm test`:
-// הן דורשות סטאק רץ (`npx supabase start`) ודגל מפורש —
+// Integration tests against the local Supabase (ENG-12). They do not run under a
+// plain `npm test`: they need a running stack (`npx supabase start`) and an
+// explicit flag —
 //   bash:        DB_TESTS=1 npx vitest run tests/db
 //   PowerShell:  $env:DB_TESTS='1'; npx vitest run tests/db
-// בלי הדגל הקבוצה מדולגת (ירוקה) — CI נשאר בלי Docker.
+// Without the flag the suite is skipped (and green) — CI stays free of Docker.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applySchema, connectLocal, dbTestsEnabled, type Sql } from './harness';
 
-// session_id קבוע לפיקסטורה — הבדיקה מוחקת ומכניסה מחדש את האירועים שלה,
-// ולכן ריצה חוזרת על סטאק חי לא צוברת כפילויות.
+// A fixed session_id for the fixture — the test deletes and re-inserts its own
+// events, so a re-run against a live stack accumulates no duplicates.
 const SID = '11111111-1111-4111-8111-111111111111';
 const VERSION = '2026-08-01.1-ittest';
 
@@ -18,7 +19,7 @@ describe.runIf(dbTestsEnabled)('local Supabase stack', () => {
 
   beforeAll(async () => {
     sql = connectLocal();
-    // פעמיים בכוונה: schema.sql מוצהר כ-idempotent — הרצה שנייה חייבת לעבור נקי
+    // Twice deliberately: schema.sql is declared idempotent — a second run has to pass cleanly
     await applySchema(sql);
     await applySchema(sql);
   });

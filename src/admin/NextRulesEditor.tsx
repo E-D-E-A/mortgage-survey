@@ -1,5 +1,6 @@
-// עורך כללי הניתוב (next): רשימה סדורה של "אם תנאי → מעבר למסך".
-// הכלל הראשון שתנאו מתקיים מנצח; כלל בלי תנאי הוא ברירת מחדל שתמיד נתפסת.
+// The routing rules (next) editor: an ordered list of "if condition → go to
+// screen". The first rule whose condition holds wins; a rule with no condition is
+// a default that always catches.
 
 import type { GotoRule } from '../engine/types';
 import type { Naming } from './display';

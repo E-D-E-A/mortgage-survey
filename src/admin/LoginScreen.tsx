@@ -1,6 +1,7 @@
-// מסך כניסה: Google בלבד, דרך Supabase Auth. אין סיסמאות ואין הרשמה עצמית.
-// הכפתור הוא UX בלבד — ההגבלה לחשבונות first-edea.com נאכפת בשרת
-// (netlify/functions/lib/session.ts), ולא כאן.
+// The sign-in screen: Google only, through Supabase Auth. No passwords and no
+// self-registration. The button is UX only — the restriction to first-edea.com
+// accounts is enforced on the server (netlify/functions/lib/session.ts), not
+// here.
 
 import { useState } from 'react';
 import { authConfigured, signInWithGoogle } from './supabaseClient';
@@ -14,7 +15,7 @@ export function LoginScreen() {
     setBusy(true);
     try {
       await signInWithGoogle();
-      // הצלחה = הפניה לגוגל; הדף מתחלף ולכן busy נשאר true
+      // Success = a redirect to Google; the page is replaced, so busy stays true
     } catch {
       setError('לא הצלחנו לפתוח את הכניסה עם Google — נסו שוב');
       setBusy(false);

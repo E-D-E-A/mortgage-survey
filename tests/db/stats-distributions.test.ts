@@ -1,5 +1,6 @@
-// ENG-15: תשובה סופית אחת לסשן לשאלה (final_answers) ופריסת אטומי-תשובה
-// להתפלגויות (stats_distributions). הציפיות חושבו ביד. רץ רק עם DB_TESTS=1.
+// ENG-15: one final answer per session per question (final_answers) and the
+// expansion into answer atoms for the distributions (stats_distributions). The
+// expectations were worked out by hand. Runs only with DB_TESTS=1.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   applySchema,
@@ -17,10 +18,11 @@ const V = '2026-08-01.1-dstest';
 const ids = idFactory('c3');
 
 // s1: single=a · multi=[x,y] · matrix {i1:4, i2:na} · number=7
-// s2: single ענה a, חזר ושינה ל-b (attempt 2) · multi=[x] · matrix {i1:5, i2:2} · number=7
-// s3: single=a בלבד ואז נטש
-// s4: number=12, טקסט שדולג (value null) — null אינו אטום
-// s5: סשן בדיקה single=a — מוחרג כברירת מחדל
+// s2: single answered a, went back and changed it to b (attempt 2) · multi=[x] ·
+//     matrix {i1:5, i2:2} · number=7
+// s3: single=a only, then abandoned
+// s4: number=12, a skipped text answer (value null) — null is not an atom
+// s5: a test session, single=a — excluded by default
 const fixture = [
   ...sessionEvents(ids, 1, V, {
     steps: [
@@ -77,7 +79,7 @@ describe.runIf(dbTestsEnabled)('final_answers + stats_distributions (ENG-15)', (
   it('a back-and-change session counts exactly once, with its final answer', async () => {
     const rows = await dist();
     const single = rows.filter((r) => r.screen_id === 'q_single');
-    // a: s1 + s3 (הניסיון הראשון של s2 נדרס ע"י attempt 2) · b: s2
+    // a: s1 + s3 (s2's first attempt was overwritten by attempt 2) · b: s2
     expect(single).toEqual([
       expect.objectContaining({ answer_key: 'a', item_id: null, n: 2 }),
       expect.objectContaining({ answer_key: 'b', item_id: null, n: 1 }),

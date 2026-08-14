@@ -1,6 +1,8 @@
-// רשימת המסכים — הלב של הקונסולה. סדר הרשימה הוא סדר הזרימה ברירת-המחדל
-// (המנוע סורק קדימה), ולכן גרירה ושחרור כאן היא שינוי ניתוב לכל דבר.
-// ענפים מוצגים כתגיות: תנאי תצוגה, קפיצות goto יוצאות ונכנסות, משתנים.
+// The screen list — the heart of the console. The list order is the default flow
+// order (the engine scans forward), which makes drag-and-drop here a routing
+// change in every sense.
+// Lanes are shown as tags: display conditions, outgoing and incoming goto jumps,
+// and variables.
 
 import { useMemo, useState } from 'react';
 import {
@@ -43,7 +45,7 @@ export function ScreenList({ screens, naming, selectedId, issues, onSelect, onRe
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // goto נכנסים: יעד ← מקורות
+  // Incoming gotos: target ← sources
   const incoming = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const s of screens) {
@@ -188,8 +190,9 @@ const NEW_TYPES: Screen['type'][] = ['info', 'consent', 'single', 'multi', 'matr
 function AddScreenForm({ screens, onAdd }: { screens: Screen[]; onAdd: ListProps['onAdd'] }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<Screen['type']>('single');
-  // הקוד מגיע מוכן: אדמין לא-טכני לא אמור להמציא מזהה כדי להוסיף שאלה, אבל
-  // הוא כן נשאר גלוי ולעריכה — זה השם שהחוקר יראה בקובץ הנתונים
+  // The code arrives ready-made: a non-technical admin should not have to invent
+  // an id in order to add a question — but it does stay visible and editable, as
+  // it is the name the researcher will see in the data file
   const [id, setId] = useState(() => uniqueId('screen', screens));
   const [touched, setTouched] = useState(false);
   const trimmed = id.trim();

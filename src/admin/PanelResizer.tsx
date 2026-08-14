@@ -1,22 +1,23 @@
-// ידית לשינוי רוחב של אחד משני הפאנלים שמשני צדי התרשים.
-// הידית יושבת על הגבול הפנימי של הפאנל (זה שפונה אל התרשים), ולכן כיוון
-// הגרירה שמרחיב אותו תלוי גם בצד שבו הוא יושב וגם בכיוון הכתיבה של הדף.
+// A handle for resizing one of the two panels flanking the diagram.
+// The handle sits on the panel's inner border (the one facing the diagram), so
+// the drag direction that widens it depends both on which side it sits on and on
+// the page's writing direction.
 
 import { useRef } from 'react';
 
 const RTL = document.documentElement.dir === 'rtl';
 
-/** צעד מקלדת — מספיק גדול כדי להרגיש, מספיק קטן כדי לכוון */
+/** The keyboard step — large enough to feel, small enough to aim with */
 const STEP = 24;
 
 interface Props {
-  /** רשימת המסכים יושבת בצד ההתחלה, מגירת העריכה בצד הסיום */
+  /** The screen list sits on the start side, the editing drawer on the end side */
   edge: 'sidebar' | 'drawer';
   width: number;
   label: string;
-  /** מחושב בזמן אמת: הגבולות תלויים ברוחב החלון ובפאנל שממול */
+  /** Computed live: the limits depend on the window width and on the panel opposite */
   clampWidth: (w: number) => number;
-  /** done=false בזמן גרירה, true בסופה — רק אז שומרים */
+  /** done=false while dragging, true at the end — only then is it saved */
   onWidth: (w: number, done: boolean) => void;
   onReset: () => void;
 }
@@ -24,10 +25,10 @@ interface Props {
 export function PanelResizer({ edge, width, label, clampWidth, onWidth, onReset }: Props) {
   const drag = useRef<{ x: number; w: number } | null>(null);
 
-  // גרירה שמאלה מרחיבה פאנל ימני ומצרה פאנל שמאלי — סימן אחד לכל הצירופים
+  // Dragging left widens a right-hand panel and narrows a left-hand one — one sign covers every combination
   const sign = (edge === 'sidebar') === RTL ? -1 : 1;
 
-  // מהמיקום ההתחלתי ולא בצעדים מצטברים, אחרת הידית "נסחפת" מהסמן בקצוות
+  // From the starting position and not in accumulated steps, otherwise the handle "drifts" away from the cursor at the limits
   const widthAt = (clientX: number) => {
     const d = drag.current!;
     return clampWidth(Math.round(d.w + (clientX - d.x) * sign));
@@ -56,7 +57,7 @@ export function PanelResizer({ edge, width, label, clampWidth, onWidth, onReset 
       title={`${label} — גררו, או לחצו פעמיים כדי לחזור לרוחב הרגיל`}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
-        // בלי זה הדפדפן מתחיל בחירת טקסט על הפאנל בזמן הגרירה
+        // Without this the browser starts selecting text on the panel while dragging
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         drag.current = { x: e.clientX, w: width };

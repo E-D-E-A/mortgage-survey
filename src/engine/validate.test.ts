@@ -143,7 +143,7 @@ describe('validateConfig', () => {
   });
 });
 
-// ── משתנים מוגרלים ושיבוץ בנוסח (ENG-19) ──
+// ── random variables and interpolation in screen text (ENG-19) ──
 
 describe('validateConfig · random variables', () => {
   const withRandom = (randomVars: SurveyConfig['randomVars'], screens?: Screen[]): SurveyConfig => ({
@@ -191,8 +191,8 @@ describe('validateConfig · random variables', () => {
   });
 
   it('reports each unknown name once per screen, in the fields the engine interpolates', () => {
-    // help אינו עובר interpolate (ראו withInterpolation ב-App.tsx), ולכן {ghost}
-    // שם אינו הפניה שבורה אלא טקסט
+    // help does not go through interpolate (see withInterpolation in App.tsx),
+    // so a {ghost} there is not a broken reference but plain text
     const c = cfg([
       info('a', { title: '{ghost}', body: '{ghost} ושוב {ghost}' }),
       { id: 'q1', type: 'text', prompt: 'שאלה', help: '{ghost}' },
@@ -204,7 +204,7 @@ describe('validateConfig · random variables', () => {
   });
 });
 
-// ── מכסות (ENG-20) ──
+// ── quotas (ENG-20) ──
 
 describe('validateConfig · quotas', () => {
   const quotaEnd = (id: string): Screen =>
@@ -245,9 +245,9 @@ describe('validateConfig · quotas', () => {
   });
 });
 
-// ── שלמות תוכן המסך ──
-// כל מקרה כאן הוא עריכה "חוקית" בקונסולה שהשאירה את השאלון שבור בלי שום
-// התרעה (דוח QA 2026-08-08, A7).
+// ── screen content integrity ──
+// Every case here is a "legal" edit in the console that left the survey broken
+// with no warning at all (QA report 2026-08-08, A7).
 
 const single = (id: string, options: { id: string; label: string }[], extra: Partial<Screen> = {}): Screen =>
   ({ id, type: 'single', prompt: id, options, ...extra }) as Screen;
@@ -340,7 +340,7 @@ describe('validateConfig · content integrity', () => {
     });
     expect(errors(cfg([multi(0), end('e')])).map((i) => i.code)).toContain('bad-max-selections');
     expect(errors(cfg([multi(-1), end('e')])).map((i) => i.code)).toContain('bad-max-selections');
-    // מכסה שאינה קטנה ממספר האפשרויות אינה שוברת דבר — רק חסרת טעם
+    // A cap that is not below the number of options breaks nothing — it is merely pointless
     const pointless = validateConfig(cfg([multi(2), end('e')])).find(
       (i) => i.code === 'bad-max-selections',
     );
@@ -392,7 +392,7 @@ describe('validateConfig · content integrity', () => {
   });
 });
 
-// ── סדר המשתנים (A8) ──
+// ── variable ordering (A8) ──
 
 describe('validateConfig · variable ordering', () => {
   const producer = (id: string): Screen =>
@@ -413,7 +413,7 @@ describe('validateConfig · variable ordering', () => {
   });
 
   it('a screen may use in next[] a variable its own onSubmit sets', () => {
-    // onSubmit רץ לפני findNext על אותו ctx, ולכן זה תקין ואסור להתריע
+    // onSubmit runs before findNext on the same ctx, so this is fine and must not be flagged
     const c = cfg([
       info('start'),
       info('q1', {

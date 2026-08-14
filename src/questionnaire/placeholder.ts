@@ -1,22 +1,27 @@
 import type { Condition, SurveyConfig } from '../engine/types';
 
-// ⚠️ שאלון הדגמה לבדיקת התשתית בלבד — לא הנוסח הסופי.
-// השאלון האמיתי הוא survey-v1.ts, והוא זה שנטען באפליקציה (src/data/config.ts).
-// הקובץ הזה נשאר כפיקסצ'ר לבדיקות (validate.test.ts) וכזרע לטיוטה חדשה בקונסול
-// הניהול (admin/useDraft.ts) — ראו "מה עדיין פתוח" ב-docs/wording-v1.md.
+// ⚠️ A demo survey for exercising the infrastructure only — not the final wording.
+// The real survey is survey-v1.ts, and that is what the app loads
+// (src/data/config.ts). This file stays on as a fixture for the tests
+// (validate.test.ts) and as the seed for a new draft in the admin console
+// (admin/useDraft.ts) — see "what is still open" in docs/wording-v1.md.
 //
-// הוא מפעיל בכוונה את כל המנגנונים שהשלד המחקרי דורש:
-//   - סינון עם ניתוב (גיל < 18 → סיום מוקדם)
-//   - תנאי משולב לקביעת מקטע B (צפי ≤ 12 חודשים וגם פעולה ממשית)
-//   - הקצאה אקראית של מחיר (ניסוי B39) עם שיבוץ בנוסח השאלה
-//   - ערבוב סדר פריטים במטריצה
-//   - אפשרות בלעדית ("לא ביצעתי אף פעולה") ברב-ברירה
-// השאלון הסופי ייכתב בקובץ נפרד באותו פורמט, אחרי תהליך הזיקוק.
+// It deliberately exercises every mechanism the research skeleton calls for:
+//   - screening with routing (age < 18 → an early end)
+//   - a combined condition for assigning segment B (expectation ≤ 12 months *and*
+//     a real action taken)
+//   - a random price assignment (the B39 experiment) interpolated into the
+//     question's wording
+//   - shuffling the item order in a matrix
+//   - an exclusive option ("I did none of these") in a multi-choice
+// The final survey will be written in a separate file in the same format, after
+// the refinement process.
 //
-// ⚠️ אינווריאנטה לכתיבת השאלון הסופי: משתני onSubmit (כמו segment) לא מתאפסים
-// בניווט אחורה. כל מסלול שמוביל למסך עם showIf על משתנה חייב לעבור דרך מסך
-// שמחשב את המשתנה מחדש ב-onSubmit — אחרת חזרה אחורה ושינוי תשובה עלולים
-// להשאיר ערך ישן. בשאלון הזה s_mortgage/s_actions מקיימים זאת.
+// ⚠️ An invariant for writing the final survey: onSubmit variables (segment and
+// the like) are not reset by backwards navigation. Every path leading to a screen
+// with a showIf on a variable has to pass through a screen that recomputes that
+// variable in onSubmit — otherwise going back and changing an answer can leave
+// the old value behind. In this survey s_mortgage/s_actions satisfy that.
 
 const REAL_ACTIONS = ['budget', 'bank', 'advisor', 'approval'];
 

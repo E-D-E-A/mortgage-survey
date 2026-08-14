@@ -1,9 +1,11 @@
-// קצה כתיבה יחיד לאירועי השאלון. הדפדפן שולח לכאן — בלי שום מפתח.
-// המפתחות (service_role) חיים רק בסביבת השרת של Netlify ולעולם לא נשלחים ללקוח.
-// service_role עוקף RLS, ולכן כל האכיפה נמצאת כאן: whitelist שדות, enum, מגבלות גודל.
+// The single write endpoint for survey events. The browser posts here — with no
+// key of any kind. The keys (service_role) live only in Netlify's server
+// environment and are never sent to the client. service_role bypasses RLS, so all
+// the enforcement lives here: a field whitelist, an enum, and size limits.
 
-// ⚠ חייב להישאר מסונכרן עם EventType ב-src/data/events.ts ועם ה-check על
-// survey_events ב-supabase/schema.sql — סוג חסר כאן מפיל אצווה שלמה ל-400.
+// ⚠ Must stay in sync with EventType in src/data/events.ts and with the check on
+// survey_events in supabase/schema.sql — a type missing here fails a whole batch
+// with a 400.
 const EVENT_TYPES = new Set([
   'session_start',
   'screen_view',
@@ -31,7 +33,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-// מחזיר שורה נקייה (רק השדות המוכרים) או null אם השורה פסולה.
+// Returns a clean row (known fields only) or null if the row is invalid.
 function sanitizeRow(raw: unknown): EventRow | null {
   if (!isPlainObject(raw)) return null;
   const { event_uid, session_id, survey_version, event_type, screen_id, payload, client_ts } = raw;
@@ -78,7 +80,7 @@ export default async (req: Request): Promise<Response> => {
     rows.push(row);
   }
 
-  // on_conflict + ignore-duplicates: retry מהלקוח לא יוצר כפילויות (event_uid ייחודי)
+  // on_conflict + ignore-duplicates: a retry from the client creates no duplicates (event_uid is unique)
   const res = await fetch(`${supaUrl}/rest/v1/survey_events?on_conflict=event_uid`, {
     method: 'POST',
     headers: {

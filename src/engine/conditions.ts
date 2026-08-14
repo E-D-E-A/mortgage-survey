@@ -1,6 +1,6 @@
 import type { AnswerValue, Condition, Screen, SurveyContext } from './types';
 
-/** מעריך תנאי הצגה/ניתוב מול התשובות ומשתני הסשן. */
+/** Evaluates a display/routing condition against the answers and session vars. */
 export function evaluate(cond: Condition, ctx: SurveyContext): boolean {
   if ('all' in cond) return cond.all.every((c) => evaluate(c, ctx));
   if ('any' in cond) return cond.any.some((c) => evaluate(c, ctx));
@@ -44,10 +44,10 @@ export function evaluate(cond: Condition, ctx: SurveyContext): boolean {
 
 type Vars = SurveyContext['vars'];
 
-/** תבנית השיבוץ — נקודת ההגדרה היחידה של התחביר, לקריאה ולכתיבה כאחד. */
+/** The interpolation pattern — the single definition of the syntax, for both reading and writing. */
 const INTERPOLATION_RE = /\{(\w+)\}/g;
 
-/** מחליף ‎{name}‎ בערך ממשתני הסשן או מהתשובות — למשל מחיר מוגרל בתוך נוסח שאלה. */
+/** Replaces `{name}` with a value from the session vars or the answers — e.g. a drawn price inside a question. */
 export function interpolate(text: string, ctx: SurveyContext): string {
   return text.replace(INTERPOLATION_RE, (match, key: string) => {
     const v = ctx.vars[key] ?? ctx.answers[key];

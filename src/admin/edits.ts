@@ -1,10 +1,11 @@
-// עריכות מבניות על רשימת המסכים, כפונקציות טהורות: היכן מסך חדש נכנס ומה
-// בדיוק מועתק בשכפול. שתיהן נראות טריוויאליות ושתיהן היו מקור לבאגים שקטים
-// (דוח QA 2026-08-08, A6 ו-A11), ולכן הן יושבות כאן ולא בתוך רכיב.
+// Structural edits to the screen list, as pure functions: where a new screen
+// goes in, and what exactly gets copied on duplication. Both look trivial and
+// both were a source of silent bugs (QA report 2026-08-08, A6 and A11), which is
+// why they live here rather than inside a component.
 
 import type { Screen } from '../engine/types';
 
-/** מזהה פנוי על בסיס `base`, בלי להתנגש בקיימים. */
+/** A free id based on `base`, without colliding with the existing ones. */
 export function uniqueId(base: string, screens: Screen[]): string {
   const taken = new Set(screens.map((s) => s.id));
   if (!taken.has(base)) return base;
@@ -14,13 +15,15 @@ export function uniqueId(base: string, screens: Screen[]): string {
 }
 
 /**
- * האם שתי גרסאות של הקונפיג חולקות בדיוק את אותו מבנה — אותם מפתחות בכל רמה,
- * אותם אורכי מערך — ונבדלות רק בערך של עלה.
+ * Whether two versions of the config share exactly the same shape — the same keys
+ * at every level, the same array lengths — and differ only in a leaf value.
  *
- * זה מה שמבדיל הקלדה בשדה (אותו מבנה, תו נוסף) מפעולה מבנית (הוספת אפשרות,
- * מחיקת שורה, הסרת תנאי). היסטוריית ה-undo מאחדת עריכות צפופות כדי שהקלדה
- * לא תייצר צעד undo לכל תו — אבל בלי הבחנה הזאת גם שתי לחיצות כפתור בתוך
- * שנייה התאחדו, וביטול אחד ביטל כמה פעולות נפרדות שהעורך ביצע בכוונה.
+ * This is what tells typing in a field (same shape, one more character) apart
+ * from a structural action (adding an option, deleting a row, removing a
+ * condition). The undo history merges edits made in quick succession so that
+ * typing does not produce an undo step per character — but without this
+ * distinction two button presses within a second merged too, and a single undo
+ * reversed several separate actions the editor took deliberately.
  */
 export function sameShape(a: unknown, b: unknown): boolean {
   if (a === null || b === null) return a === b;
@@ -38,17 +41,18 @@ export function sameShape(a: unknown, b: unknown): boolean {
         sameShape((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
     );
   }
-  // עלה: גם החלפת טיפוס (מספר ↔ מחרוזת) היא שינוי מבני ולא הקלדה
+  // A leaf: swapping the type (number ↔ string) is a structural change too, not typing
   return typeof a === typeof b;
 }
 
 /**
- * הקוד הפנוי הבא לאפשרות או לשורת מטריצה.
+ * The next free code for an option or a matrix row.
  *
- * ספירה לפי אורך הרשימה מייצרת קוד כפול ברגע שנמחקה שורה באמצע: opt_1..opt_3,
- * מוחקים את opt_1, ו"הוספת אפשרות" מייצרת opt_3 שכבר קיים. הוולידציה אמנם
- * מתריעה, אבל השגיאה נולדת מלחיצה על כפתור תקין — ובניתוח שתי שורות עם אותו
- * קוד אינן ניתנות להפרדה.
+ * Counting by list length produces a duplicate code the moment a row in the
+ * middle is deleted: opt_1..opt_3, delete opt_1, and "add an option" produces an
+ * opt_3 that already exists. Validation does warn about it, but the error is born
+ * from clicking a perfectly valid button — and in analysis two rows with the same
+ * code cannot be told apart.
  */
 export function nextChoiceId(prefix: string, taken: readonly { id: string }[]): string {
   const used = new Set(taken.map((t) => t.id));
@@ -59,19 +63,22 @@ export function nextChoiceId(prefix: string, taken: readonly { id: string }[]): 
 }
 
 /**
- * היכן להכניס מסך חדש.
+ * Where a new screen goes in.
  *
- * הוספה לסוף המערך נחתה אחרי מסכי הסיום: כל הוספה ייצרה מיד אזהרת "אינו נגיש
- * מהמסך הראשון" וחייבה גרירה ידנית לאורך 70 פריטים. במקום זה — אחרי המסך
- * שנבחר כרגע, ואם אין נבחר (או שהנבחר הוא מסך סיום) לפני מסך הסיום הראשון.
+ * Appending to the end of the array landed it after the end screens: every
+ * insertion immediately produced an "unreachable from the first screen" warning
+ * and required dragging it by hand past 70 items. Instead — after the currently
+ * selected screen, and with nothing selected (or an end screen selected) before
+ * the first end screen.
  */
 export function insertScreen(
   screens: Screen[],
   added: Screen,
   selectedId: string | null,
 ): Screen[] {
-  // מסך סיום חדש נכנס לסוף: הכנסתו לפני מסך סיום קיים הייתה חוטפת את
-  // הנפילה-קדימה של המסך שלפניו ומשנה את סיום השאלון בלי שהעורך ביקש
+  // A new end screen goes to the very end: putting it before an existing end
+  // screen would hijack the fall-through of the screen before it and change how
+  // the survey ends without the editor asking for that
   if (added.type === 'end') return [...screens, added];
 
   const selected = selectedId ? screens.findIndex((s) => s.id === selectedId) : -1;
@@ -89,12 +96,13 @@ export function insertScreen(
 }
 
 /**
- * שכפול מסך — מעתיק את *התוכן* בלבד, מיד אחרי המקור.
+ * Duplicating a screen — it copies the *content* only, right after the original.
  *
- * deep-copy מלא נתן שני מסכים שמציבים את אותו משתנה או מנתבים לאותו יעד; זה
- * קל מאוד ליצור בטעות (כפתור השכפול יושב ליד המחיקה בסרגל הריחוף) וקשה מאוד
- * לשים לב אליו. showIf כן נשמר — הוא חלק מ"איפה המסך הזה חי", והעותק אמור
- * לשבת באותו מקטע כמו המקור.
+ * A full deep copy produced two screens assigning the same variable or routing to
+ * the same target; that is very easy to create by accident (the duplicate button
+ * sits next to delete in the hover bar) and very hard to notice. showIf is kept —
+ * it is part of "where this screen lives", and the copy is meant to sit in the
+ * same section as the original.
  */
 export function duplicateScreen(screens: Screen[], id: string): Screen[] {
   const index = screens.findIndex((s) => s.id === id);
