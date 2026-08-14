@@ -1218,6 +1218,11 @@ a.a-btn { text-decoration: none; }
 /* דוחף את כפתורי הפעולה לקצה הנגדי של הכותרת */
 .rule-head .spacer { flex: 1 1 auto; }
 
+/* שורת מכסה: שם הערך והקוד שלו מימין, שדה המכסה בקצה — כל השדות מיושרים
+   בעמודה אחת, כדי שאפשר יהיה לקרוא את המכסות בסריקה אחת */
+.quota-row .quota-value { flex: 0 1 auto; font-size: var(--text-sm); }
+.quota-row .quota-limit { flex: 0 0 110px; text-align: start; }
+
 /* הקוד לקובץ הנתונים לצד השם — נוכח, ולא מתחרה בו על תשומת הלב */
 .var-code {
   font-size: var(--text-xs);

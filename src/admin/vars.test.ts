@@ -5,9 +5,11 @@ import {
   addRandomVar,
   defineVar,
   defineVarValue,
+  marks,
   parseRandomValue,
   removeRandomValueAt,
   removeRandomVar,
+  setQuota,
   setRandomValueAt,
   setVarValueLabel,
   varReferences,
@@ -91,6 +93,70 @@ describe('random variable edits', () => {
     const next = removeRandomVar(cfg, 'price');
     expect(Object.keys(next.randomVars ?? {})).toEqual(['copy']);
     expect(Object.keys(next.varMeta ?? {})).toEqual(['copy', 'seg']);
+  });
+});
+
+describe('marks', () => {
+  it('lists mark values from varMeta and from onSubmit rules alike', () => {
+    const cfg: SurveyConfig = {
+      version: 't',
+      varMeta: { persona: { label: 'פרסונה', values: { young_couple: 'זוג צעיר' } } },
+      screens: [
+        info('a', {
+          onSubmit: [
+            { var: 'persona', value: 'upgrader' },
+            { var: 'persona', value: 'young_couple' },
+          ],
+        }),
+      ],
+    };
+    expect(marks(cfg)).toEqual([{ name: 'persona', values: ['young_couple', 'upgrader'] }]);
+  });
+
+  it('leaves out draws and url_* — neither is set by a screen', () => {
+    const cfg: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      varMeta: { price: { label: 'מחיר' }, seg: { label: 'מסלול' } },
+      screens: [info('a', { onSubmit: [{ var: 'url_source', value: 'fb' }] })],
+    };
+    expect(marks(cfg).map((m) => m.name)).toEqual(['seg']);
+  });
+});
+
+describe('setQuota', () => {
+  const cfg: SurveyConfig = {
+    version: 't',
+    varMeta: { persona: { label: 'פרסונה' } },
+    screens: [info('a')],
+  };
+
+  it('stores a limit and keeps 0 — a closed cell is not "unlimited"', () => {
+    expect(setQuota(cfg, 'persona', 'young_couple', 50).varMeta?.persona.quotas).toEqual({
+      young_couple: 50,
+    });
+    expect(setQuota(cfg, 'persona', 'young_couple', 0).varMeta?.persona.quotas).toEqual({
+      young_couple: 0,
+    });
+  });
+
+  it('clearing the field drops the entry, and the empty map with it', () => {
+    let next = setQuota(cfg, 'persona', 'young_couple', 50);
+    next = setQuota(next, 'persona', 'upgrader', 30);
+    next = setQuota(next, 'persona', 'young_couple', undefined);
+    expect(next.varMeta?.persona.quotas).toEqual({ upgrader: 30 });
+
+    next = setQuota(next, 'persona', 'upgrader', undefined);
+    expect(next.varMeta?.persona.quotas).toBeUndefined();
+    expect(next.varMeta?.persona.label).toBe('פרסונה');
+  });
+
+  it('a quota on a mark that has no varMeta yet does not lose its name', () => {
+    const bare: SurveyConfig = { version: 't', screens: [info('a')] };
+    expect(setQuota(bare, 'persona', 'x', 5).varMeta?.persona).toEqual({
+      label: 'persona',
+      quotas: { x: 5 },
+    });
   });
 });
 

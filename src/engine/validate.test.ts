@@ -204,6 +204,47 @@ describe('validateConfig · random variables', () => {
   });
 });
 
+// ── מכסות (ENG-20) ──
+
+describe('validateConfig · quotas', () => {
+  const quotaEnd = (id: string): Screen =>
+    ({ id, type: 'end', variant: 'quotafull', title: 'מלא', body: '' }) as Screen;
+
+  const withQuota = (limit: number, screens: Screen[]): SurveyConfig => ({
+    version: 't',
+    varMeta: { persona: { label: 'פרסונה', quotas: { young_couple: limit } } },
+    screens,
+  });
+
+  const setter = info('q1', { onSubmit: [{ var: 'persona', value: 'young_couple' }] });
+
+  it('a quota with no quota-full end screen is an error', () => {
+    const issue = errors(withQuota(50, [setter, end('e')])).find((i) => i.code === 'quota');
+    expect(issue?.message).toContain('מסך סיום');
+    expect(codes(withQuota(50, [setter, end('e'), quotaEnd('qf')]))).not.toContain('quota');
+  });
+
+  it('a quota on a value no screen can set is a warning', () => {
+    const c = withQuota(50, [info('q1'), end('e'), quotaEnd('qf')]);
+    const issue = validateConfig(c).find((i) => i.code === 'quota');
+    expect(issue?.level).toBe('warning');
+    expect(issue?.message).toContain('young_couple');
+  });
+
+  it('0 is a real quota — a closed cell — but a fraction or a negative is an error', () => {
+    expect(codes(withQuota(0, [setter, end('e'), quotaEnd('qf')]))).not.toContain('quota');
+    for (const bad of [-1, 2.5]) {
+      expect(errors(withQuota(bad, [setter, end('e'), quotaEnd('qf')])).map((i) => i.code)).toContain(
+        'quota',
+      );
+    }
+  });
+
+  it('a survey with no quotas at all needs no quota-full screen', () => {
+    expect(codes(cfg([setter, end('e')]))).not.toContain('quota');
+  });
+});
+
 // ── שלמות תוכן המסך ──
 // כל מקרה כאן הוא עריכה "חוקית" בקונסולה שהשאירה את השאלון שבור בלי שום
 // התרעה (דוח QA 2026-08-08, A7).

@@ -7,7 +7,7 @@
 
 import { interpolatedTexts, interpolationRefs } from '../engine/conditions';
 import { screenConditions } from '../engine/validate';
-import type { Condition, SurveyConfig } from '../engine/types';
+import type { Condition, SurveyConfig, VarMeta } from '../engine/types';
 
 /** ערך בהגרלה: מספר נשמר כמספר, כדי שתנאי מספרי ימשיך להשוות מספרים. */
 export type RandomValue = string | number;
@@ -149,6 +149,61 @@ export function removeRandomVar(config: SurveyConfig, name: string): SurveyConfi
   if (Object.keys(varMeta).length > 0) next.varMeta = varMeta;
   else delete next.varMeta;
   return next;
+}
+
+/** סימון עם כל הערכים שידועים לו — הבסיס לעריכת מכסות. */
+export interface Mark {
+  name: string;
+  /** מ-varMeta קודם (שם הסדר שהאדמין קבע), ואחריו ערכים שרק כללי onSubmit מכירים */
+  values: string[];
+}
+
+/**
+ * הסימונים שהמסכים קובעים — להבדיל מהגרלות (שנקבעות בכניסה) ומפרמטרי URL.
+ * הערכים נאספים משני מקורות בכוונה: varMeta מחזיק את מה שהוגדר בקונסולה,
+ * אבל קונפיג שנכתב ביד יכול לקבוע ערך שמעולם לא קיבל תווית — ומכסה שאי אפשר
+ * להגדיר לו היא בדיוק המקרה שבו האדמין יחשוב שהמכסה קיימת.
+ */
+export function marks(config: SurveyConfig): Mark[] {
+  const drawn = new Set(Object.keys(config.randomVars ?? {}));
+  const found = new Map<string, string[]>();
+
+  const add = (name: string, value?: string) => {
+    if (drawn.has(name) || name.startsWith('url_')) return;
+    const values = found.get(name) ?? [];
+    if (value !== undefined && !values.includes(value)) values.push(value);
+    found.set(name, values);
+  };
+
+  for (const [name, meta] of Object.entries(config.varMeta ?? {})) {
+    add(name);
+    for (const value of Object.keys(meta.values ?? {})) add(name, value);
+  }
+  for (const screen of config.screens) {
+    for (const rule of screen.onSubmit ?? []) add(rule.var, String(rule.value));
+  }
+  return [...found].map(([name, values]) => ({ name, values }));
+}
+
+/**
+ * מכסה ריקה נמחקת ולא נשמרת כ-0: היעדר רשומה הוא "בלי הגבלה", וכל מספר במפה
+ * הוא מכסה אמיתית — כולל 0, שמשמעותו תא שנסגר ולא מקבל עוד משיבים.
+ */
+export function setQuota(
+  config: SurveyConfig,
+  name: string,
+  value: string,
+  limit: number | undefined,
+): SurveyConfig {
+  const meta = config.varMeta?.[name];
+  const quotas = { ...meta?.quotas };
+  if (limit === undefined) delete quotas[value];
+  else quotas[value] = limit;
+
+  const { quotas: _dropped, ...rest } = { ...meta, label: meta?.label ?? name };
+  const next: VarMeta =
+    Object.keys(quotas).length > 0 ? { ...rest, quotas } : rest;
+  return { ...config, varMeta: { ...config.varMeta, [name]: next } };
 }
 
 function conditionUsesVar(cond: Condition, name: string): boolean {

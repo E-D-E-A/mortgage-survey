@@ -541,9 +541,9 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
             className="a-btn secondary"
             onClick={() => setSettingsOpen(true)}
             disabled={draft.phase !== 'ready'}
-            title="הגרלות A/B — משתנים שנקבעים למשיב בכניסה, לפני המסך הראשון"
+            title="הגרלות A/B ומכסות משיבים — הגדרות שחלות על השאלון כולו ולא על מסך מסוים"
           >
-            משתני השאלון
+            משתנים ומכסות
           </button>
           <button
             className={`a-btn ${simAnswers ? 'primary' : 'secondary'}`}

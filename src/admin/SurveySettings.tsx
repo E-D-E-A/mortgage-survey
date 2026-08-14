@@ -1,22 +1,26 @@
 // עורך ברמת השאלון: כל מה ששייך לשאלון כולו ולא למסך אחד.
 //
-// כרגע יושבות כאן ההגרלות — משתני הסשן שהמנוע מגריל פעם אחת בכניסה, ושמהם
-// נבנית בדיקת A/B. הן לא שייכות לשום מסך (הן קיימות לפני המסך הראשון), ולכן
-// עד עכשיו לא היה בקונסולה מקום לערוך אותן בכלל.
+// שני דברים יושבים כאן, ושניהם מאותה סיבה — הם לא שייכים לשום מסך:
+//   - הגרלות: משתני הסשן שהמנוע מגריל פעם אחת בכניסה, לפני המסך הראשון,
+//     ושמהם נבנית בדיקת A/B;
+//   - מכסות: תקרת משיבים לערך של סימון. הסימון נקבע במסך אחד, אבל המכסה היא
+//     החלטה על המדגם כולו.
 
 import { useState } from 'react';
 import type { SurveyConfig } from '../engine/types';
 import type { Naming } from './display';
-import { screenLabel, varLabel } from './display';
+import { screenLabel, varLabel, varValueLabel } from './display';
 import { DefineForm, nextCode } from './DefineForm';
 import { CloseIcon, PencilIcon, PlusIcon, TrashIcon } from './Icons';
 import {
   addRandomValue,
   addRandomVar,
   defineVar,
+  marks,
   parseRandomValue,
   removeRandomValueAt,
   removeRandomVar,
+  setQuota,
   setRandomValueAt,
   setVarValueLabel,
   varReferences,
@@ -40,11 +44,11 @@ export function SurveySettings({ config, naming, onUpdate, onClose }: Props) {
         className="dialog wide"
         role="dialog"
         aria-modal="true"
-        aria-label="משתני השאלון"
+        aria-label="משתנים ומכסות"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="dialog-head">
-          <h2>משתני השאלון</h2>
+          <h2>משתנים ומכסות</h2>
           <button className="a-icon-btn" onClick={onClose} aria-label="סגירה" title="סגירה">
             <CloseIcon />
           </button>
@@ -96,8 +100,87 @@ export function SurveySettings({ config, naming, onUpdate, onClose }: Props) {
             />
           ))}
         </section>
+
+        <QuotaSection config={config} naming={naming} onUpdate={onUpdate} />
       </div>
     </div>
+  );
+}
+
+/**
+ * מכסות: תקרה לכל ערך של סימון. שדה ריק הוא "בלי הגבלה" — 0 הוא מכסה אמיתית
+ * (תא שנסגר ולא מקבל עוד משיבים), ולכן אסור לו להיות ברירת המחדל של שדה ריק.
+ */
+function QuotaSection({
+  config,
+  naming,
+  onUpdate,
+}: {
+  config: SurveyConfig;
+  naming: Naming;
+  onUpdate: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
+}) {
+  const list = marks(config);
+
+  return (
+    <section className="ed-section">
+      <div className="ed-section-head">
+        <h3 className="ed-section-title">מכסות — כמה משיבים לכל פרסונה</h3>
+      </div>
+      <p className="ed-empty">
+        מכסה עוצרת איסוף של פרסונה שכבר יש ממנה מספיק: ברגע שמספר המשיבים שסיימו עם הערך
+        הזה מגיע למכסה, מי שיסומן בו יישלח למסך הסיום ״כבר נאספו מספיק משיבים כאלה״. שדה
+        ריק = בלי הגבלה.
+      </p>
+
+      {list.length === 0 && (
+        <p className="ed-empty">אין בשאלון סימונים — מכסה נקבעת על ערך של סימון.</p>
+      )}
+
+      {list.map((mark) => (
+        <div className="rule-card" key={mark.name}>
+          <div className="rule-head">
+            <strong>{varLabel(naming, mark.name)}</strong>
+            <code className="var-code" dir="ltr">
+              {mark.name}
+            </code>
+          </div>
+          {mark.values.length === 0 ? (
+            <p className="ed-empty">לסימון הזה עדיין אין ערכים — אין על מה לקבוע מכסה.</p>
+          ) : (
+            mark.values.map((value) => (
+              <div className="option-row quota-row" key={value}>
+                <span className="quota-value">{varValueLabel(naming, mark.name, value)}</span>
+                <code className="var-code" dir="ltr">
+                  {value}
+                </code>
+                <span className="spacer" />
+                <input
+                  className="a-input quota-limit"
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  value={config.varMeta?.[mark.name]?.quotas?.[value] ?? ''}
+                  onChange={(e) =>
+                    onUpdate((cfg) =>
+                      setQuota(
+                        cfg,
+                        mark.name,
+                        value,
+                        e.target.value === '' ? undefined : Number(e.target.value),
+                      ),
+                    )
+                  }
+                  placeholder="בלי הגבלה"
+                  aria-label={`מכסה ל״${varValueLabel(naming, mark.name, value)}״`}
+                />
+              </div>
+            ))
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -32,7 +32,8 @@ export interface ValidationIssue {
     | 'bad-text-limit'
     | 'var-order'
     | 'random-var-values'
-    | 'unknown-interpolation';
+    | 'unknown-interpolation'
+    | 'quota';
   screenId?: string;
   message: string;
 }
@@ -284,6 +285,46 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         break;
       }
       seen.add(key);
+    }
+  }
+
+  // --- מכסות ---
+  // מכסה על ערך של סימון היא הבטחה שמישהו יאכוף אותה: ברגע שהיא מתמלאת המשיב
+  // מנותב למסך סיום מסוג "המכסה כבר מלאה" (ראו engine/quota.ts). בלי מסך כזה
+  // אין לאן לשלוח אותו והמכסה פשוט לא תיאכף — כישלון שקט מול הגדרה שנראית תקינה.
+  const quotas = Object.entries(config.varMeta ?? {}).flatMap(([mark, meta]) =>
+    Object.entries(meta.quotas ?? {}).map(([value, limit]) => ({ mark, value, limit })),
+  );
+
+  if (quotas.length > 0 && !screens.some((s) => s.type === 'end' && s.variant === 'quotafull')) {
+    issues.push({
+      level: 'error',
+      code: 'quota',
+      message:
+        'יש בשאלון מכסות, אבל אין בו מסך סיום מסוג "כבר נאספו מספיק משיבים כאלה" — אין לאן לשלוח משיב שהמכסה שלו התמלאה',
+    });
+  }
+
+  for (const { mark, value, limit } of quotas) {
+    if (!Number.isInteger(limit) || limit < 0) {
+      issues.push({
+        level: 'error',
+        code: 'quota',
+        message: `המכסה של הערך "${value}" בסימון "${mark}" היא ${limit} — צריך מספר שלם מ-0 ומעלה. כדי לא להגביל בכלל, השאירו את השדה ריק`,
+      });
+      continue;
+    }
+    // ערך שאף מסך לא קובע לא ייספר לעולם, ולכן המכסה שלו היא הגדרה מתה: היא
+    // נראית פעילה בקונסולה ולא תעצור אף משיב.
+    const setBy = screens.some((s) =>
+      (s.onSubmit ?? []).some((r) => r.var === mark && String(r.value) === value),
+    );
+    if (!setBy) {
+      issues.push({
+        level: 'warning',
+        code: 'quota',
+        message: `יש מכסה לערך "${value}" של הסימון "${mark}", אבל אף מסך לא קובע את הערך הזה — אין מה לספור והמכסה לא תיאכף`,
+      });
     }
   }
 
