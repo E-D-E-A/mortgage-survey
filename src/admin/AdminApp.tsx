@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
-import type { Answers, Screen, SurveyConfig } from '../engine/types';
+import type { Answers, Screen, SurveyConfig, Vars } from '../engine/types';
 import { simulatePath } from '../engine/path';
 import { validateConfig } from '../engine/validate';
 import { isValidSlug, surveyPath } from '../data/surveys';
@@ -304,6 +304,12 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
   const [settingsOpen, setSettingsOpen] = useState(false);
   // null = בדיקת המסלול כבויה. אובייקט (גם ריק) = פתוחה ומסמנת מסלול בתרשים.
   const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
+  // מצב המכסות שהבדיקה רצה בו — נפרד מהתשובות, כי הוא לא משהו שהמשיב עונה
+  const [simQuota, setSimQuota] = useState<Vars>({});
+  const closeSim = useCallback(() => {
+    setSimAnswers(null);
+    setSimQuota({});
+  }, []);
   const [sidebarW, setSidebarW] = useState(() => readWidth(SIDEBAR_KEY, SIDEBAR_DEFAULT));
   const [drawerW, setDrawerW] = useState(() => readWidth(DRAWER_KEY, DRAWER_DEFAULT));
 
@@ -375,8 +381,11 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
   }
 
   const simPath = useMemo(
-    () => (config && simAnswers ? simulatePath(config, simAnswers).map((s) => s.screen.id) : null),
-    [config, simAnswers],
+    () =>
+      config && simAnswers
+        ? simulatePath(config, simAnswers, simQuota).map((s) => s.screen.id)
+        : null,
+    [config, simAnswers, simQuota],
   );
 
   // אזהרת יציאה עם שינויים לא שמורים
@@ -547,7 +556,7 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
           </button>
           <button
             className={`a-btn ${simAnswers ? 'primary' : 'secondary'}`}
-            onClick={() => setSimAnswers((a) => (a ? null : {}))}
+            onClick={() => (simAnswers ? closeSim() : setSimAnswers({}))}
             disabled={draft.phase !== 'ready'}
             title="לענות כמו משיב, ולראות בדיוק לאילו מסכים הוא יגיע"
           >
@@ -669,8 +678,10 @@ function Editor({ slug, name, archived, email, onBack, onStats, onAuthError }: E
                 naming={naming}
                 answers={simAnswers}
                 onAnswers={setSimAnswers}
+                quotaFull={simQuota}
+                onQuotaFull={setSimQuota}
                 onSelect={revealScreen}
-                onClose={() => setSimAnswers(null)}
+                onClose={closeSim}
               />
             )}
             <FlowGraph

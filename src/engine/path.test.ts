@@ -206,6 +206,31 @@ describe('simulatePath', () => {
     };
     expect(simulatePath(loop, {}).map((s) => s.screen.id)).toEqual(['a', 'b']);
   });
+
+  // בדיקת המסלול בקונסולה מזינה את מצב המכסות דרך ה-seed — זה המסלול היחיד
+  // שאי אפשר לבדוק בשאלון החי בלי לחכות שהמכסה באמת תתמלא
+  it('honours quota flags handed in as seed vars', () => {
+    const cfg: SurveyConfig = {
+      version: 't',
+      varMeta: { persona: { label: 'פרסונה', quotas: { young_couple: 50 } } },
+      screens: [
+        {
+          id: 'q1',
+          type: 'info',
+          title: 'A',
+          body: '',
+          onSubmit: [{ var: 'persona', value: 'young_couple' }],
+        },
+        { id: 'q2', type: 'info', title: 'B', body: '' },
+        { id: 'end', type: 'end', variant: 'complete', title: '', body: '' },
+        { id: 'full', type: 'end', variant: 'quotafull', title: '', body: '' },
+      ],
+    };
+    expect(simulatePath(cfg, {}).map((s) => s.screen.id)).toEqual(['q1', 'q2', 'end']);
+    expect(
+      simulatePath(cfg, {}, { quota_full_persona_young_couple: true }).map((s) => s.screen.id),
+    ).toEqual(['q1', 'full']);
+  });
 });
 
 describe('the flow graph never lies by omission', () => {

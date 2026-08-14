@@ -599,6 +599,36 @@ $$;
 revoke execute on function public.open_answers(text, text, boolean, text[], text, int, int) from public, anon, authenticated;
 grant execute on function public.open_answers(text, text, boolean, text[], text, int, int) to service_role;
 
+-- מכסות: כמה משיבים *סיימו* עם כל ערך של סימון. זו הפונקציה היחידה כאן שקצה
+-- ציבורי קורא לה (quota-get, בלי אימות) — ולכן היא מקבלת רשימת סימונים מפורשת
+-- ומחזירה אך ורק ספירות עבורם, ולא חלון פתוח אל vars של המשיבים.
+--
+-- 'complete' בלבד: סינון אינו פרסונה שנאספה, ומי שכבר נשלח למסך מכסה-מלאה לא
+-- נספר פעמיים. סשני בדיקה מוחרגים דרך session_stats — בלי זה הקליקים שלנו
+-- ב-‎?test=1‎ היו סוגרים את המכסות של המחקר האמיתי.
+drop function if exists public.quota_counts(text, text[]);
+create function public.quota_counts(p_survey text, p_marks text[])
+returns table (
+  mark  text,
+  value text,
+  n     int
+)
+language sql stable
+set search_path = public
+as $$
+  select m.mark, s.vars ->> m.mark, count(*)::int
+  from session_stats s
+  cross join unnest(p_marks) as m(mark)
+  where s.survey_id = p_survey
+    and s.outcome = 'complete'
+    and not s.is_test
+    and s.vars ? m.mark
+  group by m.mark, s.vars ->> m.mark
+$$;
+
+revoke execute on function public.quota_counts(text, text[]) from public, anon, authenticated;
+grant execute on function public.quota_counts(text, text[]) to service_role;
+
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com
 -- ה-hook הזה רץ לפני יצירת משתמש ב-Supabase Auth, ולכן חשבון גוגל

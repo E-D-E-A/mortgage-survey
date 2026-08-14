@@ -10,7 +10,8 @@
 
 import { useMemo } from 'react';
 import { simulatePath } from '../engine/path';
-import type { AnswerValue, Answers, Condition, Screen, SurveyConfig } from '../engine/types';
+import { quotaCells, quotaFullVar } from '../engine/quota';
+import type { AnswerValue, Answers, Condition, Screen, SurveyConfig, Vars } from '../engine/types';
 import type { Naming } from './display';
 import { conditionQuestions, screenLabel, varLabel, varValueLabel } from './display';
 import { CloseIcon } from './Icons';
@@ -20,6 +21,9 @@ interface Props {
   naming: Naming;
   answers: Answers;
   onAnswers: (answers: Answers) => void;
+  /** מצב המכסות שהבדיקה רצה בו — אותם משתני סשן שהמשיב האמיתי מקבל בכניסה */
+  quotaFull: Vars;
+  onQuotaFull: (vars: Vars) => void;
   onSelect: (id: string) => void;
   onClose: () => void;
 }
@@ -42,9 +46,19 @@ export function routingQuestions(config: SurveyConfig): Screen[] {
   return config.screens.filter((s) => referenced.has(s.id));
 }
 
-export function Simulator({ config, naming, answers, onAnswers, onSelect, onClose }: Props) {
+export function Simulator({
+  config,
+  naming,
+  answers,
+  onAnswers,
+  quotaFull,
+  onQuotaFull,
+  onSelect,
+  onClose,
+}: Props) {
   const questions = useMemo(() => routingQuestions(config), [config]);
-  const steps = useMemo(() => simulatePath(config, answers), [config, answers]);
+  const cells = useMemo(() => quotaCells(config), [config]);
+  const steps = useMemo(() => simulatePath(config, answers, quotaFull), [config, answers, quotaFull]);
   const last = steps[steps.length - 1];
 
   const set = (id: string, value: AnswerValue) => onAnswers({ ...answers, [id]: value });
@@ -77,6 +91,35 @@ export function Simulator({ config, naming, answers, onAnswers, onSelect, onClos
           </button>
         )}
       </div>
+
+      {/* מכסה מלאה אינה תשובה של המשיב אלא מצב של המחקר בזמן שהוא נכנס, ולכן
+          היא בורר נפרד — וזה גם הדבר היחיד כאן שאי אפשר לבדוק בשאלון החי בלי
+          לחכות שהמכסה באמת תתמלא */}
+      {cells.length > 0 && (
+        <div className="sim-quotas">
+          <span className="a-label">מכסות שכבר התמלאו</span>
+          {cells.map(({ mark, value }) => {
+            const key = quotaFullVar(mark, value);
+            return (
+              <label className="a-check compact" key={key}>
+                <input
+                  type="checkbox"
+                  checked={quotaFull[key] === true}
+                  onChange={(e) => {
+                    const next = { ...quotaFull };
+                    if (e.target.checked) next[key] = true;
+                    else delete next[key];
+                    onQuotaFull(next);
+                  }}
+                />
+                <span>
+                  {varLabel(naming, mark)} = {varValueLabel(naming, mark, value)}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
 
       <div className="simulator-path">
         <div className="sim-summary">

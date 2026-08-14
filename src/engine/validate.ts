@@ -6,6 +6,7 @@
 // Netlify function (server-side gate) — esbuild bundles this file into both.
 
 import { interpolatedTexts, interpolationRefs } from './conditions';
+import { quotaCells, quotaFullScreen } from './quota';
 import type { Condition, Option, Screen, SurveyConfig } from './types';
 
 export interface ValidationIssue {
@@ -292,11 +293,9 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   // מכסה על ערך של סימון היא הבטחה שמישהו יאכוף אותה: ברגע שהיא מתמלאת המשיב
   // מנותב למסך סיום מסוג "המכסה כבר מלאה" (ראו engine/quota.ts). בלי מסך כזה
   // אין לאן לשלוח אותו והמכסה פשוט לא תיאכף — כישלון שקט מול הגדרה שנראית תקינה.
-  const quotas = Object.entries(config.varMeta ?? {}).flatMap(([mark, meta]) =>
-    Object.entries(meta.quotas ?? {}).map(([value, limit]) => ({ mark, value, limit })),
-  );
+  const quotas = quotaCells(config);
 
-  if (quotas.length > 0 && !screens.some((s) => s.type === 'end' && s.variant === 'quotafull')) {
+  if (quotas.length > 0 && !quotaFullScreen(config)) {
     issues.push({
       level: 'error',
       code: 'quota',

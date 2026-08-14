@@ -41,8 +41,11 @@ interface SurveyState {
 const STATE_KEY = 'sq_state_v1';
 const STARTED_KEY = 'sq_started_v1';
 
-function initVars(config: SurveyConfig): Vars {
-  const vars: Vars = {};
+// quota — דגלי המשבצות שכבר מלאות (data/quota.ts). נכנסים כמשתני סשן רגילים,
+// ולכן הם גם נשמרים ב-payload של session_start: בניתוח אפשר לדעת אילו משבצות
+// היו סגורות ברגע שהמשיב נכנס.
+function initVars(config: SurveyConfig, quota: Vars): Vars {
+  const vars: Vars = { ...quota };
   for (const [name, values] of Object.entries(config.randomVars ?? {})) {
     vars[name] = pickRandom(values);
   }
@@ -52,12 +55,12 @@ function initVars(config: SurveyConfig): Vars {
   return vars;
 }
 
-function freshState(config: SurveyConfig): SurveyState {
+function freshState(config: SurveyConfig, quota: Vars): SurveyState {
   return {
     version: config.version,
     current: config.screens[0].id,
     answers: {},
-    vars: initVars(config),
+    vars: initVars(config, quota),
     history: [],
     startedAt: Date.now(),
     finished: false,
@@ -81,11 +84,11 @@ function restoreState(config: SurveyConfig): SurveyState | null {
   }
 }
 
-export default function App({ config }: { config: SurveyConfig }) {
+export default function App({ config, quota }: { config: SurveyConfig; quota: Vars }) {
   const [state, setState] = useState<SurveyState>(() => {
     const restored = restoreState(config);
     if (restored) return restored;
-    const fresh = freshState(config);
+    const fresh = freshState(config, quota);
     // sessionStorage guard: StrictMode מריץ את ה-initializer פעמיים בפיתוח,
     // וכל הרצה מגרילה event_uid חדש — בלי הגנה נרשמות שתי שורות session_start
     if (sessionStorage.getItem(scopedKey(STARTED_KEY))) return fresh;

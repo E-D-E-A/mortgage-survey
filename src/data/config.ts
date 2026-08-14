@@ -34,7 +34,7 @@ export class ConfigLoadError extends Error {
 }
 
 /** הגרסה שאליה מוצמד הסשן הנוכחי, אם קיים סשן שמור. */
-function pinnedVersion(): string | null {
+export function pinnedVersion(): string | null {
   try {
     const raw = sessionStorage.getItem(scopedKey(STATE_KEY));
     if (!raw) return null;

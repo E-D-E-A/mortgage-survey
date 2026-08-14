@@ -8,12 +8,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import App from './App';
 import { ConfigLoadError, loadConfig, type LoadFailure } from './data/config';
-import type { SurveyConfig } from './engine/types';
+import { fetchQuotaCounts } from './data/quota';
+import { quotaVars } from './engine/quota';
+import type { SurveyConfig, Vars } from './engine/types';
 
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'error'; kind: LoadFailure }
-  | { phase: 'ready'; config: SurveyConfig };
+  | { phase: 'ready'; config: SurveyConfig; quota: Vars };
 
 const MESSAGES: Record<LoadFailure, { title: string; body: string; retry: boolean }> = {
   closed: {
@@ -43,8 +45,13 @@ export default function AppShell({ slug }: { slug: string | null }) {
       return;
     }
     setState({ phase: 'loading' });
-    loadConfig(slug)
-      .then((config) => setState({ phase: 'ready', config }))
+    // שתי הבקשות במקביל: מצב המכסות אינו תלוי בקונפיג, וסידור טורי היה מוסיף
+    // סיבוב רשת שלם לפני המסך הראשון. הספירות נכשלות בשקט (fail open) ולכן
+    // Promise.all לא ייפול בגללן — רק טעינת הקונפיג יכולה להיכשל כאן.
+    Promise.all([loadConfig(slug), fetchQuotaCounts(slug)])
+      .then(([config, counts]) =>
+        setState({ phase: 'ready', config, quota: quotaVars(config, counts) }),
+      )
       .catch((e) =>
         setState({
           phase: 'error',
@@ -55,7 +62,7 @@ export default function AppShell({ slug }: { slug: string | null }) {
 
   useEffect(load, [load]);
 
-  if (state.phase === 'ready') return <App config={state.config} />;
+  if (state.phase === 'ready') return <App config={state.config} quota={state.quota} />;
 
   const message = state.phase === 'error' ? MESSAGES[state.kind] : null;
 
