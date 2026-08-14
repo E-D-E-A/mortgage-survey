@@ -98,10 +98,14 @@ export function buildExportTable(
     }
   }
 
-  // תשובות לפי סשן, ואיסוף מסכים/פריטים שקיימים רק בנתונים
+  // תשובות לפי סשן, ואיסוף מסכים/פריטים שקיימים רק בנתונים. תשובה של סשן
+  // שאינו מיוצא (סשן בדיקה כשהמסנן פעיל) מדולגת כבר כאן — אחרת היא הייתה
+  // טובעת עמודה שריקה אצל כל המשיבים האמיתיים.
+  const exported = new Set(sessions.map((s) => s.session_id));
   const answersBySession = new Map<string, Map<string, unknown>>();
   const dataOnlyScreens = new Set<string>();
   for (const a of answers) {
+    if (!exported.has(a.session_id)) continue;
     const m = answersBySession.get(a.session_id) ?? new Map<string, unknown>();
     m.set(a.screen_id, a.value);
     answersBySession.set(a.session_id, m);

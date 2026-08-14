@@ -161,6 +161,18 @@ describe('buildExportTable', () => {
     expect(rows[2][ids.indexOf('q_worry.ghost')]).toBe(3);
   });
 
+  it('תשובה של סשן שאינו מיוצא אינה טובעת עמודה ואינה מופיעה', () => {
+    // סשן בדיקה שסונן בשרת: התשובות שלו עדיין מגיעות מ-final_answers
+    const answers: ExportAnswer[] = [
+      { session_id: 'filtered-out', screen_id: 'q_test_only', value: 'x' },
+      { session_id: 'filtered-out', screen_id: 'q_worry', value: { test_item: 1 } },
+    ];
+    const rows = buildExportTable([session()], answers, versions);
+    expect(rows[0]).not.toContain('q_test_only');
+    expect(rows[0]).not.toContain('q_worry.test_item');
+    expect(rows).toHaveLength(3);
+  });
+
   it('מסך שמופיע בנתונים אך בשום קונפיג נספח בסוף עם ערכו הגולמי', () => {
     const answers: ExportAnswer[] = [{ session_id: 's1', screen_id: 'q_ghost', value: 'raw' }];
     const rows = buildExportTable([session()], answers, versions);
