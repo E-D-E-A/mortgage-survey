@@ -24,3 +24,23 @@ export function json(body: unknown, status = 200, headers: Record<string, string
     headers: { 'Content-Type': 'application/json', ...headers },
   });
 }
+
+/**
+ * קריאת פונקציית SQL דרך PostgREST (rpc). הפרמטרים עוברים כגוף JSON —
+ * אין בניית SQL במחרוזות. Response = כשל upstream, אחרת ה-JSON שחזר.
+ * ⚠ שמות הפונקציות מסונכרנים עם schema.sql — נאכף ב-tests/sync/stats-sql.test.ts,
+ * שמזהה קריאות בצורה rpc(<env>, '<name>', ...).
+ */
+export async function rpc(
+  env: SupabaseEnv,
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<unknown | Response> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: supaHeaders(env.key),
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) return new Response('upstream error', { status: 502 });
+  return res.json();
+}

@@ -28,9 +28,10 @@ function publicUrl(slug: string): string {
 interface Props {
   surveys: Surveys;
   onOpen: (slug: string) => void;
+  onStats: (slug: string) => void;
 }
 
-export function SurveyList({ surveys, onOpen }: Props) {
+export function SurveyList({ surveys, onOpen, onStats }: Props) {
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<SurveySummary | null>(null);
   const [deleting, setDeleting] = useState<SurveySummary | null>(null);
@@ -83,6 +84,7 @@ export function SurveyList({ surveys, onOpen }: Props) {
           survey={s}
           surveys={surveys}
           onOpen={onOpen}
+          onStats={onStats}
           onRename={() => setRenaming(s)}
           onDelete={() => setDeleting(s)}
         />
@@ -105,6 +107,7 @@ export function SurveyList({ surveys, onOpen }: Props) {
                   survey={s}
                   surveys={surveys}
                   onOpen={onOpen}
+                  onStats={onStats}
                   onRename={() => setRenaming(s)}
                   onDelete={() => setDeleting(s)}
                 />
@@ -156,12 +159,14 @@ function SurveyCard({
   survey,
   surveys,
   onOpen,
+  onStats,
   onRename,
   onDelete,
 }: {
   survey: SurveySummary;
   surveys: Surveys;
   onOpen: (slug: string) => void;
+  onStats: (slug: string) => void;
   onRename: () => void;
   onDelete: () => void;
 }) {
@@ -215,6 +220,13 @@ function SurveyCard({
       <div className="survey-card-actions">
         <button className="a-btn primary small" onClick={() => onOpen(survey.slug)}>
           פתיחת העורך
+        </button>
+        <button
+          className="a-btn ghost small"
+          onClick={() => onStats(survey.slug)}
+          title="כמה ענו, איפה נוטשים ומה ענו — בלי SQL"
+        >
+          סטטיסטיקות
         </button>
         <button className="a-btn ghost small" onClick={onRename} disabled={surveys.busy}>
           שינוי שם

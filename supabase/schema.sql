@@ -155,6 +155,20 @@ revoke all on public.survey_drafts  from anon, authenticated;
 revoke all on public.survey_configs from anon, authenticated;
 
 -- ============================================================
+-- הרשאות מפורשות ל-service_role (צד השרת של Netlify בלבד).
+-- בפרויקטי ענן ותיקים service_role קיבל הכל דרך default privileges; בהתקנות
+-- חדשות — וגם בסטאק המקומי של supabase start — אובייקטים אינם נחשפים
+-- אוטומטית, ולכן ההענקה כאן מפורשת. anon/authenticated נשארים חסומים לגמרי.
+-- survey_configs בכוונה בלי update/delete — ה-trigger למעלה אוכף append-only.
+-- ============================================================
+grant usage on schema public to service_role;
+grant select, insert                 on public.survey_events  to service_role;
+grant select, insert, update, delete on public.surveys        to service_role;
+grant select, insert, update, delete on public.survey_drafts  to service_role;
+grant select, insert                 on public.survey_configs to service_role;
+grant usage, select on all sequences in schema public to service_role;
+
+-- ============================================================
 -- Views לניתוח (נגישות רק מהדשבורד / service key)
 -- מוגדרים אחרי survey_configs כי הם נשענים עליו כדי לתרגם survey_version
 -- (המזהה היחיד שיש בשורת האירוע) לשאלון שאליו היא שייכת.
@@ -181,6 +195,7 @@ from public.survey_events e
 group by session_id;
 
 revoke all on public.completed_responses from anon, authenticated;
+grant select on public.completed_responses to service_role;
 
 -- משפך פר-מסך: צפיות, תשובות, זמן ממוצע — לבקרת איכות ונשירה
 create or replace view public.screen_funnel
@@ -201,6 +216,388 @@ where screen_id is not null
 group by survey_version, screen_id;
 
 revoke all on public.screen_funnel from anon, authenticated;
+grant select on public.screen_funnel to service_role;
+
+-- ============================================================
+-- סטטיסטיקות למסך ה-stats בקונסולה (ENG-12..ENG-18)
+-- שכבה 1: session_stats — שורת סיכום אחת לכל סשן.
+--
+-- "סשן בדיקה" = vars של session_start מכילים url_test (קישור שנפתח עם ?test=1).
+-- זו נקודת ההגדרה היחידה של הכלל — כל פונקציות הסטטיסטיקה מסננות דרכה,
+-- וקונסולת הניהול יכולה לבקש include_test כדי לראות גם אותם.
+--
+-- vars אפקטיביים = מהאירוע האחרון שנושא vars: אירוע סיום עדיף על answer
+-- מועשר, שעדיף על session_start. סשן שנטש עם לקוח ישן (בלי vars ב-answer)
+-- נשאר עם ה-vars ההתחלתיים — משתנה מחושב כמו segment יופיע בו כ"לא ידוע".
+-- ⚠ הכלל url_test והשמות כאן מסונכרנים עם tests/sync/stats-sql.test.ts.
+-- ============================================================
+
+create or replace view public.session_stats
+  with (security_invoker = true) as
+select
+  session_id,
+  max(survey_version)                                                        as survey_version,
+  (select c.survey_id from public.survey_configs c
+    where c.version = max(e.survey_version))                                 as survey_id,
+  min(created_at) filter (where event_type = 'session_start')                as started_at,
+  max(created_at)                                                            as last_event_at,
+  max(event_type) filter (where event_type in
+    ('complete','screenout','quotafull'))                                    as outcome,
+  bool_or(event_type = 'answer')                                             as answered_any,
+  coalesce(bool_or(event_type = 'session_start'
+                   and payload -> 'vars' ? 'url_test'), false)               as is_test,
+  (array_agg(payload -> 'vars' order by created_at desc)
+     filter (where payload ? 'vars'))[1]                                     as vars
+from public.survey_events e
+group by session_id;
+
+revoke all on public.session_stats from anon, authenticated;
+grant select on public.session_stats to service_role;
+
+-- שכבה 2: פונקציות אגרגציה שה-endpoint המאומת (admin-stats) קורא דרך rpc.
+-- drop לפני create — שינוי חתימה או עמודות החזרה ב-create or replace נכשל,
+-- וה-drop המפורש משאיר את הקובץ ניתן להרצה חוזרת.
+
+-- אריחי הסקירה: סה"כ, הושלמו, סוננו, מכסה מלאה, ונטישה מפוצלת לשניים —
+-- "נטשו באמצע" (ענו לפחות פעם אחת) מול "נכנסו ולא ענו כלל" (בוטים/הצצה).
+drop function if exists public.stats_overview(text, text, boolean);
+create function public.stats_overview(p_survey text, p_version text, p_include_test boolean)
+returns table (
+  total_sessions   int,
+  completed        int,
+  screened_out     int,
+  quota_full       int,
+  abandoned_mid    int,
+  abandoned_bounce int
+)
+language sql stable
+set search_path = public
+as $$
+  select
+    count(*)::int,
+    (count(*) filter (where outcome = 'complete'))::int,
+    (count(*) filter (where outcome = 'screenout'))::int,
+    (count(*) filter (where outcome = 'quotafull'))::int,
+    (count(*) filter (where outcome is null and answered_any))::int,
+    (count(*) filter (where outcome is null and not answered_any))::int
+  from session_stats
+  where survey_id = p_survey
+    and started_at is not null
+    and (p_version is null or survey_version = p_version)
+    and (p_include_test or not is_test)
+$$;
+
+revoke execute on function public.stats_overview(text, text, boolean) from public, anon, authenticated;
+grant execute on function public.stats_overview(text, text, boolean) to service_role;
+
+-- משפך פר-מסך: צפו, ענו, נטשו-כאן (הצפייה האחרונה של סשן בלי אירוע סיום),
+-- וחציון זמן ניסיון-ראשון בלבד — מענה חוזר אחרי חזרה אחורה מהיר בסדר גודל
+-- והיה מטה את החציון כלפי מטה. מסכי end לא מופיעים: אין להם screen_view.
+drop function if exists public.stats_funnel(text, text, boolean);
+create function public.stats_funnel(p_survey text, p_version text, p_include_test boolean)
+returns table (
+  screen_id    text,
+  viewed       int,
+  answered     int,
+  dropped_here int,
+  median_ms    int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id, outcome from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  ),
+  ev as (
+    select e.session_id, e.event_type, e.screen_id, e.created_at, e.payload
+    from survey_events e
+    join s using (session_id)
+    where e.screen_id is not null and e.event_type in ('screen_view', 'answer')
+  ),
+  drops as (
+    -- הצפייה האחרונה של כל סשן שלא הגיע לאירוע סיום = המסך שבו נעלם
+    select distinct on (ev.session_id) ev.session_id, ev.screen_id
+    from ev
+    join s using (session_id)
+    where ev.event_type = 'screen_view' and s.outcome is null
+    order by ev.session_id, ev.created_at desc
+  )
+  select
+    ev.screen_id,
+    (count(distinct ev.session_id) filter (where ev.event_type = 'screen_view'))::int,
+    (count(distinct ev.session_id) filter (where ev.event_type = 'answer'))::int,
+    coalesce(d.dropped, 0),
+    (percentile_cont(0.5) within group (order by (ev.payload ->> 'ms')::numeric)
+       filter (where ev.event_type = 'answer'
+               and coalesce((ev.payload ->> 'attempt')::int, 1) = 1))::int
+  from ev
+  left join (
+    select drops.screen_id, count(*)::int as dropped from drops group by drops.screen_id
+  ) d using (screen_id)
+  group by ev.screen_id, d.dropped
+$$;
+
+revoke execute on function public.stats_funnel(text, text, boolean) from public, anon, authenticated;
+grant execute on function public.stats_funnel(text, text, boolean) to service_role;
+
+-- התשובה הסופית: שורה אחת לכל סשן×מסך — האירוע עם ה-attempt הגבוה ביותר
+-- (שוויון נשבר לפי זמן). מי שחזר אחורה ושינה תשובה נספר פעם אחת, עם מה שבחר
+-- בסוף. value נשאר jsonb גולמי — הפירוש (אטומים, תוויות) נעשה בשכבות שמעל.
+create or replace view public.final_answers
+  with (security_invoker = true) as
+select distinct on (e.session_id, e.screen_id)
+  e.session_id,
+  e.survey_version,
+  e.screen_id,
+  e.payload -> 'value'                          as value,
+  coalesce((e.payload ->> 'attempt')::int, 1)   as attempt,
+  e.created_at
+from public.survey_events e
+where e.event_type = 'answer' and e.screen_id is not null
+order by e.session_id, e.screen_id,
+         coalesce((e.payload ->> 'attempt')::int, 1) desc, e.created_at desc;
+
+revoke all on public.final_answers from anon, authenticated;
+grant select on public.final_answers to service_role;
+
+-- התפלגויות: כלל פריסת-אטומים אחד לכל סוגי השאלות הסגורות —
+--   מחרוזת/מספר/בוליאני → אטום אחד (הערך עצמו כטקסט)
+--   מערך (רב-ברירה)     → אטום לכל אפשרות שנבחרה
+--   אובייקט (מטריצה)    → אטום לכל פריט, item_id = הפריט, המפתח = הציון/na
+--   null (דילוג מכוון)   → לא אטום; נספר בסטטיסטיקות התשובות הפתוחות בלבד
+-- פילוח (p_by): שם משתנה סשן אפקטיבי, או ‎_outcome‎ לתוצאת הסשן. סשן בלי
+-- ערך למימד מקבל dim_value=null — "לא ידוע" בתצוגה, לעולם לא נזרק.
+-- התוצאה: ספירות גולמיות לפי (מסך, פריט, מפתח, מימד) — תוויות ואחוזים בדפדפן.
+drop function if exists public.stats_distributions(text, text, boolean);
+drop function if exists public.stats_distributions(text, text, boolean, text);
+create function public.stats_distributions(
+  p_survey text, p_version text, p_include_test boolean, p_by text default null
+)
+returns table (
+  screen_id  text,
+  item_id    text,
+  answer_key text,
+  dim_value  text,
+  n          int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id,
+           case
+             when p_by is null then null
+             when p_by = '_outcome' then coalesce(outcome,
+               case when answered_any then 'abandoned_mid' else 'abandoned_bounce' end)
+             else vars ->> p_by
+           end as dim_value
+    from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  ),
+  fa as (
+    select f.screen_id, f.value, s.dim_value
+    from final_answers f
+    join s using (session_id)
+    where (p_version is null or f.survey_version = p_version)
+      and f.value is not null
+      and jsonb_typeof(f.value) <> 'null'
+  ),
+  atoms as (
+    select fa.screen_id, null::text as item_id, fa.value #>> '{}' as answer_key, fa.dim_value
+    from fa where jsonb_typeof(fa.value) in ('string', 'number', 'boolean')
+    union all
+    select fa.screen_id, null, elem.val, fa.dim_value
+    from fa, lateral jsonb_array_elements_text(fa.value) elem(val)
+    where jsonb_typeof(fa.value) = 'array'
+    union all
+    select fa.screen_id, kv.key, kv.value #>> '{}', fa.dim_value
+    from fa, lateral jsonb_each(fa.value) kv
+    where jsonb_typeof(fa.value) = 'object'
+  )
+  select atoms.screen_id, atoms.item_id, atoms.answer_key, atoms.dim_value, count(*)::int
+  from atoms
+  group by atoms.screen_id, atoms.item_id, atoms.answer_key, atoms.dim_value
+$$;
+
+revoke execute on function public.stats_distributions(text, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.stats_distributions(text, text, boolean, text) to service_role;
+
+-- בסיסי אחוזים לפילוח: כמה סשנים ענו (תשובה סופית שאינה null) על כל מסך,
+-- בכל ערך מימד — המכנה של אחוזי-מהעונים בקבוצה. אותם פילטרים כמו למעלה.
+drop function if exists public.stats_bases(text, text, boolean, text);
+create function public.stats_bases(
+  p_survey text, p_version text, p_include_test boolean, p_by text default null
+)
+returns table (
+  screen_id text,
+  dim_value text,
+  answered  int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id,
+           case
+             when p_by is null then null
+             when p_by = '_outcome' then coalesce(outcome,
+               case when answered_any then 'abandoned_mid' else 'abandoned_bounce' end)
+             else vars ->> p_by
+           end as dim_value
+    from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  )
+  select f.screen_id, s.dim_value, count(distinct f.session_id)::int
+  from final_answers f
+  join s using (session_id)
+  where (p_version is null or f.survey_version = p_version)
+    and f.value is not null
+    and jsonb_typeof(f.value) <> 'null'
+  group by f.screen_id, s.dim_value
+$$;
+
+revoke execute on function public.stats_bases(text, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.stats_bases(text, text, boolean, text) to service_role;
+
+-- תשובות פתוחות, מטא-דאטה שלא דורש קריאה: שלושת המצבים — ענו (תשובה סופית
+-- שאינה null), דילגו במכוון (תשובה סופית null), נטשו (צפו במסך ולא ענו כלל) —
+-- ואחוזוני אורך התשובה. שום ניתוח תוכן: אורכים וספירות בלבד.
+drop function if exists public.open_answer_stats(text, text, boolean, text);
+create function public.open_answer_stats(
+  p_survey text, p_version text, p_include_test boolean, p_screen text
+)
+returns table (
+  screen_id  text,
+  answered   int,
+  skipped    int,
+  abandoned  int,
+  len_min    int,
+  len_median int,
+  len_p90    int,
+  len_max    int
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  ),
+  ev as (
+    select e.screen_id, e.session_id, e.event_type
+    from survey_events e
+    join s using (session_id)
+    where e.screen_id is not null
+      and e.event_type in ('screen_view', 'answer')
+      and (p_screen is null or e.screen_id = p_screen)
+  ),
+  fa as (
+    select f.screen_id, f.value
+    from final_answers f
+    join s using (session_id)
+    where (p_version is null or f.survey_version = p_version)
+      and (p_screen is null or f.screen_id = p_screen)
+  ),
+  lens as (
+    select fa.screen_id, char_length(fa.value #>> '{}') as len
+    from fa where jsonb_typeof(fa.value) = 'string'
+  )
+  select
+    v.screen_id,
+    coalesce(a.answered, 0),
+    coalesce(a.skipped, 0),
+    v.viewed - coalesce(any_ans.n, 0) as abandoned,
+    l.len_min, l.len_median, l.len_p90, l.len_max
+  from (
+    select ev.screen_id, count(distinct ev.session_id)::int as viewed
+    from ev where ev.event_type = 'screen_view' group by ev.screen_id
+  ) v
+  left join (
+    select ev.screen_id, count(distinct ev.session_id)::int as n
+    from ev where ev.event_type = 'answer' group by ev.screen_id
+  ) any_ans using (screen_id)
+  left join (
+    select fa.screen_id,
+      (count(*) filter (where fa.value is not null and jsonb_typeof(fa.value) <> 'null'))::int as answered,
+      (count(*) filter (where jsonb_typeof(fa.value) = 'null'))::int as skipped
+    from fa group by fa.screen_id
+  ) a using (screen_id)
+  left join (
+    select lens.screen_id,
+      min(lens.len)::int                                            as len_min,
+      (percentile_cont(0.5) within group (order by lens.len))::int  as len_median,
+      (percentile_cont(0.9) within group (order by lens.len))::int  as len_p90,
+      max(lens.len)::int                                            as len_max
+    from lens group by lens.screen_id
+  ) l using (screen_id)
+$$;
+
+revoke execute on function public.open_answer_stats(text, text, boolean, text) from public, anon, authenticated;
+grant execute on function public.open_answer_stats(text, text, boolean, text) to service_role;
+
+-- הרשימה עצמה: תשובות טקסט גולמיות, חדש-ראשון, מדופדף. הדפדפן מוסר אילו
+-- מסכים הם שאלות טקסט (ל-SQL אין מושג סוגי מסכים — הקונפיג חי בדפדפן).
+-- p_segment: ערך של משתנה segment; ‎__unknown__‎ = סשנים בלי ערך; null = הכל.
+drop function if exists public.open_answers(text, text, boolean, text[], text, int, int);
+create function public.open_answers(
+  p_survey text, p_version text, p_include_test boolean,
+  p_screens text[], p_segment text, p_limit int, p_offset int
+)
+returns table (
+  total          bigint,
+  screen_id      text,
+  value          text,
+  created_at     timestamptz,
+  survey_version text,
+  segment        text,
+  outcome        text
+)
+language sql stable
+set search_path = public
+as $$
+  with s as (
+    select session_id, outcome, vars ->> 'segment' as segment
+    from session_stats
+    where survey_id = p_survey
+      and started_at is not null
+      and (p_version is null or survey_version = p_version)
+      and (p_include_test or not is_test)
+  )
+  select
+    count(*) over () as total,
+    f.screen_id,
+    f.value #>> '{}' as value,
+    f.created_at,
+    f.survey_version,
+    s.segment,
+    coalesce(s.outcome, 'abandoned') as outcome
+  from final_answers f
+  join s using (session_id)
+  where (p_version is null or f.survey_version = p_version)
+    and f.screen_id = any (p_screens)
+    and jsonb_typeof(f.value) = 'string'
+    and (p_segment is null
+         or (p_segment = '__unknown__' and s.segment is null)
+         or s.segment = p_segment)
+  order by f.created_at desc
+  limit p_limit offset p_offset
+$$;
+
+revoke execute on function public.open_answers(text, text, boolean, text[], text, int, int) from public, anon, authenticated;
+grant execute on function public.open_answers(text, text, boolean, text[], text, int, int) to service_role;
 
 -- ============================================================
 -- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com

@@ -57,6 +57,87 @@ npm test           # בדיקות מנוע התנאים
 
 בדיקת הצינור המלא מקומית (פונקציות + Supabase, כולל `/admin`): `cp .env.example .env`,
 מילוי המשתנים, ואז `netlify dev` ופתיחת `http://localhost:8888/admin`.
+
+### דאטהבייס מקומי (Supabase CLI) — פיתוח ובדיקות בלי לגעת בענן
+
+סטאק Supabase מלא רץ מקומית ב-Docker, מוגדר ב-`supabase/config.toml` (בריפו):
+
+```bash
+npx supabase start     # פעם ראשונה מורידה images — כמה דקות
+npm run db:schema      # מחיל את supabase/schema.sql (idempotent, כמו ב-SQL Editor)
+npm run db:seed        # שאלון 'demo' + עשרות סשנים סינתטיים לפיתוח הסטטיסטיקות
+npx supabase stop      # בסיום (הנתונים נשמרים בין הרצות)
+```
+
+כדי שהפונקציות המקומיות ידברו עם הסטאק המקומי במקום הענן, ב-`.env` שמים את
+הערכים ש-`npx supabase status` מדפיס (`API URL` ו-`service_role key`).
+
+**לראות את הנתונים:** Supabase Studio רץ על <http://127.0.0.1:54323> — עורך
+טבלאות ו-SQL Editor מלא (`select * from stats_overview('demo', null, false);`).
+לטרמינל: `docker exec -it supabase_db_mortgage-survey psql -U postgres`.
+
+**להיכנס לקונסולה מול הסטאק המקומי:** שתי דרכים.
+
+- *בלי שום הגדרה:* `npm run dev:login` — יוצר משתמש אדמין מקומי ומדפיס שורה
+  להדבקה בקונסולת הדפדפן ב-`/admin`; אחרי רענון נכנסים, כולל מסך הסטטיסטיקות
+  של שאלון הדמו (`/admin/demo/stats`).
+- *כניסת Google אמיתית (חד-פעמי):* ‎`[auth.external.google]`‎ כבר מופעל
+  ב-`supabase/config.toml` וקורא את הסודות מ-`.env` בלבד:
+
+  1. ב-Google Cloud Console, ל-OAuth client הקיים מוסיפים ל-Authorized
+     redirect URIs את ‎`http://127.0.0.1:54321/auth/v1/callback`‎.
+  2. ב-`.env` מוסיפים את אותם Client ID/Secret שמוגדרים בדשבורד Supabase:
+     ```
+     SUPABASE_AUTH_GOOGLE_CLIENT_ID=...
+     SUPABASE_AUTH_GOOGLE_SECRET=...
+     ```
+  3. ‎`npx supabase stop && npx supabase start`‎ (שינויי config נטענים באתחול).
+
+  מכאן כפתור הגוגל הרגיל ב-`/admin` עובד גם מקומית — ו-requireAdmin ממשיך
+  לאכוף דומיין first-edea.com בדיוק כמו בענן.
+
+בדיקות האינטגרציה מול ה-DB (`tests/db/`) רצות רק בהפעלה מפורשת — הן מסרבות
+לכל מארח שאינו מקומי, כך שלעולם לא ייגעו בנתוני אמת:
+
+```bash
+DB_TESTS=1 npx vitest run tests/db          # bash
+$env:DB_TESTS='1'; npx vitest run tests/db  # PowerShell
+```
+
+בלי הדגל (וב-CI) הקבוצה מדולגת ו-`npm test` נשאר ירוק בלי Docker.
+
+### פתרון תקלות בפיתוח מקומי
+
+- **`Timed out waiting for port '5199' to be open`** — netlify מחכה לפורט
+  20 ניסיונות בלבד (‎`lib/wait-port.js`‎, כ-15 שניות) ולא 10 דקות כפי שנראה
+  מהקוד. אם vite לא הספיק להאזין בזמן, netlify מת — אבל vite ממשיך לעלות
+  אחריו ונשאר יתום שתופס את 5199, ולכן ההרצה הבאה נכשלת שוב, הפעם על
+  `--strictPort`. לכן `netlify.toml` מריץ ‎`node node_modules/vite/bin/vite.js`‎
+  ישירות ולא `npx vite`: npx עלה כאן כ-6 שניות מול 2 (ובהרצה קרה הרבה יותר),
+  ומוסיף שתי שכבות תהליך שנשארות בחיים אחרי ש-netlify נסגר. לניקוי היתום —
+  ראו הסעיף הבא. אם זה חוזר על מכונה עמוסה:
+  `netlify dev --skip-wait-port` — netlify לא ימתין בכלל, ובקשות בשניות
+  הראשונות יחזירו 502 עד ש-vite עולה.
+
+- **`Port 5199 is already in use`** — ריצת `netlify dev` קודמת קרסה והשאירה
+  ילד vite חי (npm לא מעביר signal לילדים). לאתר ולסגור:
+
+  ```powershell
+  Get-NetTCPConnection -LocalPort 5199 -State Listen |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+
+  זו גם הסיבה ש-`--strictPort` מוגדר ב-netlify.toml — עדיף כישלון קולני
+  מ-vite שעובר בשקט לפורט אחר.
+
+- **`http://localhost:8888` נתקע אבל `http://127.0.0.1:8888` עובד** —
+  `wslrelay.exe` תופס את ‎`::1:8888`‎ (IPv6) אחרי ששרת כלשהו האזין לפורט הזה
+  בתוך WSL בעבר. `localhost` מנסה IPv6 קודם ונבלע ברילוי. לבדוק מי מאזין:
+  `Get-NetTCPConnection -LocalPort 8888 -State Listen`; אם רואים `wslrelay`,
+  לסגור אותו (`Stop-Process`) או `wsl --shutdown`.
+
+- **קריסת `EBUSY ... .netlify/functions-serve`** — טופל: vite מוגדר להתעלם
+  מ-`.netlify/` (ראו vite.config.ts). אם זה חוזר — לוודא שההגדרה שם.
 ב-`npm run dev` הקונסולה תציג מסך כניסה אבל הפונקציות לא רצות — עבודה על `/admin`
 דורשת `netlify dev`. לכניסת Google מקומית צריך ש-`http://localhost:8888/admin`
 יופיע ב-Redirect URLs בדשבורד Supabase (ראו למטה).
@@ -167,6 +248,24 @@ netlify env:unset ADMIN_SESSION_SECRET
 
 ⚠️ אם הריפו מחובר לפריסה אוטומטית — **כל push ל-main הוא 15 קרדיטים.** לעבוד
 בענפים ולמזג ל-main רק כשרוצים לפרוס.
+
+## סשני בדיקה — ‎?test=1‎
+
+**כל בדיקה ידנית של שאלון חי נעשית מקישור עם ‎`?test=1`‎** (למשל
+`https://<site>/s/main?test=1`). הפרמטר נלכד אוטומטית כמשתנה סשן (`url_test`),
+וכל הסטטיסטיקות בקונסולה מחריגות סשנים כאלה כברירת מחדל — מתג "כולל סשני
+בדיקה" מחזיר אותם לצורך דיבוג. בלי הפרמטר, הקליקים שלנו נספרים כתשובות אמת.
+
+**חד-פעמי לפני תחילת איסוף אמיתי:** נתוני הבדיקה שהצטברו לפני הוספת המנגנון
+מסומנים רטרואקטיבית בהרצת הקטע הבא ב-SQL Editor (שומר הכול, לא מוחק דבר;
+מוגן בתאריך ולכן בטוח להרצה חוזרת — לעדכן את התאריך ליום תחילת האיסוף):
+
+```sql
+update survey_events
+set payload = jsonb_set(payload, '{vars,url_test}', '"1"')
+where event_type = 'session_start'
+  and created_at < '2026-08-12';
+```
 
 ## שליפת נתונים לניתוח
 

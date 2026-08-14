@@ -122,6 +122,128 @@ export async function saveDraft(
   return (await res.json()) as { updated_at: string };
 }
 
+// ---------- סטטיסטיקות ----------
+
+export interface StatsOverview {
+  total_sessions: number;
+  completed: number;
+  screened_out: number;
+  quota_full: number;
+  abandoned_mid: number;
+  abandoned_bounce: number;
+}
+
+export interface StatsVersion {
+  version: string;
+  published_at: string;
+  /** הקונפיג שפורסם — פענוח נוסחים, סדר מסכים ותוויות נעשה בדפדפן, לא ב-SQL */
+  config: SurveyConfig;
+}
+
+export interface FunnelStat {
+  screen_id: string;
+  viewed: number;
+  answered: number;
+  dropped_here: number;
+  /** חציון זמן ניסיון-ראשון במסך; null כשאין תשובות */
+  median_ms: number | null;
+}
+
+export interface DistStat {
+  screen_id: string;
+  /** פריט מטריצה; null לשאלות שאינן מטריצה */
+  item_id: string | null;
+  /** מזהה האפשרות / הציון / הערך — טקסט גולמי; התווית נפתרת מהקונפיג בדפדפן */
+  answer_key: string;
+  /** ערך מימד הפילוח; null = בלי פילוח, או סשן שהמימד לא ידוע עבורו */
+  dim_value: string | null;
+  n: number;
+}
+
+export interface BaseStat {
+  screen_id: string;
+  dim_value: string | null;
+  /** כמה סשנים ענו על המסך בקבוצת המימד — מכנה אחוזי הפילוח */
+  answered: number;
+}
+
+export interface StatsBundle {
+  survey: string;
+  name: string;
+  versions: StatsVersion[];
+  overview: StatsOverview;
+  funnel: FunnelStat[];
+  distributions: DistStat[];
+  /** מימד הפילוח שהוחזר, או null */
+  by: string | null;
+  bases: BaseStat[];
+}
+
+/** צרור הסטטיסטיקות של שאלון; version='all' = כל הגרסאות יחד (ברירת המחדל). */
+export async function getStats(
+  slug: string,
+  opts: { version?: string; includeTest?: boolean; by?: string } = {},
+): Promise<StatsBundle> {
+  const params = new URLSearchParams({ survey: slug });
+  if (opts.version && opts.version !== 'all') params.set('version', opts.version);
+  if (opts.includeTest) params.set('include_test', '1');
+  if (opts.by) params.set('by', opts.by);
+  const res = await call(`admin-stats?${params.toString()}`);
+  if (!res.ok) throw new ApiError(res.status);
+  return (await res.json()) as StatsBundle;
+}
+
+// ---------- תשובות פתוחות ----------
+
+export interface OpenAnswerStats {
+  screen_id: string;
+  answered: number;
+  skipped: number;
+  abandoned: number;
+  len_min: number | null;
+  len_median: number | null;
+  len_p90: number | null;
+  len_max: number | null;
+}
+
+export interface OpenAnswerRow {
+  screen_id: string;
+  /** הטקסט הגולמי, כלשונו — שום ניתוח תוכן */
+  value: string;
+  created_at: string;
+  survey_version: string;
+  segment: string | null;
+  outcome: string;
+}
+
+export interface OpenAnswersPage {
+  stats: OpenAnswerStats[];
+  total: number;
+  rows: OpenAnswerRow[];
+}
+
+export async function getOpenAnswers(
+  slug: string,
+  opts: {
+    screens: string[];
+    version?: string;
+    includeTest?: boolean;
+    segment?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<OpenAnswersPage> {
+  const params = new URLSearchParams({ survey: slug, screens: opts.screens.join(',') });
+  if (opts.version && opts.version !== 'all') params.set('version', opts.version);
+  if (opts.includeTest) params.set('include_test', '1');
+  if (opts.segment) params.set('segment', opts.segment);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  if (opts.offset) params.set('offset', String(opts.offset));
+  const res = await call(`admin-answers?${params.toString()}`);
+  if (!res.ok) throw new ApiError(res.status);
+  return (await res.json()) as OpenAnswersPage;
+}
+
 // ---------- פרסום ----------
 
 export interface PublishResult {
