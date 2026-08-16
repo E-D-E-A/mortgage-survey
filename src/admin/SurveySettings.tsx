@@ -296,16 +296,12 @@ function RandomVarCard({
               dir="ltr"
               placeholder="הערך עצמו"
               aria-label="הערך שמוגרל"
-              // The drawn value is stored in the respondent's vars and shown to
-              // them inside the wording, so it is data in every sense — it locks
-              // after publishing exactly like a code. Adding and removing stay
-              // open: neither changes what has already been collected.
-              disabled={codesLocked}
-              title={
-                codesLocked
-                  ? 'הערך קבוע — שינוי שלו היה מנתק אותו מהתשובות שכבר נאספו. אפשר להוסיף ערך חדש או להסיר ערך מההגרלה'
-                  : undefined
-              }
+              // Editable regardless of the publish state, like an option's code in
+              // the screen editor. Locking it after publishing made the feature
+              // unusable exactly where it is needed: the lock is survey-wide, so a
+              // draw created on a live survey opened with its value fields dead.
+              // The warning stays; the block does not.
+              title="הערך שנשמר בנתונים ומשובץ בנוסח. שינוי שלו אחרי שנאספו תשובות מנתק אותו מהן — עדיף להוסיף ערך חדש"
             />
             <input
               className="a-input"

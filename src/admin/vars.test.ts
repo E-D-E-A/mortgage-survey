@@ -35,9 +35,11 @@ describe('parseRandomValue', () => {
 });
 
 describe('random variable edits', () => {
-  it('a new draw starts with two empty slots and a label', () => {
+  it('a new draw starts with one empty slot and a label', () => {
+    // One and not two: two empty slots are duplicates of each other, and both
+    // rows would key their label off the same empty string
     const next = addRandomVar(base, 'price', 'מחיר לניסוי');
-    expect(next.randomVars).toEqual({ price: ['', ''] });
+    expect(next.randomVars).toEqual({ price: [''] });
     expect(next.varMeta?.price.label).toBe('מחיר לניסוי');
   });
 
@@ -47,13 +49,14 @@ describe('random variable edits', () => {
     cfg = setVarValueLabel(cfg, 'price', '99', 'הזול');
     cfg = setRandomValueAt(cfg, 'price', 0, 149);
 
-    expect(cfg.randomVars?.price).toEqual([149, '']);
+    expect(cfg.randomVars?.price).toEqual([149]);
     expect(cfg.varMeta?.price.values).toEqual({ '149': 'הזול' });
   });
 
   it('deleting a value takes its label, and adding one appends an empty slot', () => {
     let cfg = addRandomVar(base, 'price', 'מחיר');
     cfg = setRandomValueAt(cfg, 'price', 0, 99);
+    cfg = addRandomValue(cfg, 'price');
     cfg = setRandomValueAt(cfg, 'price', 1, 199);
     cfg = setVarValueLabel(cfg, 'price', '199', 'היקר');
     cfg = addRandomValue(cfg, 'price');
@@ -67,6 +70,7 @@ describe('random variable edits', () => {
   it('a duplicated value keeps its label until the last copy is gone', () => {
     let cfg = addRandomVar(base, 'price', 'מחיר');
     cfg = setRandomValueAt(cfg, 'price', 0, 99);
+    cfg = addRandomValue(cfg, 'price');
     cfg = setRandomValueAt(cfg, 'price', 1, 99);
     cfg = setVarValueLabel(cfg, 'price', '99', 'הזול');
 

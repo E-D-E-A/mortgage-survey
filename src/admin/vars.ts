@@ -79,13 +79,16 @@ export function setVarValueLabel(
 }
 
 /**
- * A new draw is born with two empty slots rather than an empty list: two is the
- * minimum below which there is no draw at all, and two rows waiting to be typed
- * into explain that better than an "add a value" button sitting next to an error
- * saying two are missing.
+ * A new draw is born with one empty slot: somewhere to type immediately, and the
+ * card's own hint asks for the second.
+ *
+ * Two empty slots was the first attempt, and it was worse in three ways at once:
+ * two identical values trip the duplicate warning, both rows key their label off
+ * the same empty string (so typing a name into one showed it in the other), and a
+ * variable one click old opened with three complaints against it.
  */
 export function addRandomVar(config: SurveyConfig, name: string, label: string): SurveyConfig {
-  return defineVar({ ...config, randomVars: { ...config.randomVars, [name]: ['', ''] } }, name, label);
+  return defineVar({ ...config, randomVars: { ...config.randomVars, [name]: [''] } }, name, label);
 }
 
 function withValues(config: SurveyConfig, name: string, values: RandomValue[]): SurveyConfig {
