@@ -78,6 +78,44 @@ describe('random variable edits', () => {
     expect(cfg.varMeta?.price.values).toEqual({ '99': 'הזול' });
   });
 
+  it('naming a value leaves the mark’s quotas alone', () => {
+    // The regression this guards: VarMeta was rebuilt from label+values, so
+    // naming a value dropped every quota on the mark. Nothing complained —
+    // with no quotas left there is nothing to validate — and the survey
+    // published with the cap gone.
+    let cfg = setQuota(base, 'persona', 'young_couple', 50);
+    cfg = defineVarValue(cfg, 'persona', 'upgrader', 'משפרי דיור');
+    expect(cfg.varMeta?.persona.quotas).toEqual({ young_couple: 50 });
+
+    cfg = setVarValueLabel(cfg, 'persona', 'upgrader', 'שם אחר');
+    expect(cfg.varMeta?.persona.quotas).toEqual({ young_couple: 50 });
+  });
+
+  it('editing a row into a value another row already holds keeps both labels put', () => {
+    let cfg = addRandomVar(base, 'price', 'מחיר');
+    cfg = setRandomValueAt(cfg, 'price', 0, 99);
+    cfg = addRandomValue(cfg, 'price');
+    cfg = setRandomValueAt(cfg, 'price', 1, 199);
+    cfg = setVarValueLabel(cfg, 'price', '99', 'הזול');
+    cfg = setVarValueLabel(cfg, 'price', '199', 'היקר');
+
+    // Row 1 becomes 99 as well: 99 already has a name, and it is not row 1's to take
+    cfg = setRandomValueAt(cfg, 'price', 1, 99);
+    expect(cfg.varMeta?.price.values).toEqual({ '99': 'הזול' });
+  });
+
+  it('a label stays behind while another row still holds its value', () => {
+    let cfg = addRandomVar(base, 'price', 'מחיר');
+    cfg = setRandomValueAt(cfg, 'price', 0, 99);
+    cfg = addRandomValue(cfg, 'price');
+    cfg = setRandomValueAt(cfg, 'price', 1, 99);
+    cfg = setVarValueLabel(cfg, 'price', '99', 'הזול');
+
+    cfg = setRandomValueAt(cfg, 'price', 1, 149);
+    expect(cfg.randomVars?.price).toEqual([99, 149]);
+    expect(cfg.varMeta?.price.values).toEqual({ '99': 'הזול' });
+  });
+
   it('an emptied label is removed, not stored blank', () => {
     let cfg = defineVarValue(base, 'seg', 'A', 'מסלול א');
     cfg = setVarValueLabel(cfg, 'seg', 'A', '   ');

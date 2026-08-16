@@ -134,11 +134,23 @@ export function screenConditions(screen: Screen): Condition[] {
  *   as long as that screen has a showIf (meaning it may be skipped) the one
  *   after it too, up to the first screen with no showIf.
  * - an end screen has no edges (the session is over).
+ * - a screen that marks a capped value also reaches the quota-full screen. That
+ *   edge is written by no one: findNext adds it from the quota state, which is
+ *   the entire point of the feature. Leaving it out of the graph made every
+ *   survey with a quota report its quota-full screen as unreachable — a warning
+ *   about the one screen that was wired correctly.
  */
-function edgesFrom(screens: Screen[], idToIndex: Map<string, number>, index: number): number[] {
+function edgesFrom(
+  screens: Screen[],
+  idToIndex: Map<string, number>,
+  index: number,
+  quotaExit?: (screen: Screen) => number | null,
+): number[] {
   const screen = screens[index];
   if (screen.type === 'end') return [];
   const targets: number[] = [];
+  const viaQuota = quotaExit?.(screen);
+  if (viaQuota !== undefined && viaQuota !== null) targets.push(viaQuota);
   let unconditional = false;
   for (const rule of screen.next ?? []) {
     const t = idToIndex.get(rule.goto);
@@ -495,6 +507,16 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   // With broken identities the graph checks are pointless — their results would mislead
   if (issues.some((i) => i.code === 'duplicate-id' || i.code === 'empty-id')) return issues;
 
+  // The implicit edge findNext draws from any screen that marks a capped value
+  // to the quota-full screen — see edgesFrom.
+  const quotaFullIndex = screens.findIndex((s) => s.type === 'end' && s.variant === 'quotafull');
+  const cappedCells = new Set(quotas.map((cell) => `${cell.mark} ${cell.value}`));
+  const quotaExit = (screen: Screen): number | null =>
+    quotaFullIndex >= 0 &&
+    (screen.onSubmit ?? []).some((r) => cappedCells.has(`${r.var} ${String(r.value)}`))
+      ? quotaFullIndex
+      : null;
+
   // --- graph: cycles ---
   // Colouring: 0=white 1=grey (on the current path) 2=black. An edge into grey = a cycle.
   const color = new Array<number>(screens.length).fill(0);
@@ -504,7 +526,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   function dfs(u: number): void {
     color[u] = 1;
     stack.push(u);
-    for (const v of edgesFrom(screens, idToIndex, u)) {
+    for (const v of edgesFrom(screens, idToIndex, u, quotaExit)) {
       if (cycleReported) return;
       if (color[v] === 1) {
         const start = stack.indexOf(v);
@@ -531,7 +553,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
   const queue = [0];
   while (queue.length > 0) {
     const u = queue.shift()!;
-    for (const v of edgesFrom(screens, idToIndex, u)) {
+    for (const v of edgesFrom(screens, idToIndex, u, quotaExit)) {
       if (!reachable.has(v)) {
         reachable.add(v);
         queue.push(v);

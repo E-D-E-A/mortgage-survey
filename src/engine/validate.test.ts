@@ -243,6 +243,20 @@ describe('validateConfig · quotas', () => {
   it('a survey with no quotas at all needs no quota-full screen', () => {
     expect(codes(cfg([setter, end('e')]))).not.toContain('quota');
   });
+
+  it('the quota-full screen counts as reachable — the engine routes there, not a rule', () => {
+    // Nothing in the config points at 'qf'; findNext gets there from the quota
+    // state. Before the graph knew that, every survey with a quota warned that
+    // its quota-full screen was unreachable — about the one screen wired right.
+    expect(codes(withQuota(50, [setter, end('e'), quotaEnd('qf')]))).not.toContain('unreachable');
+  });
+
+  it('an unrelated end screen is still reported as unreachable', () => {
+    // The quota edge is drawn from the screens that mark a capped value, and
+    // from nowhere else — it must not quietly excuse a genuinely orphaned screen
+    const orphan = { ...quotaEnd('qf2'), variant: 'complete' } as Screen;
+    expect(codes(withQuota(50, [setter, end('e'), quotaEnd('qf'), orphan]))).toContain('unreachable');
+  });
 });
 
 // ── screen content integrity ──

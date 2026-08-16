@@ -43,6 +43,13 @@ export function defineVar(config: SurveyConfig, name: string, label: string): Su
   };
 }
 
+/**
+ * ⚠ `...existing` and not a fresh object: VarMeta carries the quotas too, and
+ * rebuilding it from label+values alone dropped every quota on the mark the
+ * moment a value was named. Nothing complained afterwards — with no quotas left
+ * there is nothing for the validator to check — so the survey published with the
+ * cap quietly gone.
+ */
 export function defineVarValue(
   config: SurveyConfig,
   name: string,
@@ -55,6 +62,7 @@ export function defineVarValue(
     varMeta: {
       ...config.varMeta,
       [name]: {
+        ...existing,
         label: existing?.label ?? name,
         values: { ...existing?.values, [value]: label },
       },
@@ -103,6 +111,13 @@ export function addRandomValue(config: SurveyConfig, name: string): SurveyConfig
  * Editing a value in place drags its label along. The label is keyed by the
  * value, so leaving it behind does not merely lose the name the admin just
  * wrote — it attaches that name to whatever value is typed there next.
+ *
+ * The label belongs to the *value*, though, and not to the row — which is what
+ * the two guards below are about. A label is only carried off the old value when
+ * no other row still holds it, and only onto the new value when that value has
+ * no name of its own; otherwise editing one row into another row's value would
+ * silently rename that other row, with the winner decided by nothing more
+ * meaningful than key insertion order.
  */
 export function setRandomValueAt(
   config: SurveyConfig,
@@ -115,7 +130,10 @@ export function setRandomValueAt(
   const previous = String(values[index]);
   values[index] = value;
   const next = withValues(config, name, values);
-  return moveValueLabel(next, name, previous, String(value));
+
+  if (values.some((v, i) => i !== index && String(v) === previous)) return next;
+  const target = next.varMeta?.[name]?.values?.[String(value)] === undefined ? String(value) : null;
+  return moveValueLabel(next, name, previous, target);
 }
 
 export function removeRandomValueAt(config: SurveyConfig, name: string, index: number): SurveyConfig {

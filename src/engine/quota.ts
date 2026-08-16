@@ -2,7 +2,7 @@
 // from there to routing.
 //
 // The engine itself counts nothing and touches no network. Quota state reaches it
-// as ordinary session vars — `quota_full_<mark>_<value> = true` — set once on
+// as ordinary session vars — `quota_full:<mark>:<value> = true` — set once on
 // entry (src/data/quota.ts) and fixed from then on for the whole session. Two
 // consequences of that choice: the engine stays pure and testable, and a
 // respondent who started while a cell was open is never thrown out mid-survey
@@ -29,9 +29,16 @@ export type QuotaCounts = Record<string, Record<string, number>>;
  * deliberate, not incidental: it has to be unique against real marks, and it is
  * kept in the session_start payload — which is how analysis can tell which cells
  * were already closed when a respondent came in.
+ *
+ * ⚠ The separator is a colon because an analysis code cannot contain one (see
+ * CODE_RE in admin/DefineForm.tsx). Joining with an underscore looked tidier and
+ * was ambiguous: mark `persona` with value `young_couple` and mark
+ * `persona_young` with value `couple` produced the same name, so filling one
+ * cell would have closed the other — turning away respondents the study still
+ * wanted, which is the one thing this feature promises never to do.
  */
 export function quotaFullVar(mark: string, value: string | number | boolean): string {
-  return `quota_full_${mark}_${value}`;
+  return `quota_full:${mark}:${value}`;
 }
 
 /** Every cell that has a ceiling. Stable order — the order they are defined in varMeta. */

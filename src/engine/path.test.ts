@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluate } from './conditions';
 import { findNext } from './navigation';
 import { progressRatio, pruneAnswers, simulatePath, visitedPath } from './path';
+import { quotaFullVar } from './quota';
 import type { AnswerValue, Answers, Screen, SurveyConfig, SurveyContext, Vars } from './types';
 import { questionnaire } from '../questionnaire/survey-v1';
 import { buildFlow } from '../admin/graph';
@@ -230,7 +231,7 @@ describe('simulatePath', () => {
     };
     expect(simulatePath(cfg, {}).map((s) => s.screen.id)).toEqual(['q1', 'q2', 'end']);
     expect(
-      simulatePath(cfg, {}, { quota_full_persona_young_couple: true }).map((s) => s.screen.id),
+      simulatePath(cfg, {}, { [quotaFullVar('persona', 'young_couple')]: true }).map((s) => s.screen.id),
     ).toEqual(['q1', 'full']);
   });
 });

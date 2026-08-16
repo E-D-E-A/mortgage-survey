@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findNext } from './navigation';
+import { quotaFullVar } from './quota';
 import type { Answers, SurveyConfig, SurveyContext, Vars } from './types';
 
 const ctx = (answers: Answers, vars: Vars = {}): SurveyContext => ({ answers, vars });
@@ -88,7 +89,7 @@ describe('findNext · full quotas', () => {
     ...extra,
   });
 
-  const full: Vars = { persona: 'young_couple', quota_full_persona_young_couple: true };
+  const full: Vars = { persona: 'young_couple', [quotaFullVar('persona', 'young_couple')]: true };
   const first = (cfg: SurveyConfig) => cfg.screens[0];
 
   it('routes to the quota-full screen right after the screen that fills it', () => {
@@ -103,7 +104,7 @@ describe('findNext · full quotas', () => {
 
   it('leaves alone a respondent marked with some other value', () => {
     const cfg = quotaCfg();
-    const vars: Vars = { persona: 'upgrader', quota_full_persona_young_couple: true };
+    const vars: Vars = { persona: 'upgrader', [quotaFullVar('persona', 'young_couple')]: true };
     expect(findNext(cfg, first(cfg), ctx({}, vars))?.id).toBe('q2');
   });
 
