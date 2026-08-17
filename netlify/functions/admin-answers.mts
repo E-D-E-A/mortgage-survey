@@ -3,9 +3,10 @@
 // config lives there); here we only filter, measure lengths and page. No content
 // analysis whatsoever — the text comes back exactly as written.
 //
-//   GET ?survey=<slug>&screens=<id,id,...>&version=<version|all>&segment=<value|__unknown__>
+//   GET ?survey=<slug>&screens=<id,id,...>&version=<version|all>
+//       &dim=<session var>&value=<value|__unknown__>
 //       &include_test=<1|0>&limit=<1..100>&offset=<n>
-//     → { stats: [...], total, rows: [{ screen_id, value, created_at, survey_version, segment, outcome }] }
+//     → { stats: [...], total, rows: [{ screen_id, value, created_at, survey_version, dim_value, outcome }] }
 //
 // Always fresh (no-store). ⚠ The rpc names are kept in sync with schema.sql (tests/sync).
 
@@ -19,7 +20,9 @@ const MAX_SCREENS = 50;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 100_000;
-const MAX_SEGMENT_CHARS = 200;
+const MAX_VALUE_CHARS = 200;
+// The same shape admin-stats accepts for its breakdown dimension
+const DIM_RE = /^[A-Za-z0-9_]{1,64}$/;
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
@@ -45,9 +48,16 @@ export default async (req: Request): Promise<Response> => {
 
   const includeTest = params.get('include_test') === '1';
   const versionParam = params.get('version') ?? 'all';
-  const segment = params.get('segment');
-  if (segment !== null && (segment.length === 0 || segment.length > MAX_SEGMENT_CHARS)) {
-    return new Response('invalid segment', { status: 400 });
+  // Which session variable to report and filter by. Hardcoding 'segment' here
+  // meant the filter silently did nothing on every survey built in the console,
+  // where the marks are named mark1, mark2…
+  const dim = params.get('dim');
+  if (dim !== null && !DIM_RE.test(dim)) {
+    return new Response('invalid dim', { status: 400 });
+  }
+  const value = params.get('value');
+  if (value !== null && (value.length === 0 || value.length > MAX_VALUE_CHARS)) {
+    return new Response('invalid value', { status: 400 });
   }
 
   const limit = parseIntParam(params.get('limit'), DEFAULT_LIMIT);
@@ -76,7 +86,8 @@ export default async (req: Request): Promise<Response> => {
     rpc(env, 'open_answers', {
       ...common,
       p_screens: screens,
-      p_segment: segment,
+      p_dim: dim,
+      p_value: value,
       p_limit: limit,
       p_offset: offset,
     }),

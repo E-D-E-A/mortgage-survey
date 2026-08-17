@@ -54,7 +54,7 @@ interface LaidOutEdge {
   labelX: number;
   labelY: number;
   conditional: boolean;
-  kind: 'goto' | 'primary' | 'skip';
+  kind: 'goto' | 'primary' | 'skip' | 'quota';
   ruleIndex?: number;
   /** A structural edge: entering a lane / a merge between adjacent rows — its label is always shown */
   structural?: boolean;
@@ -547,7 +547,7 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, focusRe
       // canvas without adding any information ("the interview ends here"). In its
       // place, a small sign on the node — the line itself is kept and drawn only
       // when the node is selected, so no path ever really disappears.
-      const isEndStub = e.kind === 'goto' && t.type === 'end';
+      const isEndStub = (e.kind === 'goto' || e.kind === 'quota') && t.type === 'end';
       if (isEndStub) {
         const k = stubCount.get(e.from) ?? 0;
         stubCount.set(e.from, k + 1);
@@ -1115,6 +1115,8 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, focusRe
   function openEdgeMenu(ev: React.MouseEvent, edgeIndex: number) {
     ev.preventDefault();
     ev.stopPropagation();
+    // A quota route has no rule to edit or delete — the engine adds it
+    if (layout.edges[edgeIndex]?.kind === 'quota') return;
     const w = toWorld(ev);
     setPopover({ kind: 'edgeMenu', edgeIndex, x: w.x, y: w.y });
   }
@@ -1336,21 +1338,32 @@ export function FlowGraph({ config, issues, selectedId, naming, simPath, focusRe
                   focusIds && selectedId !== e.from && selectedId !== e.to ? 'dim' : '',
                 ].join(' ')}
                 style={{ left: e.labelX, top: e.labelY }}
-                title={`${e.label} — לחצו כדי לערוך את התנאי`}
+                title={
+                  e.kind === 'quota'
+                    ? `${e.label} — ניתוב אוטומטי לפי המכסה, אין כאן תנאי לערוך`
+                    : `${e.label} — לחצו כדי לערוך את התנאי`
+                }
                 onContextMenu={(ev) => openEdgeMenu(ev, e.i)}
-                onClick={() =>
+                onClick={() => {
+                  // Nothing to edit on a quota route — take the admin to the
+                  // screen it leads to instead, which is what they came to see
+                  if (e.kind === 'quota') return onSelect(e.to);
                   setPopover(
                     e.kind === 'goto' && e.ruleIndex !== undefined
                       ? { kind: 'rule', screenId: e.from, ruleIndex: e.ruleIndex }
                       : { kind: 'showIf', screenId: e.to },
-                  )
-                }
+                  );
+                }}
               >
                 {shortLabel(e.label)}
               </button>
             ))}
 
-          {hoveredEdge !== null && layout.edges[hoveredEdge] && layout.edges[hoveredEdge].kind !== 'skip' && !drag && (
+          {hoveredEdge !== null &&
+            layout.edges[hoveredEdge] &&
+            layout.edges[hoveredEdge].kind !== 'skip' &&
+            layout.edges[hoveredEdge].kind !== 'quota' &&
+            !drag && (
             <button
               className="fg-insert-btn"
               style={{

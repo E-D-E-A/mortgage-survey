@@ -16,6 +16,7 @@ import {
   type StatsBundle,
 } from './api';
 import {
+  answerFilters,
   binNumbers,
   binNumbersByDim,
   chosenConfig,
@@ -281,8 +282,12 @@ function OpenAnswersTab({
   onAuthError: () => void;
 }) {
   const questions = textScreens(bundle.versions, version);
+  const filters = answerFilters(bundle.versions, version);
   const [screen, setScreen] = useState('all');
-  const [segment, setSegment] = useState('all');
+  // Which mark or draw to show beside each answer. The first one available, so
+  // the column says something useful before anyone touches the controls.
+  const [dim, setDim] = useState(filters[0]?.key ?? '');
+  const [value, setValue] = useState('all');
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<OpenAnswersPage | null>(null);
   const [failed, setFailed] = useState(false);
@@ -292,7 +297,15 @@ function OpenAnswersTab({
 
   useEffect(() => {
     setOffset(0);
-  }, [screensKey, segment, version, includeTest]);
+  }, [screensKey, dim, value, version, includeTest]);
+
+  // A dimension from one version may not exist in another
+  useEffect(() => {
+    if (dim && !filters.some((f) => f.key === dim)) {
+      setDim(filters[0]?.key ?? '');
+      setValue('all');
+    }
+  }, [dim, filters]);
 
   useEffect(() => {
     if (screens.length === 0) return;
@@ -302,7 +315,8 @@ function OpenAnswersTab({
       screens,
       version,
       includeTest,
-      segment: segment === 'all' ? undefined : segment,
+      dim: dim || undefined,
+      value: value === 'all' ? undefined : value,
       limit: PAGE_SIZE,
       offset,
     })
@@ -317,7 +331,7 @@ function OpenAnswersTab({
       stale = true;
     };
     // The dependency is screensKey (a stable string) — the screens array is derived from it on every render
-  }, [slug, screensKey, segment, version, includeTest, offset, onAuthError]);
+  }, [slug, screensKey, dim, value, version, includeTest, offset, onAuthError]);
 
   if (questions.length === 0) {
     return <p className="stats-empty">בשאלון הזה אין שאלות פתוחות (שאלות טקסט).</p>;
@@ -326,8 +340,8 @@ function OpenAnswersTab({
     return <p className="stats-empty">טעינת התשובות נכשלה — אפשר לנסות לרענן.</p>;
   }
 
-  const config = chosenConfig(bundle.versions, version);
-  const segmentValues = config?.varMeta?.segment?.values ?? {};
+  const chosen = filters.find((f) => f.key === dim);
+  const valueLabels = new Map(chosen?.values ?? []);
   const questionLabel = new Map(questions.map((q) => [q.id, q.label]));
 
   return (
@@ -344,18 +358,39 @@ function OpenAnswersTab({
             ))}
           </select>
         </label>
-        <label className="stats-control">
-          מסלול המשיב
-          <select className="a-input" value={segment} onChange={(e) => setSegment(e.target.value)}>
-            <option value="all">הכול</option>
-            {Object.entries(segmentValues).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-            <option value="__unknown__">לא ידוע</option>
-          </select>
-        </label>
+        {filters.length > 0 && (
+          <>
+            <label className="stats-control">
+              פילוח לפי
+              <select
+                className="a-input"
+                value={dim}
+                onChange={(e) => {
+                  setDim(e.target.value);
+                  setValue('all');
+                }}
+              >
+                {filters.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="stats-control">
+              ערך
+              <select className="a-input" value={value} onChange={(e) => setValue(e.target.value)}>
+                <option value="all">הכול</option>
+                {(chosen?.values ?? []).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+                <option value="__unknown__">לא ידוע</option>
+              </select>
+            </label>
+          </>
+        )}
       </div>
 
       {page && (
@@ -400,7 +435,7 @@ function OpenAnswersTab({
                       {' · '}
                       <bdi dir="ltr">{row.survey_version}</bdi>
                       {' · '}
-                      {row.segment ? (segmentValues[row.segment] ?? row.segment) : 'לא ידוע'}
+                      {row.dim_value ? (valueLabels.get(row.dim_value) ?? row.dim_value) : 'לא ידוע'}
                       {' · '}
                       {outcomeLabel(row.outcome)}
                     </p>

@@ -415,6 +415,53 @@ export function dimensionOptions(versions: StatsVersion[], selected: string): Di
   return out;
 }
 
+/** A dimension the open-answers tab can filter by, with the values it can offer. */
+export interface AnswerFilter {
+  key: string;
+  label: string;
+  /** [value, label] pairs, in the order the config declares them */
+  values: [string, string][];
+}
+
+/**
+ * The dimensions the open-answers list can be filtered by: any mark or draw whose
+ * values are known in advance, because the filter offers a list of values rather
+ * than a free-text box.
+ *
+ * This used to be one hardcoded name, `segment` — the mark the research
+ * questionnaire happens to use. On a survey built in the console the marks are
+ * named mark1, mark2…, so the dropdown came up with no values at all, every
+ * answer was labelled unknown, and choosing "unknown" returned the whole list.
+ * The personas were recorded correctly the entire time; only this one tab could
+ * not find them, while the distributions tab on the same page broke down by them
+ * perfectly.
+ *
+ * ⚠ Deliberately not url_source or _outcome: the first has no known set of
+ * values, and the second is already on every row.
+ */
+export function answerFilters(versions: StatsVersion[], selected: string): AnswerFilter[] {
+  const config = chosenConfig(versions, selected);
+  const draws = config?.randomVars ?? {};
+  const out: AnswerFilter[] = [];
+  const seen = new Set<string>();
+
+  for (const [key, meta] of Object.entries(config?.varMeta ?? {})) {
+    const named = Object.entries(meta.values ?? {}) as [string, string][];
+    const drawn = (draws[key] ?? []).map(
+      (v) => [String(v), meta.values?.[String(v)] ?? String(v)] as [string, string],
+    );
+    const values = named.length > 0 ? named : drawn;
+    if (values.length === 0) continue;
+    out.push({ key, label: meta.label || key, values });
+    seen.add(key);
+  }
+  for (const [key, list] of Object.entries(draws)) {
+    if (seen.has(key) || list.length === 0) continue;
+    out.push({ key, label: key, values: list.map((v) => [String(v), String(v)]) });
+  }
+  return out;
+}
+
 /** A dimension value in the legend: key=null is "unknown" (a session with no value for the dimension) */
 export interface DimValue {
   key: string | null;

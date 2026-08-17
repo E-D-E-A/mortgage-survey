@@ -576,12 +576,19 @@ grant execute on function public.open_answer_stats(text, text, boolean, text) to
 -- The list itself: raw text answers, newest first, paged. The browser tells us
 -- which screens are text questions (SQL has no notion of screen types — the config
 -- lives in the browser).
--- p_segment: a value of the segment variable; __unknown__ = sessions with no
--- value; null = everything.
+-- p_dim:   which session variable to report and filter by — any mark or draw.
+--          It used to be hardcoded to 'segment', the name the research
+--          questionnaire happens to use; a survey built in the console names its
+--          marks mark1, mark2… so the filter offered no values, every row read as
+--          unknown, and picking "unknown" returned everything. It looked like the
+--          personas had never been recorded.
+-- p_value: the value to keep; __unknown__ = sessions with no value for p_dim;
+--          null = everything.
 drop function if exists public.open_answers(text, text, boolean, text[], text, int, int);
+drop function if exists public.open_answers(text, text, boolean, text[], text, text, int, int);
 create function public.open_answers(
   p_survey text, p_version text, p_include_test boolean,
-  p_screens text[], p_segment text, p_limit int, p_offset int
+  p_screens text[], p_dim text, p_value text, p_limit int, p_offset int
 )
 returns table (
   total          bigint,
@@ -589,14 +596,15 @@ returns table (
   value          text,
   created_at     timestamptz,
   survey_version text,
-  segment        text,
+  dim_value      text,
   outcome        text
 )
 language sql stable
 set search_path = public
 as $$
   with s as (
-    select session_id, outcome, vars ->> 'segment' as segment
+    select session_id, outcome,
+           case when p_dim is null then null else vars ->> p_dim end as dim_value
     from session_stats
     where survey_id = p_survey
       and started_at is not null
@@ -609,22 +617,22 @@ as $$
     f.value #>> '{}' as value,
     f.created_at,
     f.survey_version,
-    s.segment,
+    s.dim_value,
     coalesce(s.outcome, 'abandoned') as outcome
   from final_answers f
   join s using (session_id)
   where (p_version is null or f.survey_version = p_version)
     and f.screen_id = any (p_screens)
     and jsonb_typeof(f.value) = 'string'
-    and (p_segment is null
-         or (p_segment = '__unknown__' and s.segment is null)
-         or s.segment = p_segment)
+    and (p_dim is null or p_value is null
+         or (p_value = '__unknown__' and s.dim_value is null)
+         or s.dim_value = p_value)
   order by f.created_at desc
   limit p_limit offset p_offset
 $$;
 
-revoke execute on function public.open_answers(text, text, boolean, text[], text, int, int) from public, anon, authenticated;
-grant execute on function public.open_answers(text, text, boolean, text[], text, int, int) to service_role;
+revoke execute on function public.open_answers(text, text, boolean, text[], text, text, int, int) from public, anon, authenticated;
+grant execute on function public.open_answers(text, text, boolean, text[], text, text, int, int) to service_role;
 
 -- Quotas: how many respondents *finished* with each mark value. This is the only
 -- function here a public endpoint calls (quota-get, with no authentication) — which

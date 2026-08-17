@@ -4,6 +4,7 @@
 // The edge labels are the answer that leads to the next screen, with option ids
 // translated into the wording the respondent sees.
 
+import { quotaCells } from '../engine/quota';
 import type { Condition, Screen, SurveyConfig, VarMeta } from '../engine/types';
 import { fallThroughTargets } from './reachability';
 
@@ -29,9 +30,11 @@ export interface FlowEdge {
   conditional: boolean;
   /**
    * goto = explicit routing, primary = continuing to the next screen,
-   * skip = a further landing after conditional screens are skipped (drawn dimmed)
+   * skip = a further landing after conditional screens are skipped (drawn dimmed),
+   * quota = the route the engine adds itself when a marked value's cap is full —
+   *   nobody wrote it and nobody can edit it, so it carries no rule to open
    */
-  kind: 'goto' | 'primary' | 'skip';
+  kind: 'goto' | 'primary' | 'skip' | 'quota';
   /** For goto edges: the rule's index in the source screen's next — so the condition can be edited from the edge */
   ruleIndex?: number;
 }
@@ -157,8 +160,31 @@ export function buildFlow(config: SurveyConfig): Flow {
   }));
   const edges: FlowEdge[] = [];
 
+  // The quota route the engine draws for itself (see findNext). Derived from the
+  // same rule the validator uses, so the diagram and the validation panel cannot
+  // tell two different stories about the same screen.
+  const quotaFull = screens.find((s) => s.type === 'end' && s.variant === 'quotafull');
+  const capped = new Set(quotaCells(config).map((cell) => `${cell.mark} ${cell.value}`));
+
   screens.forEach((screen, i) => {
     if (screen.type === 'end') return;
+
+    // Emitted before the rules below and regardless of them: a full cap overrides
+    // an ordinary goto, so this edge exists even on a screen that already routes
+    // somewhere unconditionally.
+    if (quotaFull) {
+      const fills = (screen.onSubmit ?? []).find((r) => capped.has(`${r.var} ${String(r.value)}`));
+      if (fills) {
+        const name = meta[fills.var]?.values?.[String(fills.value)] ?? String(fills.value);
+        edges.push({
+          from: screen.id,
+          to: quotaFull.id,
+          label: `המכסה של ${name} מלאה`,
+          conditional: true,
+          kind: 'quota',
+        });
+      }
+    }
 
     const rules = screen.next ?? [];
     let unconditional = false;

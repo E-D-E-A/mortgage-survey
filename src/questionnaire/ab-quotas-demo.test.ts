@@ -8,6 +8,7 @@ import { interpolate } from '../engine/conditions';
 import { simulatePath } from '../engine/path';
 import { quotaCells, quotaFullVar, quotaVars } from '../engine/quota';
 import { validateConfig } from '../engine/validate';
+import { buildFlow } from '../admin/graph';
 import type { Answers, Vars } from '../engine/types';
 
 const passing: Answers = { consent: 'agreed', s_age: 34 };
@@ -86,6 +87,21 @@ describe('the A/B + quotas demo', () => {
       's_age',
       'end_screenout',
     ]);
+  });
+
+  it('draws the quota route in the diagram, so the screen is not an orphan', () => {
+    // Without this edge the quota-full screen hangs in the console's map with
+    // nothing pointing at it, and the natural fix — dragging a connection to it
+    // by hand — sends every respondent there from the first one onwards.
+    const quotaEdges = buildFlow(abQuotasDemo).edges.filter((e) => e.kind === 'quota');
+    expect(quotaEdges.map((e) => `${e.from}→${e.to}`)).toEqual(['s_status→end_quotafull']);
+    expect(quotaEdges[0].label).toContain('זוג צעיר');
+  });
+
+  it('draws no quota route on a survey that has no quotas', () => {
+    const { quotas: _dropped, ...persona } = abQuotasDemo.varMeta!.persona;
+    const uncapped = { ...abQuotasDemo, varMeta: { ...abQuotasDemo.varMeta, persona } };
+    expect(buildFlow(uncapped).edges.some((e) => e.kind === 'quota')).toBe(false);
   });
 
   it('names every quota flag it can raise', () => {

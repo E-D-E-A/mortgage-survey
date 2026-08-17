@@ -213,7 +213,8 @@ export interface OpenAnswerRow {
   value: string;
   created_at: string;
   survey_version: string;
-  segment: string | null;
+  /** This session's value for the requested dimension; null when it has none */
+  dim_value: string | null;
   outcome: string;
 }
 
@@ -229,7 +230,9 @@ export async function getOpenAnswers(
     screens: string[];
     version?: string;
     includeTest?: boolean;
-    segment?: string;
+    /** Any mark or draw to report alongside each answer, and optionally filter by */
+    dim?: string;
+    value?: string;
     limit?: number;
     offset?: number;
   },
@@ -237,7 +240,8 @@ export async function getOpenAnswers(
   const params = new URLSearchParams({ survey: slug, screens: opts.screens.join(',') });
   if (opts.version && opts.version !== 'all') params.set('version', opts.version);
   if (opts.includeTest) params.set('include_test', '1');
-  if (opts.segment) params.set('segment', opts.segment);
+  if (opts.dim) params.set('dim', opts.dim);
+  if (opts.value) params.set('value', opts.value);
   if (opts.limit) params.set('limit', String(opts.limit));
   if (opts.offset) params.set('offset', String(opts.offset));
   const res = await call(`admin-answers?${params.toString()}`);

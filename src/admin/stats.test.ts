@@ -3,6 +3,7 @@
 // the code under test.
 import { describe, expect, it } from 'vitest';
 import {
+  answerFilters,
   binNumbers,
   binNumbersByDim,
   dimensionLegend,
@@ -14,7 +15,8 @@ import {
   overviewTiles,
   questionCards,
 } from './stats';
-import type { StatsOverview } from './api';
+import type { StatsOverview, StatsVersion } from './api';
+import type { SurveyConfig } from '../engine/types';
 
 const overview: StatsOverview = {
   total_sessions: 60,
@@ -343,6 +345,50 @@ describe('questionCards with a split', () => {
     const bins = binNumbersByDim(budget.atoms, 7);
     expect(bins[0]).toMatchObject({ from: 7, counts: { A: 2 } });
     expect(bins[bins.length - 1]).toMatchObject({ from: 12, counts: { B: 1 } });
+  });
+});
+
+// ─── the open-answers filter ───────────────────────────────────────────────
+
+describe('answerFilters', () => {
+  const versions = (config: SurveyConfig): StatsVersion[] => [
+    { version: 'v1', published_at: '2026-01-01', config },
+  ];
+
+  it('offers every mark and draw by its label, whatever it is named', () => {
+    // The regression this guards: the filter used to look up one hardcoded name,
+    // `segment`, so a console-built survey offered nothing at all
+    const filters = answerFilters(
+      versions({
+        version: 'v1',
+        randomVars: { price: [79, 149] },
+        varMeta: {
+          mark1: { label: 'פרסונה', values: { v1: 'זוג צעיר', v2: 'בעל משכנתה' } },
+          price: { label: 'מחיר' },
+        },
+        screens: [],
+      }),
+      'v1',
+    );
+    expect(filters).toEqual([
+      {
+        key: 'mark1',
+        label: 'פרסונה',
+        values: [
+          ['v1', 'זוג צעיר'],
+          ['v2', 'בעל משכנתה'],
+        ],
+      },
+      { key: 'price', label: 'מחיר', values: [['79', '79'], ['149', '149']] },
+    ]);
+  });
+
+  it('leaves out anything whose values it cannot list', () => {
+    const filters = answerFilters(
+      versions({ version: 'v1', varMeta: { mark1: { label: 'בלי ערכים' } }, screens: [] }),
+      'v1',
+    );
+    expect(filters).toEqual([]);
   });
 });
 

@@ -76,25 +76,38 @@ describe.runIf(dbTestsEnabled)('open answers SQL (ENG-16)', () => {
 
   it('lists raw answers newest-first with session context, paginated', async () => {
     const page = await sql`
-      select * from open_answers('oatest', null, false, array['why'], null, 2, 0)`;
+      select * from open_answers('oatest', null, false, array['why'], 'segment', null, 2, 0)`;
     expect(page).toHaveLength(2);
     expect(Number(page[0].total)).toBe(3);
     // Newest first: s6 was seeded last (a larger atBase)
     expect(page[0].value).toBe('הבירוקרטיה');
-    expect(page[0].segment).toBe('B');
+    expect(page[0].dim_value).toBe('B');
     expect(page[0].outcome).toBe('complete');
     const rest = await sql`
-      select * from open_answers('oatest', null, false, array['why'], null, 2, 2)`;
+      select * from open_answers('oatest', null, false, array['why'], 'segment', null, 2, 2)`;
     expect(rest).toHaveLength(1);
   });
 
-  it('filters by segment, including the explicit unknown bucket', async () => {
+  it('filters by any named dimension, including the explicit unknown bucket', async () => {
     const b = await sql`
-      select * from open_answers('oatest', null, false, array['why'], 'B', 50, 0)`;
+      select * from open_answers('oatest', null, false, array['why'], 'segment', 'B', 50, 0)`;
     expect(b.map((r) => r.value)).toEqual(['הבירוקרטיה']);
     const unknown = await sql`
-      select * from open_answers('oatest', null, false, array['why'], '__unknown__', 50, 0)`;
+      select * from open_answers('oatest', null, false, array['why'], 'segment', '__unknown__', 50, 0)`;
     expect(unknown).toHaveLength(0); // every respondent here has a known segment
+  });
+
+  it('reads whichever variable it is asked for, not one hardcoded name', () => {
+    // The regression this guards: the dimension used to be fixed as 'segment',
+    // so on a console-built survey (marks named mark1, mark2…) every row came
+    // back unknown and the filter quietly matched everything.
+    return sql`
+      select * from open_answers('oatest', null, false, array['why'], 'nosuchvar', null, 50, 0)`.then(
+      (rows) => {
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.every((r) => r.dim_value === null)).toBe(true);
+      },
+    );
   });
 });
 
