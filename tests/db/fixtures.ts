@@ -5,8 +5,18 @@ import type { Sql } from './harness';
 
 const hex12 = (n: number) => n.toString(16).padStart(12, '0').slice(-12);
 
-/** Deterministic session/event ids, in a separate range per test file */
+/**
+ * Deterministic session/event ids, in a separate range per test file.
+ *
+ * ⚠ The prefix becomes the first two characters of a uuid, so it has to be
+ * hexadecimal. A prefix like 'g7' produces ids Postgres rejects, and the failure
+ * surfaces from deep inside resetEvents as "invalid input syntax for type uuid"
+ * with nothing pointing at the prefix that caused it.
+ */
 export function idFactory(filePrefix: string) {
+  if (!/^[0-9a-f]{2}$/.test(filePrefix)) {
+    throw new Error(`idFactory prefix must be two hex characters, got "${filePrefix}"`);
+  }
   let events = 0;
   return {
     sid: (k: number) => `${filePrefix}5e5510-0000-4000-8000-${hex12(k)}`,

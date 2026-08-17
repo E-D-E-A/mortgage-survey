@@ -49,7 +49,23 @@ const fixture = [
     terminal: 'complete',
     terminalPayload: { vars: { segment: 'B' } },
   }),
+  // why2 (text): four answers whose lengths are chosen so that the interpolating
+  // percentile and the discrete one disagree — see the percentile test below
+  ...[2, 4, 6, 10].map((len, i) =>
+    sessionEvents(ids, 7 + i, V, {
+      steps: [{ screen: 'why2', answer: 'x'.repeat(len) }],
+      terminal: 'complete',
+    }),
+  ).flat(),
 ];
+
+/** 51 answers on a screen of their own — enough to see where the default page ends. */
+const bulkFixture = Array.from({ length: 51 }, (_, i) =>
+  sessionEvents(ids, 100 + i, V, {
+    steps: [{ screen: 'bulk', answer: `answer-${i}` }],
+    terminal: 'complete',
+  }),
+).flat();
 
 describe.runIf(dbTestsEnabled)('open answers SQL (ENG-16)', () => {
   let sql: Sql;
@@ -97,6 +113,22 @@ describe.runIf(dbTestsEnabled)('open answers SQL (ENG-16)', () => {
     expect(unknown).toHaveLength(0); // every respondent here has a known segment
   });
 
+  it('reports all four length percentiles, interpolating between answers', async () => {
+    // Lengths 2, 4, 6, 10. The median sits between the middle two: 4 + (6-4)/2 = 5.
+    // p90 sits 70% of the way from 6 to 10 — 8.8, which the cast rounds to 9.
+    // A switch to percentile_disc would give 4 and 10 instead, so these two
+    // numbers are what pins the discipline and not merely the values.
+    const rows = await sql`select * from open_answer_stats('oatest', null, false, 'why2')`;
+    expect(rows[0]).toMatchObject({
+      screen_id: 'why2',
+      answered: 4,
+      len_min: 2,
+      len_median: 5,
+      len_p90: 9,
+      len_max: 10,
+    });
+  });
+
   it('reads whichever variable it is asked for, not one hardcoded name', () => {
     // The regression this guards: the dimension used to be fixed as 'segment',
     // so on a console-built survey (marks named mark1, mark2…) every row came
@@ -127,7 +159,9 @@ describe.runIf(dbTestsEnabled)('admin-answers endpoint (ENG-16)', () => {
     sql = connectLocal();
     await applySchema(sql);
     await ensureSurvey(sql, 'oatest', 'שאלון פתוחות', [{ version: V }]);
-    await resetEvents(sql, [V], fixture);
+    // The bulk rows live on a screen of their own, so every assertion about
+    // `why` above and below is unaffected by them
+    await resetEvents(sql, [V], [...fixture, ...bulkFixture]);
     await createAdminUser('stats-admin@first-edea.com');
     token = await signIn('stats-admin@first-edea.com');
   });
@@ -152,5 +186,29 @@ describe.runIf(dbTestsEnabled)('admin-answers endpoint (ENG-16)', () => {
     expect((await call('survey=oatest&screens=why&limit=101', token)).status).toBe(400);
     expect((await call('survey=oatest&screens=', token)).status).toBe(400);
     expect((await call('survey=no-such&screens=why', token)).status).toBe(404);
+  });
+
+  it('serves 50 rows when no page size is asked for, and offset reaches past them', async () => {
+    // 51 answers exist, so a default of "all of them" and a default of 50 are
+    // finally distinguishable — with a smaller fixture both look identical.
+    const first = await (await call('survey=oatest&screens=bulk', token)).json();
+    expect(first.total).toBe(51);
+    expect(first.rows).toHaveLength(50);
+
+    const last = await (await call('survey=oatest&screens=bulk&offset=50', token)).json();
+    expect(last.rows).toHaveLength(1);
+    expect(last.rows[0].value).not.toBe(first.rows[0].value);
+  });
+
+  it('passes the dimension and its value through to the query', async () => {
+    const body = await (await call('survey=oatest&screens=why&dim=segment&value=B', token)).json();
+    expect(body.rows.map((r: { value: string }) => r.value)).toEqual(['הבירוקרטיה']);
+  });
+
+  it('rejects a dimension name that is not a plain code, and an over-long value', async () => {
+    expect((await call('survey=oatest&screens=why&dim=bad!name', token)).status).toBe(400);
+    expect((await call(`survey=oatest&screens=why&value=${'x'.repeat(201)}`, token)).status).toBe(400);
+    // 200 characters is the boundary, and it is allowed
+    expect((await call(`survey=oatest&screens=why&value=${'x'.repeat(200)}`, token)).status).toBe(200);
   });
 });

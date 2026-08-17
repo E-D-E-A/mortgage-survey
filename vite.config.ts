@@ -12,9 +12,12 @@ export default defineConfig({
     watch: { ignored: ['**/.netlify/**'] },
   },
   test: {
+    // node by default — the logic suite needs no DOM and starts faster without one.
+    // The component tests opt themselves into jsdom with a
+    // `// @vitest-environment jsdom` docblock, so only they pay for it.
     environment: 'node',
     // tests/db are integration tests against a local Supabase — skipped without DB_TESTS=1
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
     // The DB files share one database; parallelism between files = deadlocks on
     // the fixtures' DDL. Running them serially costs seconds and eliminates that
     // entire class of failure.

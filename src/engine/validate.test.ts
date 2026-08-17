@@ -174,6 +174,58 @@ describe('validateConfig · random variables', () => {
     expect(issue?.level).toBe('warning');
   });
 
+  it('two identical values is that warning only — the list does hold two entries', () => {
+    const found = validateConfig(withRandom({ price: [99, 99] })).filter(
+      (i) => i.code === 'random-var-values',
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe('warning');
+  });
+
+  it('a draw made only of blanks is reported empty, never as "too few"', () => {
+    const found = validateConfig(withRandom({ price: ['', ''] })).filter(
+      (i) => i.code === 'random-var-values',
+    );
+    expect(found.some((i) => i.level === 'error' && i.message.includes('ערך ריק'))).toBe(true);
+    expect(found.some((i) => i.message.includes('שני ערכים'))).toBe(false);
+  });
+
+  it('two differently-blank values are one empty error, and not duplicates of one another', () => {
+    const found = validateConfig(withRandom({ price: ['', '   '] })).filter(
+      (i) => i.code === 'random-var-values',
+    );
+    expect(found.filter((i) => i.level === 'error')).toHaveLength(1);
+    expect(found.some((i) => i.level === 'warning')).toBe(false);
+  });
+
+  it('a marking rule that assigns a draw is an error — it overwrites the arm the respondent saw', () => {
+    // Two clicks away in the console: the "which mark does this screen set" list
+    // is built from the draws as well as the marks. Afterwards the question
+    // printed one price and the completion event reports another, so the answer
+    // is credited to an arm that never ran.
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [info('a', { onSubmit: [{ var: 'price', value: 5 }] }), end('e')],
+    };
+    const issue = errors(c).find((i) => i.code === 'random-var-overwritten');
+    expect(issue?.screenId).toBe('a');
+    expect(issue?.message).toContain('price');
+  });
+
+  it('reading a draw in a condition stays clean — only assigning to it is the mistake', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [
+        info('a'),
+        info('b', { showIf: { var: 'price', op: 'gt', value: 100 } }),
+        end('e'),
+      ],
+    };
+    expect(codes(c)).not.toContain('random-var-overwritten');
+  });
+
   it('interpolating a name nothing produces is an error', () => {
     const screens = [info('a', { title: 'מחיר: {price}' }), end('e')];
     expect(codes(cfg(screens))).toContain('unknown-interpolation');
@@ -249,6 +301,50 @@ describe('validateConfig · quotas', () => {
     // state. Before the graph knew that, every survey with a quota warned that
     // its quota-full screen was unreachable — about the one screen wired right.
     expect(codes(withQuota(50, [setter, end('e'), quotaEnd('qf')]))).not.toContain('unreachable');
+  });
+
+  it('a conditional marking rule still counts as setting the value', () => {
+    const c = withQuota(50, [
+      info('q1', {
+        onSubmit: [{ var: 'persona', value: 'young_couple', if: { q: 'q1', op: 'answered' } }],
+      }),
+      end('e'),
+      quotaEnd('qf'),
+    ]);
+    expect(codes(c)).not.toContain('quota');
+  });
+
+  it('a numeric marking value matches a quota keyed by its text form', () => {
+    // The console writes quota keys as text and marking values as they were
+    // typed; a mismatch here would leave the cap counting nothing at all.
+    const c: SurveyConfig = {
+      version: 't',
+      varMeta: { age_bracket: { label: 'קבוצת גיל', quotas: { '25': 50 } } },
+      screens: [
+        info('q1', { onSubmit: [{ var: 'age_bracket', value: 25 }] }),
+        end('e'),
+        quotaEnd('qf'),
+      ],
+    };
+    expect(codes(c)).not.toContain('quota');
+  });
+
+  it('a quota-full screen nothing can route to is reported unreachable, next to the dead quota', () => {
+    const c = withQuota(50, [info('q1'), end('e'), quotaEnd('qf')]);
+    expect(codes(c)).toContain('quota');
+    expect(validateConfig(c).find((i) => i.code === 'unreachable')?.screenId).toBe('qf');
+  });
+
+  it('a quota whose only setter sits on an unreachable screen is dead config too', () => {
+    // This used to pass validation: the check scanned every screen, so a setter
+    // nobody can arrive at counted as a setter. All the admin saw was an
+    // "unreachable screen" notice that never mentioned the quota it had just
+    // silently disabled.
+    const orphan = info('orphan', { onSubmit: [{ var: 'persona', value: 'young_couple' }] });
+    const c = withQuota(50, [info('q1'), end('e'), quotaEnd('qf'), orphan]);
+    const issue = validateConfig(c).find((i) => i.code === 'quota');
+    expect(issue?.level).toBe('warning');
+    expect(issue?.message).toContain('young_couple');
   });
 
   it('an unrelated end screen is still reported as unreachable', () => {

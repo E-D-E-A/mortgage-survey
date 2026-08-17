@@ -6,7 +6,7 @@
 // Netlify function (server-side gate) — esbuild bundles this file into both.
 
 import { interpolatedTexts, interpolationRefs } from './conditions';
-import { quotaCells, quotaFullScreen } from './quota';
+import { quotaCells, quotaFullScreen, type QuotaCell } from './quota';
 import type { Condition, Option, Screen, SurveyConfig } from './types';
 
 export interface ValidationIssue {
@@ -33,6 +33,7 @@ export interface ValidationIssue {
     | 'bad-text-limit'
     | 'var-order'
     | 'random-var-values'
+    | 'random-var-overwritten'
     | 'unknown-interpolation'
     | 'quota';
   screenId?: string;
@@ -307,6 +308,33 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     }
   }
 
+  // A draw is settled once, on entry, and only read from then on — that is the
+  // whole difference between an experiment and per-screen randomisation. A
+  // marking rule that assigns the same name overwrites the value the respondent
+  // was actually shown: the question said 149, and the completion event reports
+  // whatever the rule put there instead, so the arm recorded in analysis is not
+  // the arm that ran.
+  //
+  // ⚠ This is two clicks away in the console, not a hand-edited-JSON curiosity.
+  // The "which mark does this screen set" list is built from makeNaming
+  // (admin/display.ts), which seeds itself with the draws — deliberately, because
+  // conditions must be able to branch on the arm. One list feeds two menus with
+  // opposite needs, and nothing about the result looks wrong afterwards.
+  const drawnNames = new Set(Object.keys(config.randomVars ?? {}));
+  const overwritten = new Set<string>();
+  for (const s of screens) {
+    for (const rule of s.onSubmit ?? []) {
+      if (!drawnNames.has(rule.var) || overwritten.has(`${s.id} ${rule.var}`)) continue;
+      overwritten.add(`${s.id} ${rule.var}`);
+      issues.push({
+        level: 'error',
+        code: 'random-var-overwritten',
+        screenId: s.id,
+        message: `המסך "${s.id}" קובע את "${rule.var}", אבל זו הגרלה שנקבעת פעם אחת בכניסה — הכלל הזה ידרוס את הערך שהוגרל, והתשובה תיזקף בניתוח לזרוע הלא נכונה`,
+      });
+    }
+  }
+
   // --- quotas ---
   // A quota on a mark value is a promise that someone will enforce it: the
   // moment it fills, the respondent is routed to a "quota already full" end
@@ -324,27 +352,19 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
     });
   }
 
-  for (const { mark, value, limit } of quotas) {
-    if (!Number.isInteger(limit) || limit < 0) {
+  // Cells whose ceiling is a usable number. The dead-config check on them waits
+  // for the reachability pass further down — see the loop after it.
+  const liveCells: QuotaCell[] = [];
+  for (const cell of quotas) {
+    if (!Number.isInteger(cell.limit) || cell.limit < 0) {
       issues.push({
         level: 'error',
         code: 'quota',
-        message: `המכסה של הערך "${value}" בסימון "${mark}" היא ${limit} — צריך מספר שלם מ-0 ומעלה. כדי לא להגביל בכלל, השאירו את השדה ריק`,
+        message: `המכסה של הערך "${cell.value}" בסימון "${cell.mark}" היא ${cell.limit} — צריך מספר שלם מ-0 ומעלה. כדי לא להגביל בכלל, השאירו את השדה ריק`,
       });
       continue;
     }
-    // A value no screen ever sets will never be counted, so its quota is dead
-    // config: it looks active in the console and will stop no one.
-    const setBy = screens.some((s) =>
-      (s.onSubmit ?? []).some((r) => r.var === mark && String(r.value) === value),
-    );
-    if (!setBy) {
-      issues.push({
-        level: 'warning',
-        code: 'quota',
-        message: `יש מכסה לערך "${value}" של הסימון "${mark}", אבל אף מסך לא קובע את הערך הזה — אין מה לספור והמכסה לא תיאכף`,
-      });
-    }
+    liveCells.push(cell);
   }
 
   // --- screen content integrity ---
@@ -571,6 +591,28 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
       });
     }
   });
+
+  // A value no screen ever sets will never be counted, so its quota is dead
+  // config: it looks active in the console and will stop no one.
+  //
+  // ⚠ Reachable, not merely present. A setter sitting on a screen no respondent
+  // can arrive at is exactly as useless as no setter at all, and that case used
+  // to slip through: the admin got an "unreachable screen" notice that never
+  // mentioned the quota it had just silently disabled.
+  for (const { mark, value } of liveCells) {
+    const setBy = screens.some(
+      (s, i) =>
+        reachable.has(i) &&
+        (s.onSubmit ?? []).some((r) => r.var === mark && String(r.value) === value),
+    );
+    if (!setBy) {
+      issues.push({
+        level: 'warning',
+        code: 'quota',
+        message: `יש מכסה לערך "${value}" של הסימון "${mark}", אבל אף מסך שאפשר להגיע אליו לא קובע את הערך הזה — אין מה לספור והמכסה לא תיאכף`,
+      });
+    }
+  }
 
   if (
     screens.some((s) => s.type === 'end') &&

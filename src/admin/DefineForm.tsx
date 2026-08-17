@@ -8,6 +8,7 @@
 // it arrives ready-made and most admins will never touch it.
 
 import { useState } from 'react';
+import { isCodeFieldLocked } from './codeLock';
 
 export type DefineKind = 'var' | 'value' | 'randomVar';
 
@@ -67,7 +68,7 @@ export function DefineForm({
   onCancel,
 }: Props) {
   // The lock only applies when editing an existing definition; a new code is always written from scratch
-  const locked = renaming && codeLocked;
+  const locked = isCodeFieldLocked(renaming, codeLocked);
   const [label, setLabel] = useState(suggestedLabel);
   const [code, setCode] = useState(suggestedCode);
   const trimmed = code.trim();

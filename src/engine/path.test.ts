@@ -209,6 +209,24 @@ describe('simulatePath', () => {
     expect(simulatePath(loop, {}).map((s) => s.screen.id)).toEqual(['a', 'b']);
   });
 
+  it('a drawn value is the same on every step of the walk', () => {
+    // What "drawn once per session" looks like from the respondent's side: the
+    // price in the question never changes under them, and the condition that
+    // reads it decides the same way from the first screen to the last.
+    const cfg: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [
+        { id: 'a', type: 'info', title: 'מחיר: {price}', body: '' },
+        { id: 'b', type: 'info', title: 'יקר', body: '', showIf: { var: 'price', op: 'gt', value: 100 } },
+        { id: 'end', type: 'end', variant: 'complete', title: '', body: '' },
+      ],
+    };
+    const steps = simulatePath(cfg, {}, { price: 149 });
+    expect(steps.map((s) => s.screen.id)).toEqual(['a', 'b', 'end']);
+    expect(steps.every((s) => s.vars.price === 149)).toBe(true);
+  });
+
   // The console's path check feeds quota state in through the seed — this is the
   // one path an admin cannot test on the live survey without waiting for a quota
   // to genuinely fill

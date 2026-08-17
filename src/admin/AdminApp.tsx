@@ -12,6 +12,7 @@ import { isValidSlug, surveyPath } from '../data/surveys';
 import { useDraft } from './useDraft';
 import { useSurveys } from './useSurveys';
 import { insertScreen } from './edits';
+import { codesLockedFor } from './codeLock';
 import {
   defineVar as defineVarIn,
   defineVarValue as defineVarValueIn,
@@ -233,11 +234,9 @@ function Console({ email, onAuthError }: { email: string; onAuthError: () => voi
       slug={route.slug}
       name={survey?.name ?? route.slug}
       archived={Boolean(survey?.archived_at)}
-      // Analysis codes lock on the first publish. Until the list has loaded we do
-      // not yet know whether this survey has been published — and then they lock:
-      // an unnecessary lock is an annoyance, an unnecessary unlock rewrites a
-      // code that collected data points at.
-      codesLocked={survey ? survey.versions > 0 : true}
+      // Analysis codes lock on the first publish; until the list has loaded the
+      // publish state is unknown and the codes lock. See admin/codeLock.ts.
+      codesLocked={codesLockedFor(survey)}
       email={email}
       onBack={() => {
         void surveys.reload();

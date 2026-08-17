@@ -259,6 +259,35 @@ describe('dimensionOptions', () => {
       { key: '_outcome', label: 'תוצאת הסשן' },
     ]);
   });
+
+  it('offers url_source alone, never another url_ parameter the survey happens to collect', () => {
+    // The config above has no second url_ var, so on its own it cannot tell
+    // "only url_source" apart from "any url_ it finds". This one can: both
+    // url_campaign and url_medium are real session vars here, set by a screen.
+    const withParams = {
+      ...bdConfig,
+      screens: [
+        {
+          id: 'q1',
+          type: 'info' as const,
+          title: 'שאלה',
+          body: '',
+          onSubmit: [
+            { var: 'url_campaign', value: 'spring' },
+            { var: 'url_medium', value: 'cpc' },
+          ],
+        },
+        { id: 'end', type: 'end' as const, variant: 'complete' as const, title: '', body: '' },
+      ],
+    };
+    const keys = dimensionOptions(
+      [{ version: 'b1', published_at: '2026-08-01', config: withParams }],
+      'all',
+    ).map((d) => d.key);
+    expect(keys).toContain('url_source');
+    expect(keys).not.toContain('url_campaign');
+    expect(keys).not.toContain('url_medium');
+  });
 });
 
 describe('dimensionLegend', () => {
@@ -455,6 +484,13 @@ describe('questionCards — matrix', () => {
     expect(advisor.n).toBe(2);
     expect(advisor.na).toBe(1);
   });
+
+  it('carries the base N from the funnel, like every other card', () => {
+    // Every card states how many people answered; a matrix reading its base from
+    // its own atom counts would report the item total instead, which for a
+    // five-row matrix is five times the number of respondents.
+    expect(questionCards(mxDist, mxFunnel, mxVersions, 'all')[0].base).toBe(5);
+  });
 });
 
 describe('questionCards — number values', () => {
@@ -465,6 +501,10 @@ describe('questionCards — number values', () => {
       { value: 650000, count: 1 },
       { value: 2250000, count: 2 },
     ]);
+  });
+
+  it('carries the base N from the funnel, like every other card', () => {
+    expect(questionCards(mxDist, mxFunnel, mxVersions, 'all')[1].base).toBe(6);
   });
 });
 

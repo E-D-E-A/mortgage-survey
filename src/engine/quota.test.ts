@@ -55,6 +55,20 @@ describe('quotaVars', () => {
   it('counts for a value with no quota are ignored', () => {
     expect(quotaVars({ ...config, varMeta: {} }, { persona: { young_couple: 9000 } })).toEqual({});
   });
+
+  it('flags several cells at once, independently of one another', () => {
+    const two: SurveyConfig = {
+      ...config,
+      varMeta: {
+        persona: { label: 'פרסונה', quotas: { young_couple: 50 } },
+        city: { label: 'עיר', quotas: { tel_aviv: 20 } },
+      },
+    };
+    expect(quotaVars(two, { persona: { young_couple: 50 }, city: { tel_aviv: 20 } })).toEqual({
+      [quotaFullVar('persona', 'young_couple')]: true,
+      [quotaFullVar('city', 'tel_aviv')]: true,
+    });
+  });
 });
 
 describe('quotaFullVar', () => {
@@ -74,6 +88,14 @@ describe('quotaFullScreen', () => {
     expect(quotaFullScreen(config)?.id).toBe('full');
     const without = { ...config, screens: config.screens.filter((s) => s.id !== 'full') };
     expect(quotaFullScreen(without)).toBeNull();
+  });
+
+  it('with two quota-full screens the first one wins, and the second is an orphan', () => {
+    // Not a supported setup, but a reachable one — worth knowing which of the
+    // two respondents actually land on before someone wonders why the other
+    // never fills up.
+    const second: Screen = { id: 'full2', type: 'end', variant: 'quotafull', title: '', body: '' };
+    expect(quotaFullScreen({ ...config, screens: [...config.screens, second] })?.id).toBe('full');
   });
 });
 

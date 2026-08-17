@@ -92,6 +92,41 @@ describe('value naming', () => {
   it('collects randomVars and onSubmit vars alike', () => {
     expect(naming.vars.sort()).toEqual(['price', 'segment']);
   });
+
+  it('lists a draw once, however many places also mention it', () => {
+    // The list feeds the condition dropdowns; a name offered twice reads as two
+    // different variables that happen to share a label.
+    const c: SurveyConfig = {
+      version: 'test',
+      randomVars: { price: [99, 199] },
+      varMeta: { price: { label: 'מחיר' } },
+      screens: [
+        { id: 'a', type: 'info', title: '', body: '', onSubmit: [{ var: 'price', value: 150 }] },
+      ],
+    };
+    expect(makeNaming(c).vars.filter((v) => v === 'price')).toHaveLength(1);
+  });
+
+  it('offers draws before the marks the screens set — the order the dropdown shows', () => {
+    const c: SurveyConfig = {
+      version: 'test',
+      randomVars: { price: [99, 199] },
+      screens: [
+        { id: 'a', type: 'info', title: '', body: '', onSubmit: [{ var: 'segment', value: 'A' }] },
+      ],
+    };
+    expect(makeNaming(c).vars).toEqual(['price', 'segment']);
+  });
+
+  it('shows a draw value by its number when no Hebrew name was given to it', () => {
+    const c: SurveyConfig = {
+      version: 'test',
+      randomVars: { price: [99, 199] },
+      varMeta: { price: { label: 'מחיר' } },
+      screens: [],
+    };
+    expect(varValueLabel(makeNaming(c), 'price', 99)).toBe('99');
+  });
 });
 
 describe('conditionSentence', () => {

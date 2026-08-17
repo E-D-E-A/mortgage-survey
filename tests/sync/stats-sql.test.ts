@@ -58,4 +58,36 @@ describe('stats SQL stays in sync with the functions layer', () => {
       );
     }
   });
+
+  it('every rpc the functions call is granted to service_role', () => {
+    // The revoke above is only half the pair. A schema edit that revokes and
+    // forgets to re-grant leaves the endpoint failing in production while every
+    // test here still passes — and for quota-get, failing means failing open, so
+    // nothing would report it at all.
+    const sql = schema();
+    for (const fn of rpcCallsInFunctions()) {
+      expect(sql, `function ${fn} must be granted to service_role`).toMatch(
+        new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to service_role`),
+      );
+    }
+  });
+
+  it('quota_counts counts finished, non-test sessions only', () => {
+    // The two filters that decide whether a real study's quotas close early.
+    // Unlike the session_stats predicate above, they had no guard at all: the
+    // function is defined with drop/create, so an edit that dropped either
+    // filter would keep the signature and pass every other test in the repo.
+    const fn = schema().match(/create function public\.quota_counts\([\s\S]*?\$\$;/)?.[0];
+    expect(fn, 'quota_counts not found in schema.sql').toBeDefined();
+    expect(fn).toContain(`s.outcome = 'complete'`);
+    expect(fn).toContain('not s.is_test');
+  });
+
+  it('the open-answers listing never filters or ranks by the text itself', () => {
+    // ENG-16's hard scope guard: the tab browses raw answers, and searching or
+    // scoring their content is out of scope by decision, not by omission.
+    const fn = schema().match(/create function public\.open_answers\([\s\S]*?\$\$;/)?.[0];
+    expect(fn, 'open_answers not found in schema.sql').toBeDefined();
+    expect(fn).not.toMatch(/ilike|to_tsvector|to_tsquery|websearch_to_tsquery|similarity\(/i);
+  });
 });

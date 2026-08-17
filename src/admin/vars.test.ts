@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { validateConfig } from '../engine/validate';
 import type { Screen, SurveyConfig } from '../engine/types';
 import {
   addRandomValue,
@@ -260,6 +261,70 @@ describe('renameVar', () => {
     });
     expect(next.varMeta?.price).toEqual({ label: 'מחיר' });
   });
+
+  it('carries the mark’s quotas across to the new code', () => {
+    // Asserted on its own and not as part of the whole-object comparison above:
+    // a quota left behind on the old code counts nothing and stops nobody, and
+    // there would be no sign of it in the console.
+    expect(renameVar(cfg, 'seg', 'segment').varMeta?.segment.quotas).toEqual({ A: 10 });
+  });
+
+  it('replaces every occurrence of the name in one text, not only the first', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [info('a', { title: '{price} וגם {price}, ושוב {price}' })],
+    };
+    expect((renameVar(c, 'price', 'offer').screens[0] as { title: string }).title).toBe(
+      '{offer} וגם {offer}, ושוב {offer}',
+    );
+  });
+
+  it('reaches a reference nested inside a marking rule’s own condition', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      varMeta: { seg: { label: 'מסלול' } },
+      screens: [
+        info('a', {
+          onSubmit: [
+            { var: 'other', value: 'x', if: { not: { any: [{ var: 'seg', op: 'eq', value: 'A' }] } } },
+          ],
+        }),
+      ],
+    };
+    expect(renameVar(c, 'seg', 'segment').screens[0].onSubmit?.[0].if).toEqual({
+      not: { any: [{ var: 'segment', op: 'eq', value: 'A' }] },
+    });
+  });
+
+  it('renaming a code that is both a draw and a named mark moves both maps together', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      varMeta: { price: { label: 'מחיר', values: { '99': 'זול' } } },
+      screens: [info('a', { title: '{price}' })],
+    };
+    const next = renameVar(c, 'price', 'offer');
+    expect(next.randomVars).toEqual({ offer: [99, 199] });
+    expect(next.varMeta?.offer).toEqual({ label: 'מחיר', values: { '99': 'זול' } });
+    expect(next.randomVars?.price).toBeUndefined();
+    expect(next.varMeta?.price).toBeUndefined();
+  });
+
+  it('renaming onto a code that is taken overwrites it — the form is what prevents this', () => {
+    // Pinning the documented assumption rather than endorsing it: renameVar does
+    // not check, because DefineForm.takenCodes checks first and can explain the
+    // problem to the admin. Any future caller that skips the form loses data here
+    // with no error at all.
+    const clash: SurveyConfig = {
+      version: 't',
+      varMeta: { price: { label: 'מחיר' }, seg: { label: 'מסלול', quotas: { A: 10 } } },
+      screens: [info('a')],
+    };
+    const next = renameVar(clash, 'seg', 'price');
+    expect(next.varMeta?.price).toEqual({ label: 'מסלול', quotas: { A: 10 } });
+    expect(Object.keys(next.varMeta ?? {})).toEqual(['price']);
+  });
 });
 
 describe('renameVarValue', () => {
@@ -310,6 +375,21 @@ describe('renameVarValue', () => {
     expect(next.randomVars?.price).toEqual([149, 199]);
   });
 
+  it('leaves the wording alone — a {name} token names a variable, never one of its values', () => {
+    // The token is looked up against the vars and the answers (interpolate in
+    // engine/conditions.ts), so a value code is not something it can ever point
+    // at. `{A}` below is deliberately spelled like the value being renamed, to
+    // show there is nothing here for the rename to find.
+    const c: SurveyConfig = {
+      version: 't',
+      varMeta: { seg: { label: 'מסלול', values: { A: 'מסלול א' } } },
+      screens: [info('a', { title: 'הערך הוא {A} ותמיד {seg}', onSubmit: [{ var: 'seg', value: 'A' }] })],
+    };
+    const next = renameVarValue(c, 'seg', 'A', 'track_a');
+    expect((next.screens[0] as { title: string }).title).toBe('הערך הוא {A} ותמיד {seg}');
+    expect(next.screens[0].onSubmit).toEqual([{ var: 'seg', value: 'track_a' }]);
+  });
+
   it('does not invent a value on an "answered" leaf that has none', () => {
     const c: SurveyConfig = {
       version: 't',
@@ -344,5 +424,65 @@ describe('varReferences', () => {
 
   it('is empty for a variable nothing points at', () => {
     expect(varReferences(cfg, 'ghost')).toEqual([]);
+  });
+});
+
+// ── deleting a draw that is still in use (ENG-19) ──
+//
+// varReferences is the warning the admin gets before they click, and
+// validateConfig is what the survey looks like afterwards if they click anyway.
+// Tested together, because the pair is the actual promise: nobody deletes a
+// variable and finds out later.
+
+describe('removing a draw that is still referenced', () => {
+  const done: Screen = { id: 'e', type: 'end', variant: 'complete', title: 'סיום', body: '' };
+
+  it('breaks both the condition and the wording, and both were named beforehand', () => {
+    const cfg: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [
+        info('a', { title: 'המחיר הוא {price}' }),
+        info('b', { showIf: { var: 'price', op: 'gt', value: 100 } }),
+        done,
+      ],
+    };
+    expect(varReferences(cfg, 'price')).toEqual([
+      { screenId: 'a', kind: 'text' },
+      { screenId: 'b', kind: 'condition' },
+    ]);
+
+    const issues = validateConfig(removeRandomVar(cfg, 'price'));
+    expect(issues.some((i) => i.code === 'unknown-ref' && i.message.includes('price'))).toBe(true);
+    expect(issues.some((i) => i.code === 'unknown-interpolation' && i.message.includes('price'))).toBe(
+      true,
+    );
+  });
+
+  it('a draw nothing points at leaves the survey exactly as it was', () => {
+    const cfg: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199], ghost: [1, 2] },
+      screens: [info('a', { title: 'המחיר הוא {price}' }), done],
+    };
+    expect(varReferences(cfg, 'ghost')).toEqual([]);
+    expect(validateConfig(removeRandomVar(cfg, 'ghost'))).toEqual(validateConfig(cfg));
+  });
+
+  it('finds a reference buried in a nested condition, and flags it after the delete', () => {
+    const cfg: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [99, 199] },
+      screens: [
+        info('a'),
+        info('b', {
+          showIf: { not: { any: [{ all: [{ var: 'price', op: 'gt', value: 100 }] }] } },
+        }),
+        done,
+      ],
+    };
+    expect(varReferences(cfg, 'price')).toEqual([{ screenId: 'b', kind: 'condition' }]);
+    const issue = validateConfig(removeRandomVar(cfg, 'price')).find((i) => i.code === 'unknown-ref');
+    expect(issue?.screenId).toBe('b');
   });
 });

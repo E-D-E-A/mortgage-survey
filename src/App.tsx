@@ -46,7 +46,7 @@ const STARTED_KEY = 'sq_started_v1';
 // as ordinary session vars, which is also why they end up in the session_start
 // payload: analysis can tell which cells were closed the moment a respondent
 // arrived.
-function initVars(config: SurveyConfig, quota: Vars): Vars {
+export function initVars(config: SurveyConfig, quota: Vars): Vars {
   const vars: Vars = { ...quota };
   for (const [name, values] of Object.entries(config.randomVars ?? {})) {
     vars[name] = pickRandom(values);
