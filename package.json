@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "tools/mcp-server"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && tsc -p tsconfig.functions.json && vite build",
+    "build": "tsc --noEmit && tsc -p tsconfig.functions.json && tsc -p tools/mcp-server/tsconfig.json && vite build",
+    "mcp:build": "npm run build --workspace tools/mcp-server",
     "preview": "vite preview",
     "test": "vitest run",
     "db:schema": "node scripts/apply-schema.mjs",
