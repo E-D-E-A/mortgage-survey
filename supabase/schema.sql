@@ -667,6 +667,102 @@ revoke execute on function public.quota_counts(text, text[]) from public, anon, 
 grant execute on function public.quota_counts(text, text[]) to service_role;
 
 -- ============================================================
+-- MCP write path (netlify/functions/mcp-*.mts): rate limits, idempotency keys
+-- and an audit log. The same posture as every other table — RLS on with zero
+-- policies, service_role only. None of these tables carries an FK to surveys:
+-- the audit log must survive a survey's deletion (a log that blocks a delete is
+-- not a log), and the other two are transient bookkeeping with their own TTL.
+-- ============================================================
+
+-- Fixed-window request counters, one row per (user, bucket, window). The window
+-- arithmetic lives in mcp_rate_hit below — the table is just the shared state
+-- Netlify's stateless functions cannot hold themselves.
+create table if not exists public.mcp_rate_limits (
+  user_email   text not null,
+  bucket       text not null check (bucket in ('read', 'write')),
+  window_start timestamptz not null,
+  count        int not null default 0,
+  primary key (user_email, bucket, window_start)
+);
+
+-- One row per executed MCP write, keyed by the client's idempotency key. A
+-- replay of the same key returns the stored response instead of executing
+-- again — which is what makes a network-level retry of apply_change safe.
+-- Only successful writes are stored: a rejection (validation, code lock,
+-- optimistic lock) is deterministic and re-computing it is harmless.
+create table if not exists public.mcp_idempotency_keys (
+  user_email text not null,
+  idem_key   text not null,
+  survey_id  text not null,
+  status     int not null,
+  response   jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (user_email, idem_key)
+);
+
+-- Every MCP draft write: who, when, which survey, the draft revision it replaced
+-- and the one it created, and the agent-supplied summary of the change.
+create table if not exists public.mcp_audit_log (
+  id              bigint generated always as identity primary key,
+  user_email      text not null,
+  survey_id       text not null,
+  revision_before timestamptz,          -- null = the survey's first draft
+  revision_after  timestamptz not null,
+  summary         text not null,
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists mcp_audit_survey_idx
+  on public.mcp_audit_log (survey_id, created_at desc);
+
+alter table public.mcp_rate_limits      enable row level security;
+alter table public.mcp_idempotency_keys enable row level security;
+alter table public.mcp_audit_log        enable row level security;
+revoke all on public.mcp_rate_limits      from anon, authenticated;
+revoke all on public.mcp_idempotency_keys from anon, authenticated;
+revoke all on public.mcp_audit_log        from anon, authenticated;
+
+grant select, insert, update, delete on public.mcp_rate_limits      to service_role;
+grant select, insert, delete         on public.mcp_idempotency_keys to service_role;
+grant select, insert                 on public.mcp_audit_log        to service_role;
+
+-- One atomic "count this request" call: upsert the current window's counter and
+-- answer whether the request is inside the budget, and if not — how long until
+-- the window turns over. Atomic on purpose: two concurrent requests both
+-- incrementing is exactly the race a read-then-write in the function would lose.
+-- Old windows are swept opportunistically on every call, so the table never
+-- needs external cleanup.
+drop function if exists public.mcp_rate_hit(text, text, int, int);
+create function public.mcp_rate_hit(
+  p_email text, p_bucket text, p_limit int, p_window_seconds int
+)
+returns table (allowed boolean, retry_after_seconds int)
+language plpgsql
+set search_path = public
+as $$
+declare
+  w_start   timestamptz :=
+    to_timestamp(floor(extract(epoch from now()) / p_window_seconds) * p_window_seconds);
+  new_count int;
+begin
+  delete from mcp_rate_limits
+    where window_start < now() - make_interval(secs => p_window_seconds * 2);
+  insert into mcp_rate_limits as r (user_email, bucket, window_start, count)
+    values (p_email, p_bucket, w_start, 1)
+    on conflict (user_email, bucket, window_start)
+    do update set count = r.count + 1
+    returning r.count into new_count;
+  return query select
+    new_count <= p_limit,
+    greatest(0, ceil(extract(epoch from
+      (w_start + make_interval(secs => p_window_seconds) - now())))::int);
+end;
+$$;
+
+revoke execute on function public.mcp_rate_hit(text, text, int, int) from public, anon, authenticated;
+grant execute on function public.mcp_rate_hit(text, text, int, int) to service_role;
+
+-- ============================================================
 -- Defence in depth: blocking the creation of accounts outside first-edea.com
 -- This hook runs before a user is created in Supabase Auth, so a Google account
 -- from another domain is never created at all (instead of being created and then

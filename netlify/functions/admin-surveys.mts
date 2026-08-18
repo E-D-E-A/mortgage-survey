@@ -43,8 +43,10 @@ export default async (req: Request): Promise<Response> => {
 /**
  * Three parallel queries joined in memory, instead of a PostgREST embed: the list
  * is small, and joining here does not depend on the FK names in the schema.
+ * Exported so mcp-surveys.mts can serve the identical listing behind its own
+ * rate limit, without a second copy of the join.
  */
-async function listSurveys(url: string, headers: Record<string, string>): Promise<Response> {
+export async function listSurveys(url: string, headers: Record<string, string>): Promise<Response> {
   const [surveysRes, draftsRes, configsRes] = await Promise.all([
     fetch(`${url}/rest/v1/surveys?select=slug,name,created_at,created_by,archived_at&order=created_at.asc`, { headers }),
     fetch(`${url}/rest/v1/survey_drafts?select=survey_id,updated_at,updated_by`, { headers }),
