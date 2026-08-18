@@ -1,15 +1,16 @@
-// זהות השאלון — משותף לדפדפן ול-Netlify Functions (שתיהן מייבאות מכאן).
-// ה-slug הוא המזהה היחיד של שאלון: הוא המפתח ב-DB, הוא הפרמטר בקצוות ה-API,
-// והוא מה שמופיע בקישור הציבורי. לכן הוא מוגבל לתווים בטוחים ל-URL ולשאילתות
-// PostgREST, והבדיקה חוזרת גם בשרת (אף פעם לא סומכים על הדפדפן).
-// ⚠ אותה תבנית בדיוק היא ה-check על surveys.slug ב-supabase/schema.sql.
+// Survey identity — shared by the browser and the Netlify Functions (both import
+// from here). The slug is a survey's only identifier: it is the key in the DB,
+// the parameter on the API endpoints, and what appears in the public link. So it
+// is restricted to characters that are safe in a URL and in PostgREST queries,
+// and the check is repeated on the server (we never trust the browser).
+// ⚠ Exactly this pattern is the check on surveys.slug in supabase/schema.sql.
 
-/** השאלון שמוגש בקישור הישן, בלי slug (‎/‎). נוצר במיגרציה מהמודל של שאלון יחיד. */
+/** The survey served on the old link, with no slug (`/`). Created by the migration from the single-survey model. */
 export const DEFAULT_SURVEY_SLUG = 'main';
 
 export const SURVEY_SLUG_MAX = 40;
 
-/** אותיות קטנות, ספרות ומקפים; לא מתחיל ולא מסתיים במקף. */
+/** Lowercase letters, digits and hyphens; does not start or end with a hyphen. */
 export const SURVEY_SLUG_RE = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;
 
 export function isValidSlug(value: unknown): value is string {
@@ -17,9 +18,10 @@ export function isValidSlug(value: unknown): value is string {
 }
 
 /**
- * הצעת slug משם בעברית. עברית לא נשארת ב-URL (תווים מקודדים בקישור שמודבק
- * לוואטסאפ נראים כמו זבל), ולכן שם עברי טהור מחזיר מחרוזת ריקה והעורך
- * מתבקש להקליד slug באנגלית.
+ * Suggests a slug from a Hebrew name. Hebrew does not survive in a URL (encoded
+ * characters in a link pasted into WhatsApp look like garbage), so a purely
+ * Hebrew name returns an empty string and the editor is asked to type a slug in
+ * English.
  */
 export function slugify(name: string): string {
   return name
@@ -30,15 +32,16 @@ export function slugify(name: string): string {
     .replace(/-+$/g, '');
 }
 
-/** הנתיב הציבורי של שאלון. שאלון ברירת המחדל נשאר על ‎/‎ — קישורים שכבר חולקו. */
+/** A survey's public path. The default survey stays on `/` — links already handed out. */
 export function surveyPath(slug: string): string {
   return slug === DEFAULT_SURVEY_SLUG ? '/' : `/s/${slug}`;
 }
 
 /**
- * ה-slug של השאלון שהדף הנוכחי מציג. כל נתיב שאינו ‎/s/<slug>‎ הוא השאלון
- * הראשי (כך קישורים שחולקו לפני ריבוי השאלונים ממשיכים לעבוד), ו-null מסמן
- * קישור פגום — עדיף להציג "לא נמצא" מאשר להגיש שאלון אחר בשקט.
+ * The slug of the survey the current page is showing. Any path that is not
+ * `/s/<slug>` is the main survey (which is how links handed out before
+ * multi-survey support keep working), and null marks a malformed link — better
+ * to show "not found" than to quietly serve a different survey.
  */
 export function slugFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/s\/([^/]*)\/?$/);

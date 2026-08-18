@@ -1,29 +1,44 @@
-// עורך כללי onSubmit: סימון המשיב אחרי שהוא עונה ("מסלול המשיב = מסלול A"),
-// כדי שמסכים מאוחרים יוכלו להיפתח לפיו.
+// The onSubmit rules editor: marking the respondent after they answer ("the
+// respondent's track = track A"), so that later screens can open based on it.
 //
-// האדמין לא כותב כאן שמות משתנים ולא קודי ערכים — הוא בוחר מרשימה, ויוצר
-// חדשים דרך טופס שמבקש קודם תווית בעברית ורק אחריה את הקוד לאנליזה.
-// אזהרת הטוטאליות (ערך ישן אחרי ניווט אחורה) מוצגת בפאנל השגיאות.
+// The admin writes no variable names and no value codes here — they pick from a
+// list, and create new ones through a form that asks first for a Hebrew label and
+// only then for the analysis code. The totality warning (a stale value after
+// navigating back) is surfaced in the validation panel.
 
 import { useState } from 'react';
 import type { SetVarRule } from '../engine/types';
 import type { Naming } from './display';
 import { varLabel, varValueLabel } from './display';
 import { OptionalCondition } from './ConditionBuilder';
+import { DefineForm, nextCode } from './DefineForm';
 import { PencilIcon, TrashIcon } from './Icons';
 
 interface Props {
   rules: SetVarRule[];
   onChange: (rules: SetVarRule[] | undefined) => void;
   naming: Naming;
-  /** יוצר סימון חדש ברמת השאלון (varMeta), כדי שכל מסך יראה אותו בשמו */
-  onDefineVar: (name: string, label: string) => void;
-  onDefineVarValue: (name: string, value: string, label: string) => void;
+  /** The analysis codes are locked — that is, the survey has been published at least once */
+  codesLocked: boolean;
+  /**
+   * Creates a new mark at survey level (varMeta), so every screen sees it by its
+   * name. `renamedFrom` — the previous code, when it was changed: every
+   * reference to it is updated along with the name.
+   */
+  onDefineVar: (name: string, label: string, renamedFrom?: string) => void;
+  onDefineVarValue: (name: string, value: string, label: string, renamedFrom?: string) => void;
 }
 
 const NEW = '__new__';
 
-export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVarValue }: Props) {
+export function SetVarEditor({
+  rules,
+  onChange,
+  naming,
+  codesLocked,
+  onDefineVar,
+  onDefineVarValue,
+}: Props) {
   const emit = (next: SetVarRule[]) => onChange(next.length > 0 ? next : undefined);
   const [creating, setCreating] = useState<
     { index: number; field: 'var' | 'value'; renaming?: string } | null
@@ -118,11 +133,13 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
 
             {creating?.index === i && (
               <DefineForm
-                // מפתח לפי מה שנערך: הטופס מאותחל מהערכים הקיימים, ולכן הוא
-                // חייב להיבנות מחדש כשעוברים לשדה או לסימון אחר
+                // Keyed by what is being edited: the form initialises from the
+                // existing values, so it has to be rebuilt when moving to a
+                // different field or a different mark
                 key={`${creating.field}-${creating.renaming ?? 'new'}`}
                 kind={creating.field}
                 renaming={Boolean(creating.renaming)}
+                codeLocked={codesLocked}
                 suggestedCode={
                   creating.renaming ??
                   (creating.field === 'var'
@@ -136,14 +153,22 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
                       : naming.varMeta[rule.var]?.values?.[creating.renaming] ?? ''
                     : ''
                 }
+                takenCodes={
+                  creating.field === 'var' ? naming.vars : values.map(([id]) => id)
+                }
                 onCancel={() => setCreating(null)}
                 onCreate={(code, label) => {
+                  // The rule is only touched when defining something new:
+                  // editing an existing definition has already updated every
+                  // reference to it, and writing again here would overwrite that
+                  // with a stale copy of the screen
+                  const from = creating.renaming;
                   if (creating.field === 'var') {
-                    onDefineVar(code, label);
-                    patch(i, { ...rule, var: code, value: '' });
+                    onDefineVar(code, label, from);
+                    if (!from) patch(i, { ...rule, var: code, value: '' });
                   } else {
-                    onDefineVarValue(rule.var, code, label);
-                    patch(i, { ...rule, value: code });
+                    onDefineVarValue(rule.var, code, label, from);
+                    if (!from) patch(i, { ...rule, value: code });
                   }
                   setCreating(null);
                 }}
@@ -166,84 +191,3 @@ export function SetVarEditor({ rules, onChange, naming, onDefineVar, onDefineVar
   );
 }
 
-/** קוד פנוי הבא בסדרה — כדי שהאדמין לא יצטרך להמציא אחד. */
-function nextCode(prefix: string, taken: string[]): string {
-  for (let n = 1; ; n++) {
-    const candidate = `${prefix}${n}`;
-    if (!taken.includes(candidate)) return candidate;
-  }
-}
-
-/**
- * התווית קודמת לקוד בכוונה: התווית היא מה שכל הקונסולה תציג, והקוד הוא פרט
- * טכני שנחוץ רק לקובץ הנתונים — הוא מגיע מוכן ורוב האדמינים לא יגעו בו.
- */
-function DefineForm({
-  kind,
-  renaming,
-  suggestedCode,
-  suggestedLabel,
-  onCreate,
-  onCancel,
-}: {
-  kind: 'var' | 'value';
-  /** שינוי שם לסימון קיים — הקוד כבר קבוע ולא נערך, רק התווית */
-  renaming: boolean;
-  suggestedCode: string;
-  suggestedLabel: string;
-  onCreate: (code: string, label: string) => void;
-  onCancel: () => void;
-}) {
-  const [label, setLabel] = useState(suggestedLabel);
-  const [code, setCode] = useState(suggestedCode);
-  const codeValid = /^[a-zA-Z][a-zA-Z0-9_]*$/.test(code.trim());
-  const ready = label.trim().length > 0 && codeValid;
-
-  return (
-    <form
-      className="define-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (ready) onCreate(code.trim(), label.trim());
-      }}
-    >
-      <label className="a-field">
-        <span className="a-label">
-          {kind === 'var' ? 'שם הסימון — כך הוא ייראה בקונסולה' : 'שם הערך — כך הוא ייראה בקונסולה'}
-        </span>
-        <input
-          className="a-input"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={kind === 'var' ? 'למשל: מסלול המשיב' : 'למשל: מסלול A — יש משכנתה'}
-          autoFocus
-        />
-      </label>
-      <label className="a-field">
-        <span className="a-label">קוד לקובץ הנתונים</span>
-        <input
-          className="a-input"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          dir="ltr"
-          aria-invalid={!codeValid}
-          disabled={renaming}
-          title={renaming ? 'הקוד קבוע — שינוי שלו היה מנתק אותו מהנתונים שכבר נאספו' : undefined}
-        />
-      </label>
-      <div className="define-actions">
-        <button className="a-btn primary small" type="submit" disabled={!ready}>
-          {renaming ? 'שמירת השם' : 'יצירה'}
-        </button>
-        <button className="a-btn ghost small" type="button" onClick={onCancel}>
-          ביטול
-        </button>
-      </div>
-      {!codeValid && (
-        <p className="a-hint error-text">
-          הקוד צריך להתחיל באות אנגלית, ולהמשיך באותיות אנגליות, ספרות או קו תחתון
-        </p>
-      )}
-    </form>
-  );
-}

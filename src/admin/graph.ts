@@ -1,8 +1,10 @@
-// גזירת גרף הזרימה מהקונפיג — נאמן בדיוק לסמנטיקת המנוע (findNext):
-// קודם כללי next מפורשים, ואם אין כלל ללא-תנאי — נפילה קדימה למסך הבא
-// שעובר את showIf שלו. תוויות הקשתות הן התשובה שמובילה למסך הבא,
-// עם תרגום מזהי אפשרויות לנוסח שהמשיב רואה.
+// Deriving the flow graph from the config — faithful to the engine's semantics
+// (findNext) down to the detail: explicit next rules first, and with no
+// unconditional rule, a fall-through to the next screen that passes its showIf.
+// The edge labels are the answer that leads to the next screen, with option ids
+// translated into the wording the respondent sees.
 
+import { quotaCells } from '../engine/quota';
 import type { Condition, Screen, SurveyConfig, VarMeta } from '../engine/types';
 import { fallThroughTargets } from './reachability';
 
@@ -15,23 +17,25 @@ const varValue = (meta: VarMetaMap, name: string, value: unknown) =>
 export interface FlowNode {
   id: string;
   screen: Screen;
-  /** הטקסט שמוצג בצומת — השאלה עצמה */
+  /** The text shown in the node — the question itself */
   text: string;
 }
 
 export interface FlowEdge {
   from: string;
   to: string;
-  /** התשובה/התנאי שמוביל לצומת היעד */
+  /** The answer/condition that leads to the target node */
   label: string;
-  /** קשת ברירת מחדל (המשך רגיל) לעומת קשת מותנית */
+  /** A default edge (an ordinary continuation) as opposed to a conditional one */
   conditional: boolean;
   /**
-   * goto = ניתוב מפורש, primary = המשך למסך הבא,
-   * skip = נחיתה רחוקה יותר אחרי דילוג על מסכים מותנים (מוצג מעומעם)
+   * goto = explicit routing, primary = continuing to the next screen,
+   * skip = a further landing after conditional screens are skipped (drawn dimmed),
+   * quota = the route the engine adds itself when a marked value's cap is full —
+   *   nobody wrote it and nobody can edit it, so it carries no rule to open
    */
-  kind: 'goto' | 'primary' | 'skip';
-  /** לקשתות goto: האינדקס של הכלל ב-next של מסך המקור — לעריכת התנאי מהקשת */
+  kind: 'goto' | 'primary' | 'skip' | 'quota';
+  /** For goto edges: the rule's index in the source screen's next — so the condition can be edited from the edge */
   ruleIndex?: number;
 }
 
@@ -40,7 +44,7 @@ export interface Flow {
   edges: FlowEdge[];
 }
 
-/** הנוסח שהמשיב רואה עבור ערך תשובה — למשל 'yes' → 'כן' */
+/** The wording the respondent sees for an answer value — 'yes' → its option label, for instance */
 function valueLabel(screen: Screen | undefined, value: unknown): string {
   const raw = String(value);
   if (!screen) return raw;
@@ -71,8 +75,8 @@ const NUMERIC_OPS: Record<string, string> = {
 };
 
 /**
- * "כל התשובות חוץ מ-X" — עדיף למנות את הנותרות ("לא / לא יודע/ת")
- * מאשר לכתוב שלילה ("לא כן"), שקשה לקריאה.
+ * "every answer except X" — listing what is left ("no / don't know") reads far
+ * better than writing the negation ("not yes").
  */
 function complement(screen: Screen | undefined, value: unknown): string | null {
   if (!screen || (screen.type !== 'single' && screen.type !== 'multi')) return null;
@@ -83,14 +87,15 @@ function complement(screen: Screen | undefined, value: unknown): string | null {
 }
 
 /**
- * תיאור תנאי בעברית קריאה, לתווית על הקשת. משתני סשן עוברים דרך varMeta —
- * "segment: A" על קשת בתרשים הוא בדיוק סוג הדבר שאדמין לא-טכני לא מפענח.
+ * Describing a condition in readable Hebrew, for the edge label. Session
+ * variables go through varMeta — "segment: A" on an edge in the diagram is
+ * exactly the kind of thing a non-technical admin cannot decode.
  */
 export function describeCondition(cond: Condition, screens: Screen[], meta: VarMetaMap = {}): string {
   if ('all' in cond) return cond.all.map((c) => describeCondition(c, screens, meta)).join(' וגם ');
   if ('any' in cond) return cond.any.map((c) => describeCondition(c, screens, meta)).join(' או ');
   if ('not' in cond) {
-    // שלילה של השוואה פשוטה מתורגמת ל-ne, שמנוסח טוב יותר
+    // The negation of a simple comparison is translated to ne, which reads better
     const inner = cond.not;
     if ('q' in inner && (inner.op === 'eq' || inner.op === 'in')) {
       return describeCondition({ q: inner.q, op: 'ne', value: inner.value }, screens, meta);
@@ -115,8 +120,9 @@ export function describeCondition(cond: Condition, screens: Screen[], meta: VarM
     case 'eq':
     case 'in': {
       if (isQ) return v;
-      // ערך עם שם מוצג ("יש או הייתה משכנתה") מדבר בעד עצמו — שם הסימון
-      // כקידומת רק מעמיס. קוד גולמי בלי שם עדיין מקבל את הקידומת להקשר.
+      // A value with a display name ("has or had a mortgage") speaks for itself —
+      // the mark's name as a prefix only adds weight. A raw code with no name does
+      // still get the prefix, for context.
       const vals = Array.isArray(cond.value) ? cond.value : [cond.value];
       const allNamed = vals.every((x) => meta[ref]?.values?.[String(x)] !== undefined);
       return allNamed ? v : `${subject}: ${v}`;
@@ -131,7 +137,7 @@ export function describeCondition(cond: Condition, screens: Screen[], meta: VarM
   }
 }
 
-/** הטקסט שמייצג את המסך בצומת */
+/** The text that represents the screen in its node */
 export function nodeText(screen: Screen): string {
   switch (screen.type) {
     case 'info':
@@ -154,8 +160,31 @@ export function buildFlow(config: SurveyConfig): Flow {
   }));
   const edges: FlowEdge[] = [];
 
+  // The quota route the engine draws for itself (see findNext). Derived from the
+  // same rule the validator uses, so the diagram and the validation panel cannot
+  // tell two different stories about the same screen.
+  const quotaFull = screens.find((s) => s.type === 'end' && s.variant === 'quotafull');
+  const capped = new Set(quotaCells(config).map((cell) => `${cell.mark} ${cell.value}`));
+
   screens.forEach((screen, i) => {
     if (screen.type === 'end') return;
+
+    // Emitted before the rules below and regardless of them: a full cap overrides
+    // an ordinary goto, so this edge exists even on a screen that already routes
+    // somewhere unconditionally.
+    if (quotaFull) {
+      const fills = (screen.onSubmit ?? []).find((r) => capped.has(`${r.var} ${String(r.value)}`));
+      if (fills) {
+        const name = meta[fills.var]?.values?.[String(fills.value)] ?? String(fills.value);
+        edges.push({
+          from: screen.id,
+          to: quotaFull.id,
+          label: `המכסה של ${name} מלאה`,
+          conditional: true,
+          kind: 'quota',
+        });
+      }
+    }
 
     const rules = screen.next ?? [];
     let unconditional = false;
@@ -178,13 +207,15 @@ export function buildFlow(config: SurveyConfig): Flow {
     }
     if (unconditional) return;
 
-    // נפילה קדימה: המנוע סורק את המסכים הבאים ועוצר בראשון שעובר showIf.
-    // fallThroughTargets מחזיר בדיוק את הנחיתות האפשריות — בלי ענפים שסותרים
-    // את תנאי המקור ובלי כפילויות בתוך ענף. הראשונה היא ההמשך הרגיל; היתר
-    // מוצגות מעומעמות כדי לשמור על קריאות בלי להסתיר מסלולים אמיתיים.
+    // Fall-through: the engine scans the screens that follow and stops at the
+    // first one that passes its showIf. fallThroughTargets returns exactly the
+    // possible landings — with no lanes that contradict the source's condition
+    // and no duplicates within a lane. The first is the ordinary continuation;
+    // the rest are drawn dimmed, to stay readable without hiding real paths.
     fallThroughTargets(screens, i).forEach((target, k) => {
-      // בתוך ענף: מעבר בין שני מסכים עם אותו תנאי בדיוק הוא ודאי — תווית
-      // "מסלול המשיב הוא X" על כל קשת פנימית בענף היא רעש, לא מידע.
+      // Within a lane: a transition between two screens carrying exactly the same
+      // condition is certain — a "the respondent's track is X" label on every
+      // internal edge of a lane is noise, not information.
       const sameLane =
         target.showIf !== undefined &&
         JSON.stringify(target.showIf) === JSON.stringify(screen.showIf);
@@ -196,7 +227,7 @@ export function buildFlow(config: SurveyConfig): Flow {
           : target.showIf
             ? describeCondition(target.showIf, screens, meta)
             : rules.length > 0 || k > 0
-              ? 'אחרת' // הענף האחרון של פיצול — גם כשהפיצול נובע מ-showIf בלבד
+              ? 'אחרת' // The last branch of a fork — including a fork that comes from showIf alone
               : '',
         conditional: !sameLane && (Boolean(target.showIf) || rules.length > 0 || k > 0),
         kind: k === 0 ? 'primary' : 'skip',

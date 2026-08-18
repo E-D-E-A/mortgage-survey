@@ -24,8 +24,8 @@ describe('insertScreen', () => {
   });
 
   it('inserts before the first end screen when nothing is selected', () => {
-    // הבאג המקורי: המסך נחת במקום 71 מתוך 71, אחרי מסכי הסיום, ומיד קיבל
-    // אזהרת "אינו נגיש מהמסך הראשון"
+    // The original bug: the screen landed at position 71 of 71, after the end
+    // screens, and immediately drew an "unreachable from the first screen" warning
     expect(ids(insertScreen(base, added, null))).toEqual([
       'q1',
       'q2',
@@ -71,7 +71,7 @@ describe('insertScreen', () => {
   });
 
   it('the added screen is reachable — the warning the old behaviour always produced', () => {
-    // (end_screenout ב-base אכן לא נגיש; מעניין אותנו רק המסך שנוסף)
+    // (end_screenout in base genuinely is unreachable; only the added screen is of interest here)
     for (const selected of [null, 'q1', 'end_complete']) {
       const cfg: SurveyConfig = { version: 't', screens: insertScreen(base, added, selected) };
       const unreachable = validateConfig(cfg).filter((i) => i.code === 'unreachable');
@@ -99,7 +99,7 @@ describe('duplicateScreen', () => {
   });
 
   it('drops next and onSubmit but keeps showIf and the content', () => {
-    // שני מסכים שמציבים את אותו segment הוא בדיוק המצב שקשה לשים לב אליו
+    // Two screens assigning the same segment is exactly the situation that is hard to notice
     const copy = duplicateScreen([withRouting, end('end_complete')], 'seg')[1];
     expect(copy.onSubmit).toBeUndefined();
     expect(copy.next).toBeUndefined();

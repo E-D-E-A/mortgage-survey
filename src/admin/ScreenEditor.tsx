@@ -1,9 +1,11 @@
-// עורך מסך בודד, בנוי מקטעים עם כותרת — כל קטע עונה על שאלה אחת:
-//   המקום בזרימה (קריאה בלבד) · תוכן המסך · מי רואה את המסך ·
-//   לאן ממשיכים מכאן · סימון המשיב.
+// The editor for a single screen, built from titled sections — each section
+// answers one question:
+//   its place in the flow (read-only) · the screen's content · who sees it ·
+//   where it continues to · how the respondent is marked.
 //
-// קטע ריק הוא שורה שקטה אחת, לא טופס ריק — מי שלא נוגע במנגנונים לא רואה
-// אותם. הקוד לקובץ הנתונים ירד לתחתית: נחוץ לאנליזה, לא לעריכה השוטפת.
+// An empty section is one quiet line, not an empty form — whoever does not touch
+// these mechanisms never sees them. The data-file code moved to the bottom: it is
+// needed for analysis, not for day-to-day editing.
 
 import type { ReactNode } from 'react';
 import { TEXT_MAX_LENGTH } from '../engine/input-rules';
@@ -22,19 +24,22 @@ interface Props {
   config: SurveyConfig;
   screen: Screen;
   naming: Naming;
+  /** The analysis codes are locked — that is, the survey has been published at least once */
+  codesLocked: boolean;
   onChange: (screen: Screen) => void;
-  /** עריכת תנאי התצוגה של ענף שלם — אותה סמנטיקה כמו לחיצה על הענף בתרשים */
+  /** Editing the display condition of a whole lane — the same semantics as clicking the lane in the diagram */
   onLaneShowIf: (ids: string[], cond: Condition | undefined) => void;
   onDelete: () => void;
   onSelect: (id: string) => void;
-  onDefineVar: (name: string, label: string) => void;
-  onDefineVarValue: (name: string, value: string, label: string) => void;
+  onDefineVar: (name: string, label: string, renamedFrom?: string) => void;
+  onDefineVarValue: (name: string, value: string, label: string, renamedFrom?: string) => void;
 }
 
 export function ScreenEditor({
   config,
   screen,
   naming,
+  codesLocked,
   onChange,
   onLaneShowIf,
   onDelete,
@@ -43,16 +48,18 @@ export function ScreenEditor({
   onDefineVarValue,
 }: Props) {
   const patch = (p: Partial<Screen>) => onChange({ ...screen, ...p } as Screen);
-  // המגירה היא המקום הגלוי יותר לעריכת תנאי — ולכן היא חייבת להתנהג בדיוק
-  // כמו התרשים. עריכה שמפצלת ענף בשקט היא בדיוק הבלבול שהעורך הזה נועד למנוע.
+  // The drawer is the more visible place to edit a condition — which is why it
+  // has to behave exactly like the diagram. An edit that quietly splits a lane is
+  // precisely the confusion this editor exists to prevent.
   const lane = laneMembers(config.screens, screen.id);
   const setShowIf = (cond: Condition | undefined) =>
     lane.length > 1 ? onLaneShowIf(lane, cond) : patch({ showIf: cond });
 
   /**
-   * היעד שכלל קפיצה חדש נולד איתו. חייב להיות המסך הבא ברשימה ולא הראשון
-   * בשאלון: קפיצה אחורה היא לולאה, ושומר המעגלים היה חוסם אותה — כלומר
-   * הכפתור "הוספת קפיצה" היה נראה שבור בכל מסך חוץ מהראשון.
+   * The target a new jump rule is born with. It has to be the next screen in the
+   * list and not the first in the survey: jumping backwards is a loop, and the
+   * cycle guard would block it — meaning the "add a jump" button would look
+   * broken on every screen but the first.
    */
   const index = config.screens.findIndex((s) => s.id === screen.id);
   const defaultGoto = config.screens[index + 1]?.id;
@@ -148,6 +155,7 @@ export function ScreenEditor({
               rules={screen.onSubmit ?? []}
               onChange={(rules) => patch({ onSubmit: rules })}
               naming={naming}
+              codesLocked={codesLocked}
               onDefineVar={onDefineVar}
               onDefineVarValue={onDefineVarValue}
             />
@@ -165,7 +173,7 @@ export function ScreenEditor({
   );
 }
 
-/** קטע עם כותרת — כל קטע עונה על שאלה אחת, והפעולה שלו יושבת ליד הכותרת. */
+/** A titled section — each answers one question, and its action sits next to the title. */
 function Section({
   title,
   action,
@@ -285,8 +293,9 @@ function OptionsEditor({
       </div>
       {options.map((opt, i) => (
         <div className="option-row" key={i}>
-          {/* הנוסח קודם והקוד אחריו: מה שהמשיב יראה הוא העיקר, והקוד נחוץ
-              רק לקובץ הנתונים — אבל נשאר גלוי ולעריכה */}
+          {/* The wording first and the code after it: what the respondent will
+              see is the point, and the code is needed only for the data file —
+              but it stays visible and editable */}
           <input
             className="a-input"
             value={opt.label}

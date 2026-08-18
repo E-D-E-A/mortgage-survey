@@ -1,4 +1,4 @@
-// הצהרות טיפוסים ל-seed-stats.mjs עבור בדיקות ה-TS שמייבאות אותו.
+// Type declarations for seed-stats.mjs, for the TS tests that import it.
 import type postgres from 'postgres';
 
 export declare const V1: string;

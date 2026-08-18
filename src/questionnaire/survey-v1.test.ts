@@ -9,13 +9,14 @@ import { validateConfig } from '../engine/validate';
 import type { AnswerValue, Screen, SurveyContext } from '../engine/types';
 import { questionnaire as config } from './survey-v1';
 
-/** מסך שנספר כ"שאלה" בתקציב — מסכי מידע, הסכמה וסיום לא נספרים. */
+/** A screen that counts as a "question" against the budget — info, consent and end screens do not. */
 const isQuestion = (s: Screen) => s.type !== 'info' && s.type !== 'end' && s.type !== 'consent';
 
 /**
- * מריץ את השאלון מהמסך הראשון, עונה לפי `answers` (מזהה מסך → תשובה),
- * ומחזיר את רצף המסכים שהמשיב ראה בפועל. מסך ללא תשובה מוגדרת מקבל null
- * (כמו דילוג על שאלה) — כך שמסלול נבדק גם כשלא כל שאלה נענתה.
+ * Runs the survey from the first screen, answering per `answers` (screen id →
+ * answer), and returns the sequence of screens the respondent actually saw. A
+ * screen with no answer defined gets null (like skipping a question) — so a path
+ * is exercised even when not every question was answered.
  */
 function walk(answers: Record<string, AnswerValue>): {
   path: string[];
@@ -65,9 +66,10 @@ describe('config integrity', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  // הקונסולה קוראת שמות, לא קודים: לכל משתנה שהשאלון מציב חייבת להיות תווית
-  // בעברית, ולכל ערך שהוא מקבל — שם. בלי זה האדמין רואה "segment: A" על קשתות
-  // התרשים ובעורך — בדיוק הערפל שכבר קרה פעם אחת כשה-varMeta נמחק בטעות.
+  // The console reads names, not codes: every variable the survey assigns has to
+  // have a Hebrew label, and every value it takes has to have a name. Without that
+  // the admin sees "segment: A" on the diagram's edges and in the editor — exactly
+  // the fog that already happened once, when varMeta was deleted by accident.
   it('every mark the survey sets has a Hebrew display name for it and its values', () => {
     for (const screen of config.screens) {
       for (const rule of screen.onSubmit ?? []) {
@@ -88,8 +90,9 @@ describe('the 15-question budget', () => {
   });
 
   it('holds on every reachable path, not just the sampled ones', () => {
-    // אין הסתעפות בתוך המסלולים בגרסה הרזה — כל תשובה לשאלה מנתבת מובילה
-    // לאותו מספר שאלות. הבדיקה עוברת על כל צירופי הניתוב האפשריים.
+    // There is no branching within the tracks in the lean version — every answer to
+    // a routing question leads to the same number of questions. This test walks
+    // every possible routing combination.
     const statuses = ['active', 'past5', 'none', 'dontknow'];
     const timelines = ['m0_3', 'm4_6', 'm7_12', 'm13_24', 'later', 'unknown', 'never'];
     const actions = [['budget'], ['bank'], ['search'], ['docs'], ['none']];

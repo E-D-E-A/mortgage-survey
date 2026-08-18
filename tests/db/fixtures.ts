@@ -1,12 +1,22 @@
-// עזרי פיקסטורות לבדיקות ה-DB. כל קובץ בדיקה מקבל prefix הקסדצימלי ייחודי
-// (שני תווים) ו-slug משלו — vitest מריץ קבצים במקביל מול אותו DB, ובידוד
-// המזהים הוא מה שמונע התנגשויות בין קבצים.
+// Fixture helpers for the DB tests. Each test file gets a unique two-character
+// hexadecimal prefix and a slug of its own — vitest runs files in parallel
+// against the same DB, and isolating the ids is what keeps files from colliding.
 import type { Sql } from './harness';
 
 const hex12 = (n: number) => n.toString(16).padStart(12, '0').slice(-12);
 
-/** מזהי סשן/אירוע דטרמיניסטיים בתחום נפרד לכל קובץ בדיקה */
+/**
+ * Deterministic session/event ids, in a separate range per test file.
+ *
+ * ⚠ The prefix becomes the first two characters of a uuid, so it has to be
+ * hexadecimal. A prefix like 'g7' produces ids Postgres rejects, and the failure
+ * surfaces from deep inside resetEvents as "invalid input syntax for type uuid"
+ * with nothing pointing at the prefix that caused it.
+ */
 export function idFactory(filePrefix: string) {
+  if (!/^[0-9a-f]{2}$/.test(filePrefix)) {
+    throw new Error(`idFactory prefix must be two hex characters, got "${filePrefix}"`);
+  }
   let events = 0;
   return {
     sid: (k: number) => `${filePrefix}5e5510-0000-4000-8000-${hex12(k)}`,
@@ -21,7 +31,7 @@ export interface EventFixture {
   type: 'session_start' | 'screen_view' | 'answer' | 'complete' | 'screenout' | 'quotafull';
   screen?: string | null;
   payload?: Record<string, unknown>;
-  /** offset בדקות מנקודת בסיס קבועה — סדר כרונולוגי בין אירועי הסשן */
+  /** An offset in minutes from a fixed base point — the chronological order of a session's events */
   at?: number;
 }
 
@@ -35,10 +45,11 @@ export async function ensureSurvey(
 ): Promise<void> {
   await sql`insert into surveys (slug, name, created_by) values (${slug}, ${name}, 'test')
             on conflict (slug) do nothing`;
-  // survey_configs הוא append-only בכוונה (trigger חוסם עדכון/מחיקה), אבל
-  // פיקסטורה חייבת סמנטיקת replace — אחרת שורה שגויה מריצה ישנה נתקעת לנצח.
-  // ב-DB המקומי החד-פעמי מותר: משביתים את ה-trigger בתוך טרנזקציה נעולה,
-  // מוחקים ומכניסים טרי. ה-advisory lock מסדר קבצים מקבילים.
+  // survey_configs is deliberately append-only (a trigger blocks update/delete),
+  // but a fixture needs replace semantics — otherwise a wrong row from an older run
+  // is stuck there forever. In the disposable local DB that is allowed: disable the
+  // trigger inside a locked transaction, delete and insert fresh. The advisory lock
+  // serialises parallel files.
   await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(732913)`;
     await tx`alter table survey_configs disable trigger survey_configs_immutable`;
@@ -53,12 +64,13 @@ export async function ensureSurvey(
   });
 }
 
-/** מוחק את אירועי הגרסאות הנתונות ומכניס את הפיקסטורה — ריצה חוזרת נקייה */
+/** Deletes the given versions' events and inserts the fixture — so a re-run starts clean */
 export async function resetEvents(sql: Sql, versions: string[], events: EventFixture[]): Promise<void> {
   await sql`delete from survey_events where survey_version in ${sql(versions)}`;
   if (events.length === 0) return;
-  // ההכנסה עוברת כפרמטר jsonb יחיד ונפרשת בצד השרת — כך payload נשאר אובייקט
-  // jsonb אמיתי (ולא מחרוזת-בתוך-jsonb, קידוד כפול ששובר כל payload -> 'vars')
+  // The insert travels as a single jsonb parameter and is expanded server-side —
+  // that keeps payload a real jsonb object (and not a string-inside-jsonb, a double
+  // encoding that breaks every payload -> 'vars')
   const rows = events.map((e, i) => ({
     event_uid: e.uid,
     session_id: e.sid,
@@ -78,7 +90,7 @@ export async function resetEvents(sql: Sql, versions: string[], events: EventFix
            screen_id text, payload jsonb, ts text)`;
 }
 
-/** אירועי סשן שלם בקיצור: התחלה → צפיות/תשובות → אירוע סיום אופציונלי */
+/** A whole session's events in shorthand: start → views/answers → an optional end event */
 export function sessionEvents(
   ids: ReturnType<typeof idFactory>,
   k: number,

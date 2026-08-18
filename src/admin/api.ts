@@ -1,18 +1,19 @@
-// שכבת הגישה של קונסולת הניהול לפונקציות ה-Netlify.
-// כל קריאה נושאת את ה-access token של Supabase Auth ככותרת Bearer;
-// הפונקציה מאמתת אותו מול Supabase ואוכפת את הדומיין (lib/session.ts).
-// כל קצוות הטיוטה והפרסום מקבלים ?survey=<slug> — הן פועלות על שאלון אחד.
+// The admin console's access layer to the Netlify Functions.
+// Every call carries the Supabase Auth access token as a Bearer header; the
+// function verifies it against Supabase and enforces the domain
+// (lib/session.ts).
+// All the draft and publish endpoints take ?survey=<slug> — they act on one survey.
 
 import type { SurveyConfig } from '../engine/types';
 import type { ValidationIssue } from '../engine/validate';
 import { accessToken } from './supabaseClient';
 
-/** טוקן חסר/פג — צריך להתחבר מחדש. */
+/** Token missing or expired — a fresh sign-in is needed. */
 export class UnauthorizedError extends Error {}
-/** מחובר, אבל החשבון לא מורשה (לא בדומיין first-edea.com). */
+/** Signed in, but the account is not permitted (not on the first-edea.com domain). */
 export class ForbiddenError extends Error {}
 
-/** כשל שאינו 401/403 — נושא את קוד הסטטוס כדי שנוכל להסביר לעורך. */
+/** A failure that is not 401/403 — it carries the status code so we can explain it to the editor. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -36,7 +37,7 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
 
 const jsonInit = { 'Content-Type': 'application/json' };
 
-// ---------- שאלונים ----------
+// ---------- surveys ----------
 
 export interface SurveySummary {
   slug: string;
@@ -47,7 +48,7 @@ export interface SurveySummary {
   has_draft: boolean;
   draft_updated_at: string | null;
   draft_updated_by: string | null;
-  /** כמה גרסאות פורסמו; 0 ⇒ מותר למחוק את השאלון לגמרי */
+  /** How many versions have been published; 0 ⇒ the survey may be deleted outright */
   versions: number;
   latest_version: string | null;
   latest_published_at: string | null;
@@ -85,7 +86,7 @@ export async function deleteSurvey(slug: string): Promise<void> {
   if (!res.ok) throw new ApiError(res.status);
 }
 
-// ---------- טיוטה ----------
+// ---------- draft ----------
 
 export interface DraftData {
   config: SurveyConfig | null;
@@ -100,7 +101,7 @@ export async function getDraft(slug: string): Promise<DraftData> {
 
 export class ConflictError extends Error {}
 
-/** כשל שמירה שאינו 401/403/409 — נושא את קוד הסטטוס כדי שנוכל להסביר לעורך. */
+/** A save failure that is not 401/403/409 — it carries the status code so we can explain it to the editor. */
 export class SaveFailedError extends Error {
   constructor(readonly status: number) {
     super(`draft save failed: ${status}`);
@@ -122,7 +123,7 @@ export async function saveDraft(
   return (await res.json()) as { updated_at: string };
 }
 
-// ---------- סטטיסטיקות ----------
+// ---------- statistics ----------
 
 export interface StatsOverview {
   total_sessions: number;
@@ -136,7 +137,7 @@ export interface StatsOverview {
 export interface StatsVersion {
   version: string;
   published_at: string;
-  /** הקונפיג שפורסם — פענוח נוסחים, סדר מסכים ותוויות נעשה בדפדפן, לא ב-SQL */
+  /** The published config — wording, screen order and labels are resolved in the browser, not in SQL */
   config: SurveyConfig;
 }
 
@@ -145,17 +146,17 @@ export interface FunnelStat {
   viewed: number;
   answered: number;
   dropped_here: number;
-  /** חציון זמן ניסיון-ראשון במסך; null כשאין תשובות */
+  /** The median first-attempt time on the screen; null when there are no answers */
   median_ms: number | null;
 }
 
 export interface DistStat {
   screen_id: string;
-  /** פריט מטריצה; null לשאלות שאינן מטריצה */
+  /** A matrix item; null for questions that are not matrices */
   item_id: string | null;
-  /** מזהה האפשרות / הציון / הערך — טקסט גולמי; התווית נפתרת מהקונפיג בדפדפן */
+  /** The option id / the rating / the value — raw text; the label is resolved from the config in the browser */
   answer_key: string;
-  /** ערך מימד הפילוח; null = בלי פילוח, או סשן שהמימד לא ידוע עבורו */
+  /** The breakdown dimension value; null = no breakdown, or a session whose dimension is unknown */
   dim_value: string | null;
   n: number;
 }
@@ -163,7 +164,7 @@ export interface DistStat {
 export interface BaseStat {
   screen_id: string;
   dim_value: string | null;
-  /** כמה סשנים ענו על המסך בקבוצת המימד — מכנה אחוזי הפילוח */
+  /** How many sessions answered this screen within the dimension group — the denominator of the breakdown percentages */
   answered: number;
 }
 
@@ -174,12 +175,12 @@ export interface StatsBundle {
   overview: StatsOverview;
   funnel: FunnelStat[];
   distributions: DistStat[];
-  /** מימד הפילוח שהוחזר, או null */
+  /** The breakdown dimension that was returned, or null */
   by: string | null;
   bases: BaseStat[];
 }
 
-/** צרור הסטטיסטיקות של שאלון; version='all' = כל הגרסאות יחד (ברירת המחדל). */
+/** A survey's statistics bundle; version='all' = every version together (the default). */
 export async function getStats(
   slug: string,
   opts: { version?: string; includeTest?: boolean; by?: string } = {},
@@ -193,7 +194,7 @@ export async function getStats(
   return (await res.json()) as StatsBundle;
 }
 
-// ---------- תשובות פתוחות ----------
+// ---------- open-text answers ----------
 
 export interface OpenAnswerStats {
   screen_id: string;
@@ -208,11 +209,12 @@ export interface OpenAnswerStats {
 
 export interface OpenAnswerRow {
   screen_id: string;
-  /** הטקסט הגולמי, כלשונו — שום ניתוח תוכן */
+  /** The raw text, exactly as written — no content analysis whatsoever */
   value: string;
   created_at: string;
   survey_version: string;
-  segment: string | null;
+  /** This session's value for the requested dimension; null when it has none */
+  dim_value: string | null;
   outcome: string;
 }
 
@@ -228,7 +230,9 @@ export async function getOpenAnswers(
     screens: string[];
     version?: string;
     includeTest?: boolean;
-    segment?: string;
+    /** Any mark or draw to report alongside each answer, and optionally filter by */
+    dim?: string;
+    value?: string;
     limit?: number;
     offset?: number;
   },
@@ -236,7 +240,8 @@ export async function getOpenAnswers(
   const params = new URLSearchParams({ survey: slug, screens: opts.screens.join(',') });
   if (opts.version && opts.version !== 'all') params.set('version', opts.version);
   if (opts.includeTest) params.set('include_test', '1');
-  if (opts.segment) params.set('segment', opts.segment);
+  if (opts.dim) params.set('dim', opts.dim);
+  if (opts.value) params.set('value', opts.value);
   if (opts.limit) params.set('limit', String(opts.limit));
   if (opts.offset) params.set('offset', String(opts.offset));
   const res = await call(`admin-answers?${params.toString()}`);
@@ -244,7 +249,7 @@ export async function getOpenAnswers(
   return (await res.json()) as OpenAnswersPage;
 }
 
-// ---------- פרסום ----------
+// ---------- publishing ----------
 
 export interface PublishResult {
   version?: string;

@@ -1,16 +1,18 @@
-// המסלול שמשיב עובר בפועל בקונטקסט נתון — הבסיס לשני דברים שהמערך המלא
-// של המסכים לא יכול לתת: גיזום תשובות ממקטע נטוש, ופס התקדמות אמיתי.
+// The path a respondent actually walks in a given context — the basis for two
+// things the full screen array cannot give: pruning answers from an abandoned
+// branch, and a progress bar that means something.
 
 import { evaluate } from './conditions';
 import { findNext } from './navigation';
 import type { Answers, Screen, SurveyConfig, SurveyContext, Vars } from './types';
 
 /**
- * סימולציה של הניווט מהמסך הראשון עם הקונטקסט הנתון: מכבדת showIf, כללי
- * next/goto וסריקה קדימה — בדיוק כמו המשיב האמיתי.
+ * Simulates the walk from the first screen with the given context: it honours
+ * showIf, next/goto rules and the forward scan — exactly like a real respondent.
  *
- * `seen` הוא הגנה מפני מעגלים: הוולידציה חוסמת אותם, אבל קונפיג שפורסם לפני
- * שהחסימה נוספה עלול להכיל אחד, ופונקציה טהורה לא אמורה להיתקע בלולאה.
+ * `seen` guards against cycles: validation blocks them, but a config published
+ * before that block existed may still contain one, and a pure function has no
+ * business hanging in a loop.
  */
 export function visitedPath(config: SurveyConfig, ctx: SurveyContext): Screen[] {
   const path: Screen[] = [];
@@ -27,17 +29,20 @@ export function visitedPath(config: SurveyConfig, ctx: SurveyContext): Screen[] 
 
 export interface SimStep {
   screen: Screen;
-  /** משתני הסשן אחרי ה-onSubmit של המסך הזה — מה שהמסכים הבאים יראו */
+  /** The session vars after this screen's onSubmit — what the screens after it will see */
   vars: Vars;
 }
 
 /**
- * הרצה יבשה של השאלון על תשובות נתונות: כמו visitedPath, אבל גם מחילה את
- * כללי ה-onSubmit בדרך במקום לקבל את המשתנים מבחוץ.
+ * A dry run of the survey over given answers: like visitedPath, but it also
+ * applies the onSubmit rules along the way instead of receiving the vars from
+ * outside.
  *
- * זה מה שמאפשר לקונסולה להראות מסלול אמיתי מתוך תשובות בלבד — בלי זה כל
- * מסך שתלוי ב-segment היה נופל, כי המשתנה נקבע רק תוך כדי המסע.
- * ⚠ הסדר בתוך onSubmit משמעותי: כלל רואה את מה שקדם לו, בדיוק כמו ב-App.
+ * That is what lets the console show a real path from answers alone — without it
+ * every screen that depends on segment would drop out, because the variable is
+ * only set during the journey.
+ * ⚠ Order within onSubmit matters: a rule sees what came before it, exactly as
+ * in App.
  */
 export function simulatePath(config: SurveyConfig, answers: Answers, seed: Vars = {}): SimStep[] {
   const steps: SimStep[] = [];
@@ -58,12 +63,14 @@ export function simulatePath(config: SurveyConfig, answers: Answers, seed: Vars 
 }
 
 /**
- * גיזום ה-payload הסופי. משיב שחזר אחורה ושינה תשובה שמנתבת (למשל s_actions
- * שמעביר אותו מ-B ל-C) משאיר מאחוריו תשובות של מסכים שכבר לא שייכים לו —
- * הן יושבות ב-state.answers ומזהמות כל ניתוח לפי מקטע.
+ * Prunes the final payload. A respondent who went back and changed a routing
+ * answer (s_actions, say, moving them from B to C) leaves behind answers to
+ * screens that are no longer theirs — those sit in state.answers and contaminate
+ * every by-segment analysis.
  *
- * ⚠ הגיזום חל על ה-payload בלבד. state.answers נשאר שלם, כדי שחזרה אחורה
- * תמשיך להציג למשיב את מה שענה (ראו seeding ב-components/inputs.tsx).
+ * ⚠ The pruning applies to the payload only. state.answers stays whole, so that
+ * going back keeps showing the respondent what they answered (see the seeding in
+ * components/inputs.tsx).
  */
 export function pruneAnswers(config: SurveyConfig, ctx: SurveyContext): Answers {
   const onPath = new Set(visitedPath(config, ctx).map((s) => s.id));
@@ -75,12 +82,14 @@ export function pruneAnswers(config: SurveyConfig, ctx: SurveyContext): Answers 
 }
 
 /**
- * התקדמות (0..1) לפי המסלול הצפוי בקונטקסט הנוכחי ולא לפי המערך המלא —
- * אחרת משיב במקטע A "קופץ" עשרות אחוזים ברגע ששני המקטעים האחרים נופלים.
+ * Progress (0..1) along the path expected in the current context, not along the
+ * full array — otherwise a respondent in segment A "jumps" tens of percent the
+ * moment the other two segments drop out.
  *
- * ⚠ הערך אינו מונוטוני מעצמו: כל עוד segment טרם נקבע, כל מסכי A/B/C נופלים
- * והמסלול הצפוי קצר. הקורא אחראי להחזיק מקסימום רץ (ראו App.tsx) כדי שהפס
- * לעולם לא ייסוג.
+ * ⚠ The value is not monotonic on its own: while segment is still unset, all the
+ * A/B/C screens drop out and the expected path is short. The caller is
+ * responsible for holding a running maximum (see App.tsx) so the bar never
+ * retreats.
  */
 export function progressRatio(config: SurveyConfig, currentId: string, ctx: SurveyContext): number {
   const path = visitedPath(config, ctx);

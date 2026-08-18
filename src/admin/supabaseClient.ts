@@ -1,7 +1,8 @@
-// לקוח Supabase Auth לקונסולת הניהול (נטען רק ב-chunk של /admin).
-// המפתח כאן הוא ה-anon key — מפתח ציבורי בהגדרתו. הוא לא מקנה שום גישה
-// לנתונים: RLS חוסם את anon לגמרי (אפס policies), והוא משמש אך ורק
-// לדיבור עם Supabase Auth. האכיפה (דומיין first-edea.com) בשרת בלבד.
+// The Supabase Auth client for the admin console (loaded only in the /admin
+// chunk). The key here is the anon key — public by definition. It grants no
+// access to data whatsoever: RLS blocks anon completely (zero policies), and it
+// is used purely to talk to Supabase Auth. The enforcement (the first-edea.com
+// domain) is server-side only.
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -10,21 +11,23 @@ const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 export const authConfigured = Boolean(URL_ && KEY);
 
-// כתובת החזרה מגוגל — חייבת להצביע על /admin, אחרת ההפניה נוחתת על השאלון
-// עצמו שבו הקונסולה כלל לא נטענת. חייבת להיות ברשימת ה-Redirect URLs
-// בדשבורד Supabase, אחרת supabase מתעלם ממנה ומפנה ל-Site URL.
+// The return address from Google — it has to point at /admin, otherwise the
+// redirect lands on the survey itself, where the console is never loaded. It has
+// to appear in the Redirect URLs list in the Supabase dashboard, otherwise
+// supabase ignores it and redirects to the Site URL instead.
 export const adminRedirectUrl =
   typeof window === 'undefined' ? '' : `${window.location.origin}/admin`;
 
-// detectSessionInUrl: supabase-js קולט לבד את הטוקנים מה-URL בחזרה מגוגל
-// ומשדר SIGNED_IN — אין צורך לפרסר את הכתובת ידנית.
+// detectSessionInUrl: supabase-js picks the tokens out of the URL on the return
+// from Google by itself and broadcasts SIGNED_IN — there is no need to parse the
+// address by hand.
 export const supabase = createClient(URL_ ?? 'http://invalid.local', KEY ?? 'missing-key', {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 });
 
 const ALLOWED_DOMAIN = 'first-edea.com';
 
-/** מפנה לגוגל. hd מסנן מראש את בוחר החשבונות — רמז UX, לא אכיפה. */
+/** Redirects to Google. hd pre-filters the account chooser — a UX hint, not enforcement. */
 export async function signInWithGoogle(): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -36,7 +39,7 @@ export async function signInWithGoogle(): Promise<void> {
   if (error) throw error;
 }
 
-/** ה-access token של הסשן הנוכחי, לשליחה כ-Bearer לפונקציות. */
+/** The current session's access token, to be sent to the functions as a Bearer. */
 export async function accessToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;

@@ -1,11 +1,15 @@
-// מסך הבית של הקונסולה: כל השאלונים, הקישור הציבורי של כל אחד, ופעולות
-// הניהול. זה המסך שממנו נכנסים לעורך של שאלון מסוים.
+// The console's home screen: every survey, each one's public link, and the
+// management actions. This is the screen you enter a particular survey's editor
+// from.
 //
-// שתי הבחנות שהמסך מקפיד עליהן, כי טעות בהן עולה בנתונים:
-//   • טיוטה ≠ מה שמשיבים רואים. שאלון בלי גרסה שפורסמה — הקישור שלו לא
-//     יעבוד, ולכן נאמר כך במפורש ולא מוצג קישור לחיצה.
-//   • ארכיון ≠ מחיקה. העברה לארכיון מפסיקה לקבל משיבים חדשים ושומרת הכל; מחיקה
-//     אפשרית רק לשאלון שלא פורסם מעולם ולכן אין לו נתונים.
+// Two distinctions this screen is strict about, because getting either wrong
+// costs data:
+//   • A draft ≠ what respondents see. A survey with no published version has a
+//     link that will not work, so that is said explicitly and no clickable link
+//     is shown.
+//   • Archiving ≠ deleting. Archiving stops accepting new respondents and keeps
+//     everything; deletion is only possible for a survey never published, which
+//     therefore has no data.
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { SURVEY_SLUG_MAX, SURVEY_SLUG_RE, slugify, surveyPath } from '../data/surveys';
@@ -276,7 +280,7 @@ function CopyLinkButton({ url }: { url: string }) {
             setTimeout(() => setCopied(false), 2000);
           },
           () => {
-            /* דפדפן שחוסם את הלוח — הקישור עצמו מוצג ואפשר לסמן אותו ידנית */
+            /* A browser that blocks the clipboard — the link itself is on screen and can be selected by hand */
           },
         );
       }}
@@ -335,8 +339,8 @@ function CreateDialog({
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
 
-  // השם בעברית לא מייצר slug שימושי, ולכן ההצעה האוטומטית עובדת רק לשם
-  // באנגלית — ובעברית פשוט מבקשים מזהה במפורש.
+  // A Hebrew name produces no usable slug, so the automatic suggestion only works
+  // for an English name — with Hebrew we simply ask for an id explicitly.
   const effectiveSlug = slugTouched ? slug : slugify(name);
   const slugOk = SURVEY_SLUG_RE.test(effectiveSlug);
   const duplicate = taken.has(effectiveSlug);

@@ -5,14 +5,16 @@ import { shuffle } from './random';
 import type { NumberScreen, Option, TextScreen } from './types';
 
 /**
- * סדר האפשרויות להצגה.
+ * The order the options are displayed in.
  *
- * ⚠ ערבוב חל רק על אפשרויות התוכן. אפשרות בלעדית ("אף אחד מאלה", "הכול ברור לי")
- * היא אפשרות בריחה ולא אפשרות תוכן — אם היא נוחתת באמצע הרשימה היא נקראת
- * כאפשרות רגילה ומטה את שיעורי הבחירה. לכן היא מעוגנת תמיד בסוף.
+ * ⚠ Shuffling applies to content options only. An exclusive option ("none of
+ * these", "it is all clear to me") is an escape hatch, not a content option — if
+ * it lands in the middle of the list it reads as an ordinary option and skews
+ * the selection rates. So it is always anchored at the end.
  *
- * כשאין ערבוב הסדר של מחבר השאלון נשמר כמות שהוא, כולל אפשרות בלעדית
- * שהוצבה בכוונה בראש הרשימה (למשל "רק אני" ב-b_who).
+ * With no shuffling the author's order is kept exactly as written, including an
+ * exclusive option deliberately placed at the top of the list (for instance
+ * "only me" in b_who).
  */
 export function orderOptions(options: readonly Option[], shuffleOptions?: boolean): Option[] {
   if (!shuffleOptions) return [...options];
@@ -22,8 +24,9 @@ export function orderOptions(options: readonly Option[], shuffleOptions?: boolea
 type NumberRules = Pick<NumberScreen, 'min' | 'max' | 'integer'>;
 
 /**
- * הודעת שגיאה לערך שהוקלד בשדה מספר, או null כשהערך תקין.
- * שדה ריק אינו שגיאה — עוד לא הוקלד דבר, ו"המשך" ממילא חסום.
+ * The error message for a value typed into a number field, or null when it is
+ * valid. An empty field is not an error — nothing has been typed yet, and
+ * "continue" is blocked anyway.
  */
 export function numberFieldError(rules: NumberRules, raw: string): string | null {
   if (raw.trim() === '') return null;
@@ -39,18 +42,19 @@ export function numberFieldError(rules: NumberRules, raw: string): string | null
   return null;
 }
 
-/** ערך תקין לשליחה, או null כשהשדה ריק או שגוי. */
+/** A valid value to submit, or null when the field is empty or invalid. */
 export function numberFieldValue(rules: NumberRules, raw: string): number | null {
   if (raw.trim() === '' || numberFieldError(rules, raw) !== null) return null;
   return Number(raw);
 }
 
-/** תקרת אורך ברירת מחדל לטקסט חופשי — נשלח פעמיים (אירוע answer + payload סופי). */
+/** Default length ceiling for free text — it is sent twice (the answer event + the final payload). */
 export const TEXT_MAX_LENGTH = 1000;
 
 export function textLimit(screen: Pick<TextScreen, 'maxLength'>): number {
-  // תקרה לא חוקית נופלת לברירת המחדל. maxLength={0} על השדה היה חוסם כל
-  // הקלדה ומשאיר "המשך" חסום לנצח — המשיב תקוע. הוולידציה מתריעה בנפרד.
+  // An invalid ceiling falls back to the default. maxLength={0} on the field
+  // would block all typing and leave "continue" disabled forever — the
+  // respondent is stuck. The validator warns about it separately.
   const { maxLength } = screen;
   return Number.isInteger(maxLength) && (maxLength as number) > 0
     ? (maxLength as number)

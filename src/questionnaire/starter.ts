@@ -1,6 +1,8 @@
-// שלד לשאלון חדש שנוצר בקונסולה. מכוון להיות המינימום שעובר validateConfig
-// בלי שגיאות — מסך פתיחה ומסך סיום — כדי שאפשר יהיה לפרסם ולבדוק את הקישור
-// עוד לפני שנכתבה שאלה אחת. נבנה בשרת (admin-surveys.mts) ולא נשלח מהדפדפן.
+// The skeleton for a new survey created in the console. Deliberately the minimum
+// that passes validateConfig without errors — an opening screen and an end screen
+// — so the survey can be published and its link tested before a single question
+// has been written. Built on the server (admin-surveys.mts) and never sent from
+// the browser.
 
 import type { SurveyConfig } from '../engine/types';
 

@@ -1,9 +1,11 @@
-// עורך תנאים רקורסיבי: עלים (שאלה/משתנה + אופרטור + ערך) וקבוצות (וגם/או/לא).
-// פולט בדיוק את מבנה ה-Condition של המנוע — מה שנערך כאן רץ ב-evaluate כמו שהוא.
+// A recursive condition editor: leaves (question/variable + operator + value) and
+// groups (and/or/not). It emits exactly the engine's Condition shape — what is
+// edited here runs through evaluate as it stands.
 //
-// האדמין בוחר מתוך נוסח האפשרויות, לא מתוך מזהים: כשהשאלה היא בחירה, שדה הערך
-// הוא רשימה של תשובות אמיתיות. טקסט חופשי נשאר רק היכן שאין ערכים ידועים
-// (מספר, טקסט, משתנה בלי varMeta) — שם אין מה להציע.
+// The admin picks from the option wording, not from ids: when the question is a
+// choice, the value field is a list of real answers. Free text remains only where
+// there are no known values (a number, text, a variable with no varMeta) — there
+// is nothing to offer there.
 
 import type { Condition, Op, Screen } from '../engine/types';
 import type { Naming } from './display';
@@ -20,9 +22,10 @@ function kindOf(cond: Condition): Kind {
   return 'q' in cond ? 'q' : 'var';
 }
 
-// "סימון" ולא "משתנה" — אותו שם שהמסכים האחרים משתמשים בו לאותו מושג.
-// הקבוצות נכתבות כמשפט שלם ("כל התנאים מתקיימים") ולא כשם הפעולה הלוגית:
-// "וגם / או / לא" מחייבים את הקורא לתרגם, והתרגום הזה הוא בדיוק מה שנשבר.
+// "Mark" and not "variable" — the same word the other screens use for the same
+// concept. The groups are written as whole sentences ("all the conditions hold")
+// rather than as the name of the logical operation: "and / or / not" force the
+// reader to translate, and that translation is exactly what breaks.
 const KIND_LABELS: Record<Kind, string> = {
   q: 'לפי תשובה לשאלה',
   var: 'לפי סימון על המשיב',
@@ -31,7 +34,7 @@ const KIND_LABELS: Record<Kind, string> = {
   not: 'ההפך — התנאי שבפנים לא מתקיים',
 };
 
-/** מסכים שאפשר להתנות עליהם — למסך מידע ולמסך סיום אין תשובה. */
+/** The screens that can be conditioned on — an info screen and an end screen have no answer. */
 function questionScreens(naming: Naming): Screen[] {
   return naming.screens.filter((s) => s.type !== 'info' && s.type !== 'end');
 }
@@ -40,7 +43,7 @@ export function defaultLeaf(naming: Naming): Condition {
   return { q: questionScreens(naming)[0]?.id ?? naming.screens[0]?.id ?? '', op: 'eq', value: '' };
 }
 
-/** "42" → 42, "true" → true, אחרת מחרוזת */
+/** "42" → 42, "true" → true, otherwise a string */
 function parseScalar(raw: string): string | number | boolean {
   const trimmed = raw.trim();
   if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
@@ -56,8 +59,9 @@ function valueToText(value: unknown): string {
 }
 
 /**
- * הערכים שאפשר להציע לעלה — ‏[מזהה, תווית]. רשימה ריקה = אין מה להציע, ואז
- * נופלים לשדה טקסט חופשי (מספר, טקסט פתוח, משתנה בלי varMeta).
+ * The values that can be offered for a leaf — [id, label]. An empty list = there
+ * is nothing to offer, and we fall back to a free-text field (a number, open
+ * text, a variable with no varMeta).
  */
 function knownValues(naming: Naming, leaf: Leaf): [string, string][] {
   if (leaf.q !== undefined) {
@@ -155,8 +159,8 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
   const needsValue = leaf.op !== 'answered';
   const isList = LIST_OPS.includes(leaf.op);
   const options = knownValues(naming, leaf);
-  // הרשימה מנוסחת כהמשך של הנושא, ולכן היא תלויה בו: "התשובה היא…" מול
-  // "מסלול המשיב הוא…"
+  // The dropdown is phrased as a continuation of the subject, so it depends on
+  // it: "the answer is…" versus "the respondent's track is…"
   const opLabels = isQ ? OP_LABELS_ANSWER : OP_LABELS_MARK;
 
   function patch(p: Partial<Leaf>) {
@@ -169,8 +173,9 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
     onChange(withValue as Condition);
   }
 
-  /** מעבר בין אופרטור יחיד לאופרטור רשימה חייב לגרור את הערך, אחרת "אחד מ־"
-      מקבל מחרוזת ו-evaluate לא מוצא התאמה בלי שום סימן באוויר. */
+  /** Switching between a single-value operator and a list operator has to carry
+      the value across, otherwise "one of" receives a string and evaluate finds no
+      match, with nothing in the air to say why. */
   function changeOp(op: Op) {
     if (op === 'answered') return patch({ op });
     const nowList = LIST_OPS.includes(op);
@@ -263,9 +268,10 @@ function LeafEditor({ value, onChange, naming }: BuilderProps) {
 }
 
 /**
- * בחירת ערך מתוך נוסח התשובות. אופרטור יחיד = רשימה נפתחת; אופרטור רשימה =
- * תיבות סימון, כי "אחד מתוך" עם שדה טקסט מופרד בפסיקים היה המקום שבו מזהים
- * הודפסו לאדמין בעל כורחו.
+ * Picking a value from the answer wording. A single-value operator = a dropdown;
+ * a list operator = checkboxes, because "one of" with a comma-separated text
+ * field was the place where ids got printed at the admin whether they liked it
+ * or not.
  */
 function ValuePicker({
   options,
@@ -311,7 +317,7 @@ function ValuePicker({
               const next = new Set(selected);
               if (e.target.checked) next.add(id);
               else next.delete(id);
-              // סדר האפשרויות ולא סדר הלחיצות — הרשימה יציבה בין עריכות
+              // The option order and not the click order — the list stays stable between edits
               onChange(options.map(([oid]) => oid).filter((oid) => next.has(oid)));
             }}
           />
@@ -351,8 +357,9 @@ function GroupEditor({ value, onChange, naming }: BuilderProps) {
 }
 
 /**
- * שדה תנאי אופציונלי: "תמיד" ⇄ עורך תנאי. המשפט מעל העורך הוא מה שרוב האדמינים
- * באמת קוראים — מבנה העץ שמתחתיו נועד לעריכה, לא להבנה.
+ * An optional condition field: "always" ⇄ a condition editor. The sentence above
+ * the editor is what most admins actually read — the tree below it is there for
+ * editing, not for understanding.
  */
 export function OptionalCondition({
   label,

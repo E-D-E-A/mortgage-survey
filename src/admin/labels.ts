@@ -1,8 +1,8 @@
-// תוויות עברית משותפות לקונסולה.
+// The Hebrew labels shared across the console.
 //
-// כל תווית כאן נקראת בקול רם בלי הסבר נלווה — היא יושבת ברשימה נפתחת, בלי
-// הקשר ובלי טקסט עזרה. לכן היא כתובה כמו שמדברים ("בחירה אחת"), ולא כמו
-// שקוראים למבנה בקוד ("single").
+// Every label here is read aloud with no accompanying explanation — it sits in a
+// dropdown, with no context and no help text. So it is written the way people
+// speak ("one choice"), not the way the structure is named in code ("single").
 
 import type { Op, Screen } from '../engine/types';
 
@@ -17,9 +17,11 @@ export const TYPE_LABELS: Record<Screen['type'], string> = {
   end: 'מסך סיום',
 };
 
-// הרשימה הנפתחת משלימה את המשפט שמעליה, ולכן היא נכתבת פעמיים: הנושא של תנאי
-// על שאלה הוא "התשובה" (נקבה), והנושא של תנאי על סימון הוא שם הסימון (זכר).
-// מפה אחת נייטרלית ("שווה ל…") הייתה מאלצת את הקורא לתרגם בין הרשימה למשפט.
+// The dropdown completes the sentence above it, which is why it is written
+// twice: the subject of a condition on a question is "the answer" (feminine in
+// Hebrew), and the subject of a condition on a mark is the mark's name
+// (masculine). One neutral map ("equals…") would force the reader to translate
+// between the dropdown and the sentence.
 export const OP_LABELS_ANSWER: Record<Op, string> = {
   eq: 'היא בדיוק…',
   ne: 'היא כל דבר חוץ מ…',
@@ -46,5 +48,5 @@ export const OP_LABELS_MARK: Record<Op, string> = {
   answered: 'כבר נקבע',
 };
 
-/** אופרטורים שערכם רשימה */
+/** Operators whose value is a list */
 export const LIST_OPS: Op[] = ['in', 'includesAny'];

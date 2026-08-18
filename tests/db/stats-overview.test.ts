@@ -1,5 +1,6 @@
-// ENG-13: שכבת הסיכום פר-סשן ופונקציית האריחים stats_overview, ומעליהן
-// ה-endpoint המאומת admin-stats. רץ רק עם DB_TESTS=1 מול הסטאק המקומי.
+// ENG-13: the per-session summary layer and the stats_overview tiles function,
+// and above them the authenticated admin-stats endpoint. Runs only with
+// DB_TESTS=1 against the local stack.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   applySchema,
@@ -17,9 +18,10 @@ const V1 = '2026-08-01.1-ovtest';
 const V2 = '2026-08-05.2-ovtest';
 const ids = idFactory('a1');
 
-// פיקסטורה מחושבת ביד — מקור אמת בלתי תלוי במימוש:
+// A hand-computed fixture — a source of truth independent of the implementation:
 //   s1 complete v1 · s2 complete v2 · s3 screenout v1 · s4 quotafull v2
-//   s5 נטש באמצע v1 (ענה ואז נעלם) · s6 נכנס ולא ענה v2 · s7 complete v1 מסומן test
+//   s5 abandoned mid-survey on v1 (answered, then vanished) · s6 arrived and never
+//   answered on v2 · s7 complete on v1, marked as a test
 const fixture = [
   ...sessionEvents(ids, 1, V1, { steps: [{ screen: 'q1', answer: 'yes' }], terminal: 'complete' }),
   ...sessionEvents(ids, 2, V2, { steps: [{ screen: 'q1', answer: 'no' }], terminal: 'complete' }),

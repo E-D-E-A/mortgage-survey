@@ -1,14 +1,17 @@
-// "המקום בזרימה" — הקריאה של הזרימה, לא העריכה שלה.
+// "Its place in the flow" — reading the flow, not editing it.
 //
-// שלושת המנגנונים (showIf, next, onSubmit) יושבים בשלושה שדות נפרדים, וכל אחד
-// מהם נכון בפני עצמו ולא אומר כלום על הסדר בפועל. הפאנל הזה מחשב את התשובה
-// מהקונפיג המלא ומציג אותה בארבע קבוצות קבועות, כל אחת עונה על שאלה אחת:
-// מגיעים לכאן · מוצג רק כאשר · ממשיכים מכאן · נקבע כאן.
+// The three mechanisms (showIf, next, onSubmit) sit in three separate fields,
+// each true on its own and saying nothing about the actual order. This panel
+// computes the answer from the full config and presents it in four fixed groups,
+// each answering one question: how you get here · when it is shown · where it
+// continues to · what is set here.
 //
-// שני כללי ניסוח הופכים את זה לקריא:
-// 1. תנאי שמפנה למסך הזה עצמו נכתב "התשובה כאן", לא ציטוט השאלה לעצמה.
-// 2. זוג כללים משלימים (תנאי + השלילה שלו, כמו שמציב את segment) מוצג
-//    כ"אחרת ←", לא כמשפט השלילה המלא.
+// Two wording rules make it readable:
+// 1. A condition pointing at this very screen is written "the answer here",
+//    rather than quoting the question back at itself.
+// 2. A complementary pair of rules (a condition + its negation, of the kind that
+//    assigns segment) is shown as "otherwise ←", not as the full negated
+//    sentence.
 
 import type { Condition, Screen, SetVarRule, SurveyConfig } from '../engine/types';
 import type { Naming } from './display';
@@ -29,7 +32,7 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-/** כלל שתנאו הוא בדיוק השלילה של קודמו, על אותו סימון — מוצג כ"אחרת". */
+/** A rule whose condition is exactly the negation of the previous one, on the same mark — shown as "otherwise". */
 function isOtherwise(prev: SetVarRule, rule: SetVarRule): boolean {
   if (prev.var !== rule.var || !prev.if || !rule.if) return false;
   const negated = rule.if as { not?: Condition };
@@ -46,12 +49,13 @@ export function FlowContext({ config, screen, naming, onSelect }: Props) {
       .map((rule, i) => ({ from: s, rule, i }))
       .filter(({ rule }) => rule.goto === screen.id),
   );
-  // אותו חישוב שמזין את הקשתות בתרשים — כדי שהפאנל והתרשים לא יוכלו לספר
-  // שני סיפורים שונים, וכדי שלא יימנו כאן מעברים שאינם אפשריים
+  // The same computation that feeds the edges in the diagram — so the panel and
+  // the diagram cannot tell two different stories, and so that transitions which
+  // cannot happen are not listed here
   const fallIn = fallThroughSources(screens, index);
   const fallOut = fallThroughTargets(screens, index);
 
-  // הסימונים שתנאי התצוגה של המסך נשען עליהם, ואיפה הם נקבעים בפועל
+  // The marks the screen's display condition leans on, and where they are actually set
   const dependsOn = screen.showIf ? [...new Set(conditionVars(screen.showIf))] : [];
   const setHere = screen.onSubmit ?? [];
   const readers = setHere.length > 0 ? screensReading(screens, setHere.map((r) => r.var)) : [];
@@ -203,7 +207,7 @@ export function FlowContext({ config, screen, naming, onSelect }: Props) {
   );
 }
 
-/** מסכים שתנאי התצוגה או הניתוב שלהם קוראים אחד מהסימונים האלה. */
+/** Screens whose display or routing conditions read one of these marks. */
 function screensReading(screens: Screen[], vars: string[]): Screen[] {
   const wanted = new Set(vars);
   return screens.filter((s) => {

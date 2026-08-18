@@ -1,5 +1,6 @@
-// ENG-14: משפך פר-מסך — צפו, ענו, נטשו-כאן, חציון זמן ניסיון-ראשון.
-// הציפיות חושבו ביד מהפיקסטורה. רץ רק עם DB_TESTS=1 מול הסטאק המקומי.
+// ENG-14: the per-screen funnel — viewed, answered, dropped-here, and the median
+// first-attempt time. The expectations were worked out by hand from the fixture.
+// Runs only with DB_TESTS=1 against the local stack.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   applySchema,
@@ -26,9 +27,10 @@ const config = {
   ],
 };
 
-// s1: עונה על q1 ו-q2 ומשלים · s2: עונה על q1, צופה ב-q2 ונוטש שם
-// s3: צופה ב-q1 ונוטש בלי לענות · s4: עונה q1 פעמיים (חזרה אחורה) ואז q2 וסינון
-// s5: סשן בדיקה — מוחרג כברירת מחדל
+// s1: answers q1 and q2 and completes · s2: answers q1, views q2 and abandons there
+// s3: views q1 and abandons without answering · s4: answers q1 twice (after going
+//     back), then q2, and is screened out
+// s5: a test session — excluded by default
 const fixture = [
   ...sessionEvents(ids, 1, V, {
     steps: [
@@ -72,7 +74,7 @@ describe.runIf(dbTestsEnabled)('stats_funnel (ENG-14)', () => {
 
   it('counts viewed / answered / dropped-here per screen, test sessions excluded', async () => {
     const rows = await sql`select * from stats_funnel('fntest', null, false) order by screen_id`;
-    expect(rows).toHaveLength(2); // רק מסכים שנצפו; מסכי end לא מקבלים screen_view
+    expect(rows).toHaveLength(2); // viewed screens only; end screens get no screen_view
     const [q1, q2] = rows;
     expect(q1).toMatchObject({ screen_id: 'q1', viewed: 4, answered: 3, dropped_here: 1 });
     expect(q2).toMatchObject({ screen_id: 'q2', viewed: 3, answered: 2, dropped_here: 1 });
@@ -80,9 +82,9 @@ describe.runIf(dbTestsEnabled)('stats_funnel (ENG-14)', () => {
 
   it('median time uses first attempts only — a quick re-answer cannot drag it down', async () => {
     const rows = await sql`select * from stats_funnel('fntest', null, false) order by screen_id`;
-    // q1: ניסיונות ראשונים 4000/8000/10000 → 8000. הניסיון השני (1000ms) מחוץ לחישוב.
+    // q1: first attempts of 4000/8000/10000 → 8000. The second attempt (1000ms) is left out of the computation.
     expect(rows[0].median_ms).toBe(8000);
-    // q2: 6000/2000 → אמצע רציף 4000
+    // q2: 6000/2000 → a continuous median of 4000
     expect(rows[1].median_ms).toBe(4000);
   });
 

@@ -1,10 +1,11 @@
 :root {
-  /* תמה בהירה בלבד — גם פקדים מובנים (שדות, גלילה) נשארים בהירים במצב כהה */
+  /* Light theme only — native controls (fields, scrollbars) stay light in dark mode too */
   color-scheme: light;
 
-  /* פלטת מותג: טורקיז דיגיטלי #00F5D4 + כחול ליל עמוק #03071E.
-     הטורקיז בהיר מאוד — לכן טקסט שעל גביו כחול-לילה (לא לבן),
-     וקווים/מסגרות משתמשים ב---primary-strong (טורקיז כהה, ניגודיות 3:1+). */
+  /* The brand palette: digital turquoise #00F5D4 + deep midnight blue #03071E.
+     The turquoise is very light — so text on top of it is midnight blue (not
+     white), and lines and borders use --primary-strong (a darker turquoise,
+     3:1+ contrast). */
   --bg: #e4f8f3;
   --card: #ffffff;
   --text: #03071e;
@@ -12,13 +13,13 @@
   --primary: #00f5d4;
   --on-primary: #03071e;
   --primary-press: #00d9bc;
-  --primary-strong: #00eacb; /* טורקיז כהה יותר, ניגודיות 3:1+ */
+  --primary-strong: #00eacb; /* a darker turquoise, 3:1+ contrast */
   --border: #a9d6cd;
   --selected-bg: #d3fbf3;
   --radius: 14px;
   --radius-sm: 8px;
 
-  /* סטטוסים (ולידציה, שגיאות, הצלחות) */
+  /* Statuses (validation, errors, successes) */
   --danger: #b91c1c;
   --danger-bg: #fee2e2;
   --warning: #92400e;
@@ -27,14 +28,14 @@
   --success-bg: #d1fae5;
   --focus-ring: rgba(0, 148, 127, 0.4);
 
-  /* משטחים מוגבהים (קונסולת הניהול) */
+  /* Raised surfaces (the admin console) */
   --surface-raised: #ffffff;
   --drag-shadow: 0 8px 24px rgba(3, 7, 30, 0.2);
   --chip-bg: #e2f1ed;
   --edge: #6fa096;
   --grid-dot: #c2e3dc;
 
-  /* סולם רווחים 4px */
+  /* A 4px spacing scale */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -42,7 +43,7 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  /* סולם טיפוגרפי */
+  /* The type scale */
   --text-xs: 0.75rem;
   --text-sm: 0.85rem;
   --text-base: 1rem;
@@ -137,15 +138,17 @@ h1 {
   font-weight: 650;
 }
 
-/* הכותרת מקבלת מיקוד בכל מעבר מסך (App.tsx) כדי להכריז עליו ולהחזיר את
-   משתמש המקלדת לראש המסך. זו תנועה יזומה של התוכנה ולא של המשתמש, ולכן
-   בלי טבעת מיקוד — היא הייתה נראית כשגיאה */
+/* The heading takes focus on every screen change (App.tsx), to announce it and
+   to bring a keyboard user back to the top of the screen. That is a move the
+   software initiates rather than the user, so there is no focus ring — it would
+   have looked like an error */
 .screen-title:focus {
   outline: none;
 }
 
-/* טבעת מיקוד אחידה וברורה לכל פקד. בלי הגדרה מפורשת הטבעת המובנית של
-   הדפדפן כמעט נבלעת בטורקיז של המותג */
+/* One clear, consistent focus ring on every control. Without an explicit
+   definition the browser's native ring is all but swallowed by the brand's
+   turquoise */
 .option:focus-visible,
 .scale-btn:focus-visible,
 .btn:focus-visible,
@@ -187,9 +190,11 @@ h1 {
   font-weight: 600;
 }
 
-/* מכסת בחירות מלאה — האפשרויות שנותרו מעומעמות במקום להתעלם בשקט מהלחיצה.
-   ⚠ לא opacity על כל הכפתור: המשיב עדיין צריך לקרוא את האפשרויות שאינו יכול
-   לבחור כרגע, כדי להחליט אם כדאי לו לבטל בחירה קיימת. מעומעמת המסגרת, לא הטקסט. */
+/* The selection cap is reached — the remaining options are dimmed rather than
+   silently ignoring the click.
+   ⚠ Not opacity on the whole button: the respondent still has to read the options
+   they cannot currently pick, in order to decide whether to undo an existing
+   choice. It is the border that dims, not the text. */
 .option:disabled {
   border-color: rgba(169, 214, 205, 0.5);
   background: #f7fbfa;
@@ -222,7 +227,7 @@ h1 {
   color: var(--danger);
 }
 
-/* גלוי לקוראי מסך בלבד — הכרזת מסך חדש ב-aria-live */
+/* Visible to screen readers only — announcing a new screen via aria-live */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -261,8 +266,9 @@ h1 {
   box-shadow: none;
 }
 
-/* "המשך" חסום הוא המצב שהמשיב רואה הכי הרבה — לפני שענה. ב-opacity: 0.35
-   הכיתוב כמעט נעלם ונראה כתקלה; כאן הכפתור מובחן ככבוי אבל הכיתוב נשאר קריא. */
+/* A disabled "continue" is the state the respondent sees most — before they have
+   answered. At opacity: 0.35 the label all but vanished and read as a fault; here
+   the button is clearly off while its label stays legible. */
 .btn.primary:disabled {
   background: #e6eceb;
   color: var(--muted);
@@ -280,7 +286,7 @@ h1 {
   background: none;
   color: var(--muted);
   font-size: 0.85rem;
-  /* מטרת מגע של 44px לפחות — הכפתור הזה נלחץ באצבע במובייל */
+  /* A touch target of at least 44px — this button is pressed with a finger on mobile */
   min-height: 44px;
   padding: 6px 16px;
   align-self: center;
@@ -359,7 +365,7 @@ h1 {
   font-weight: 600;
 }
 
-/* honeypot — מוסתר מעיניים אנושיות, גלוי לבוטים */
+/* honeypot — hidden from human eyes, visible to bots */
 .hp {
   position: absolute;
   inset-inline-start: -9999px;

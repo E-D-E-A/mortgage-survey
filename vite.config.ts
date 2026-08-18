@@ -5,17 +5,22 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
-    // netlify dev בונה פונקציות לתוך ‎.netlify/functions-serve‎ ומחזיק את
-    // הקבצים נעולים; ה-watcher של vite שנתקל בהם קורס ב-EBUSY על Windows
-    // ומפיל את כל שרת הפיתוח. אין שום סיבה ש-vite יצפה בתוצרים של netlify.
+    // netlify dev builds the functions into .netlify/functions-serve and holds
+    // those files locked; vite's watcher trips over them, crashes with EBUSY on
+    // Windows and takes the whole dev server down. There is no reason at all for
+    // vite to watch netlify's build output.
     watch: { ignored: ['**/.netlify/**'] },
   },
   test: {
+    // node by default — the logic suite needs no DOM and starts faster without one.
+    // The component tests opt themselves into jsdom with a
+    // `// @vitest-environment jsdom` docblock, so only they pay for it.
     environment: 'node',
-    // tests/db הן בדיקות אינטגרציה מול Supabase מקומי — מדולגות בלי DB_TESTS=1
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
-    // קבצי ה-DB חולקים דאטהבייס אחד; מקביליות בין קבצים = deadlocks על
-    // ה-DDL של הפיקסטורות. ריצה טורית עולה שניות ומוחקת את כל המחלקה הזאת.
+    // tests/db are integration tests against a local Supabase — skipped without DB_TESTS=1
+    include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+    // The DB files share one database; parallelism between files = deadlocks on
+    // the fixtures' DDL. Running them serially costs seconds and eliminates that
+    // entire class of failure.
     fileParallelism: false,
   },
 });

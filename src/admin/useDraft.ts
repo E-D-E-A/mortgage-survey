@@ -1,7 +1,7 @@
-// ניהול מצב הטיוטה של שאלון אחד בקונסולה: טעינה, עריכה בזיכרון (dirty),
-// היסטוריית undo/redo, שמירה עם נעילה אופטימית (409 ⇒ conflict), ויצירת
-// טיוטה ראשונה משאלון הדגמה.
-// כל הקריאות מקבלות את ה-slug — הקונסולה מנהלת כמה שאלונים.
+// Managing one survey's draft state in the console: loading, in-memory editing
+// (dirty), undo/redo history, saving with optimistic locking (409 ⇒ conflict),
+// and creating the first draft from the demo survey.
+// Every call takes the slug — the console manages several surveys.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SurveyConfig } from '../engine/types';
@@ -17,8 +17,9 @@ import {
 } from './api';
 
 /**
- * ניסוח כשל שמירה לעורך. שתיקה כאן היא התרחיש הגרוע: הצ׳יפ "שינויים לא
- * שמורים" נשאר, הכפתור חוזר להיות פעיל, והעורך מניח שהשמירה עברה.
+ * Wording a save failure for the editor. Silence here is the worst case: the
+ * "unsaved changes" chip stays put, the button goes live again, and the editor
+ * assumes the save went through.
  */
 function describeSaveFailure(e: unknown): string {
   if (e instanceof SaveFailedError) {
@@ -29,16 +30,17 @@ function describeSaveFailure(e: unknown): string {
   return 'השמירה נכשלה — אין תקשורת עם השרת. השינויים עדיין כאן; נסו שוב.';
 }
 
-/** 'forbidden' — מחובר אבל החשבון לא בדומיין המורשה (בשונה מ-error כללי) */
+/** 'forbidden' — signed in, but the account is not on the permitted domain (as distinct from a general error) */
 export type DraftPhase = 'loading' | 'empty' | 'ready' | 'error' | 'forbidden';
 
 /**
- * עומק ההיסטוריה; הקלדה רצופה מתאחדת לצעד undo אחד.
+ * The history depth; continuous typing coalesces into a single undo step.
  *
- * "רצופה" היא גם עניין של זמן וגם של סוג: החלון לבדו איחד גם שתי לחיצות
- * כפתור שנעשו זו אחר זו (הוספת אפשרות ואז מחיקת שורה), וביטול אחד מחק את
- * שתיהן. לכן איחוד מותנה גם ב-sameShape — רק עריכה שלא שינתה את מבנה
- * הקונפיג נחשבת המשך של קודמתה.
+ * "Continuous" is a matter of kind as well as of time: the time window alone also
+ * merged two button presses made one after the other (adding an option and then
+ * deleting a row), and a single undo wiped out both. So coalescing is also
+ * conditioned on sameShape — only an edit that did not change the config's shape
+ * counts as a continuation of the one before it.
  */
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 800;
@@ -49,11 +51,11 @@ export interface Draft {
   dirty: boolean;
   saving: boolean;
   conflict: boolean;
-  /** כשל שמירה שאינו התנגשות ואינו אימות — טקסט להצגה לעורך, או null */
+  /** A save failure that is neither a conflict nor an auth problem — text to show the editor, or null */
   saveError: string | null;
   canUndo: boolean;
   canRedo: boolean;
-  /** עדכון הקונפיג בזיכרון (מסמן dirty ונרשם בהיסטוריה) */
+  /** Updates the config in memory (marks it dirty and records it in the history) */
   update: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
   undo: () => void;
   redo: () => void;
@@ -63,8 +65,8 @@ export interface Draft {
   dismissSaveError: () => void;
 }
 
-// הקונפיג אימיוטבילי — כל עריכה יוצרת אובייקט חדש, ולכן ההיסטוריה שומרת
-// הפניות בלבד (זול), ו-undo משחזר את אותם אובייקטים עצמם.
+// The config is immutable — every edit creates a new object, so the history
+// keeps references only (cheap), and undo restores those very same objects.
 interface EditState {
   config: SurveyConfig | null;
   past: SurveyConfig[];
@@ -79,7 +81,7 @@ export function useDraft(slug: string, onAuthError: () => void): Draft {
   const [conflict, setConflict] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const updatedAtRef = useRef<string | null>(null);
-  /** מה ששמור בשרת — undo שמגיע בדיוק אליו מנקה את סימון ה-dirty */
+  /** What is saved on the server — an undo that lands exactly on it clears the dirty flag */
   const savedRef = useRef<SurveyConfig | null>(null);
   const lastEditAt = useRef(0);
 
@@ -105,8 +107,8 @@ export function useDraft(slug: string, onAuthError: () => void): Draft {
   }, [reload]);
 
   const update = useCallback((fn: (cfg: SurveyConfig) => SurveyConfig) => {
-    // החלטת האיחוד נלקחת מחוץ ל-updater — הוא חייב להישאר טהור (StrictMode
-    // מריץ אותו פעמיים)
+    // The coalescing decision is taken outside the updater — it has to stay pure
+    // (StrictMode runs it twice)
     const now = Date.now();
     const recent = now - lastEditAt.current < COALESCE_MS;
     lastEditAt.current = now;
@@ -144,8 +146,8 @@ export function useDraft(slug: string, onAuthError: () => void): Draft {
     });
   }, []);
 
-  // dirty = הקונפיג הנוכחי שונה מהשמור (השוואת הפניות מספיקה: undo משחזר
-  // את אותו אובייקט שנטען/נשמר)
+  // dirty = the current config differs from the saved one (a reference comparison
+  // is enough: undo restores the very object that was loaded or saved)
   useEffect(() => {
     if (edit.config !== null) setDirty(edit.config !== savedRef.current);
   }, [edit.config]);

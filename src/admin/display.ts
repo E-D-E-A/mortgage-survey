@@ -1,17 +1,18 @@
-// שכבת השמות של הקונסולה: כל מקום שבו האדמין רואה מסך, תשובה, משתנה או תנאי
-// עובר דרך כאן. המזהים (s_status, segment, end_screenout) נשארים קוד האנליזה
-// ולא נעלמים — הם פשוט מפסיקים להיות מה שקוראים.
+// The console's naming layer: every place the admin sees a screen, an answer, a
+// variable or a condition goes through here. The ids (s_status, segment,
+// end_screenout) remain the analysis codes and do not disappear — they simply
+// stop being what people read.
 //
-// פונקציות טהורות בלבד, בלי React, כדי שאפשר יהיה לבדוק אותן ביחידה.
+// Pure functions only, with no React, so they can be unit-tested.
 
 import type { Condition, Op, Screen, SurveyConfig, VarMeta } from '../engine/types';
 import { TYPE_LABELS } from './labels';
 
-/** ההקשר המינימלי שצריך כדי לתרגם מזהה לתווית. נבנה פעם אחת מהקונפיג. */
+/** The minimum context needed to turn an id into a label. Built once from the config. */
 export interface Naming {
   screens: Screen[];
   varMeta: Record<string, VarMeta>;
-  /** כל שמות משתני הסשן שהקונפיג מציב או מגריל */
+  /** Every session variable name the config assigns or draws */
   vars: string[];
 }
 
@@ -24,8 +25,10 @@ export function makeNaming(config: SurveyConfig): Naming {
 
 const MAX_LABEL = 70;
 
-// מה קרה למשיב שהגיע לכאן, ולא שם הקטגוריה ("סינון") — ההבדל בין השלושה הוא
-// כל מה שמבדיל מסך סיום אחד ממשנהו, והוא צריך להיקרא בלי לדעת את המילון.
+// What happened to a respondent who arrived here, rather than the name of the
+// category ("screening") — the difference between the three is everything that
+// separates one end screen from another, and it has to read without knowing the
+// glossary.
 const END_VARIANT_LABELS: Record<'complete' | 'screenout' | 'quotafull', string> = {
   complete: 'ענה על הכול',
   screenout: 'לא מתאים למחקר',
@@ -43,8 +46,9 @@ function squash(text: string): string {
 }
 
 /**
- * מה שהאדמין קורא במקום המזהה. מסך בלי טקסט עדיין חייב שם — נופלים למזהה
- * ולא למחרוזת ריקה, אחרת מסך חדש הופך לשורה בלי שום סימן היכר.
+ * What the admin reads instead of the id. A screen with no text still needs a
+ * name — we fall back to the id and not to an empty string, otherwise a new
+ * screen becomes a row with nothing to recognise it by.
  */
 export function screenLabel(screen: Screen): string {
   const raw =
@@ -55,7 +59,7 @@ export function screenLabel(screen: Screen): string {
   return text || screen.id;
 }
 
-/** סוג המסך בעברית; במסך סיום גם הווריאנט, כי "סיום" לבדו לא מבחין בין השלושה. */
+/** The screen type in Hebrew; on an end screen the variant too, because "end" alone does not tell the three apart. */
 export function screenKindLabel(screen: Screen): string {
   return screen.type === 'end'
     ? `${TYPE_LABELS.end} · ${END_VARIANT_LABELS[screen.variant]}`
@@ -63,8 +67,9 @@ export function screenKindLabel(screen: Screen): string {
 }
 
 /**
- * הפניה למסך אחר (ברשימות בחירה, בתנאים, בפאנל ההקשר). המספר הסידורי הוא חלק
- * מהתווית ולא קישוט: שני מסכים יכולים לשאת אותו נוסח, והתווית לבדה דו-משמעית.
+ * A reference to another screen (in dropdowns, in conditions, in the context
+ * panel). The ordinal is part of the label and not decoration: two screens can
+ * carry the same wording, and the label alone would be ambiguous.
  */
 export function screenRef(naming: Naming, id: string): string {
   const index = naming.screens.findIndex((s) => s.id === id);
@@ -72,7 +77,7 @@ export function screenRef(naming: Naming, id: string): string {
   return `${index + 1} · ${screenLabel(naming.screens[index])}`;
 }
 
-/** תווית של ערך תשובה: מזהה אפשרות → נוסח האפשרות. */
+/** The label for an answer value: an option id → the option's wording. */
 export function answerLabel(naming: Naming, screenId: string, value: unknown): string {
   const screen = naming.screens.find((s) => s.id === screenId);
   const raw = String(value ?? '');
@@ -94,9 +99,9 @@ export function varValueLabel(naming: Naming, name: string, value: unknown): str
   return naming.varMeta[name]?.values?.[raw] ?? raw;
 }
 
-/** מקף מחבר בסוף הביטוי = נצמד לערך ("קטנה מ־18"); כל השאר מופרד ברווח. */
+/** A maqaf at the end of the phrase = it attaches to the value ("less than 18"); everything else is separated by a space. */
 
-// נושא המשפט בעלה-שאלה הוא תמיד "התשובה" — לשון נקבה.
+// The subject of the sentence on a question leaf is always "the answer" — feminine in Hebrew.
 const OP_PHRASES_ANSWER: Record<Op, string> = {
   eq: 'היא',
   ne: 'אינה',
@@ -107,10 +112,10 @@ const OP_PHRASES_ANSWER: Record<Op, string> = {
   in: 'היא אחת מאלה:',
   includes: 'כוללת את',
   includesAny: 'כוללת לפחות אחד מאלה:',
-  answered: '', // מנוסח בנפרד — "יש תשובה"
+  answered: '', // phrased separately — "there is an answer"
 };
 
-// סימונים ("מסלול המשיב") נשארים בלשון זכר סתמית.
+// Marks ("the respondent's track") stay in the generic masculine.
 const OP_PHRASES_VAR: Record<Op, string> = {
   eq: 'הוא',
   ne: 'אינו',
@@ -127,21 +132,24 @@ const OP_PHRASES_VAR: Record<Op, string> = {
 type Leaf = { q?: string; var?: string; op: Op; value?: unknown };
 
 /**
- * מי "העצמי" במשפט: כשהתנאי מפנה למסך שבו העורך עומד, אין טעם לצטט לו את
- * השאלה של עצמו — כותבים "התשובה כאן" (או נוסח אחר שהקורא מספק, כמו "התשובה שם").
+ * Who "self" is in the sentence: when the condition points at the screen the
+ * editor is standing on, there is no point quoting its own question back at
+ * them — we write "the answer here" (or another wording the caller supplies,
+ * like "the answer there").
  */
 export interface SentenceOpts {
   selfId?: string;
   selfText?: string;
 }
 
-/** ערכים בתוך משפט נחתכים קצר מכותרות — שניים-שלושה מהם יושבים באותה שורה. */
+/** Values inside a sentence are truncated shorter than headings — two or three of them share a line. */
 const MAX_VALUE = 45;
 
 function leafSentence(naming: Naming, leaf: Leaf, opts?: SentenceOpts): string {
   const isQ = leaf.q !== undefined;
   const self = isQ && opts?.selfId !== undefined && leaf.q === opts.selfId;
-  // נושא המשפט: בשאלה — תמיד "התשובה", כי על התשובה מדובר, לא על נוסח השאלה
+  // The subject of the sentence: on a question — always "the answer", because the
+  // answer is what is being discussed, not the question's wording
   const subject = self
     ? (opts?.selfText ?? 'התשובה כאן')
     : isQ
@@ -167,8 +175,9 @@ function findScreen(naming: Naming, id: string): Screen {
 }
 
 /**
- * התנאי כמשפט אחד בעברית. הבנייה הרקורסיבית מסגרת קבוצות מקוננות בסוגריים —
- * בלי זה "א וגם ב או ג" קריא אבל דו-משמעי, וזו בדיוק הטעות שעולה ביוקר.
+ * The condition as a single Hebrew sentence. The recursive construction wraps
+ * nested groups in parentheses — without that, "a and b or c" reads fine and is
+ * ambiguous, and that is precisely the mistake that costs dearly.
  */
 export function conditionSentence(
   naming: Naming,
@@ -184,13 +193,14 @@ export function conditionSentence(
     const body = parts.map((c) => conditionSentence(naming, c, true, opts)).join(joiner);
     return nested ? `(${body})` : body;
   }
-  // "לא נכון ש" ולא "לא" לבדו: השלילה נקראת כמשפט ולא כסימן מתמטי.
-  // תמיד בסוגריים: "לא א וגם ב" נקרא בשתי דרכים, ו-nested=false מבטיח זוג אחד
+  // "it is not true that" rather than a bare "not": the negation reads as a
+  // sentence and not as a mathematical sign. Always in parentheses: "not a and b"
+  // reads two ways, and nested=false guarantees exactly one pair
   if ('not' in cond) return `לא נכון ש: (${conditionSentence(naming, cond.not, false, opts)})`;
   return leafSentence(naming, cond as Leaf, opts);
 }
 
-/** התנאי כמשפט, או "תמיד" כשאין תנאי — כדי שקורא לא יצטרך לטפל ב-undefined. */
+/** The condition as a sentence, or "always" when there is none — so callers never have to handle undefined. */
 export function optionalConditionSentence(
   naming: Naming,
   cond: Condition | undefined,
@@ -200,9 +210,11 @@ export function optionalConditionSentence(
 }
 
 /**
- * הודעות בדיקת התקינות נכתבות במנוע — משותף לשרת — ולכן הן מצטטות מזהים. במקום
- * לשכפל את הנוסח לקונסולה, כל מזהה מוכר בתוך מרכאות מוחלף כאן בשם שלו.
- * מה שאינו מוכר (ערך אפשרות, מספר) נשאר כמו שהוא — עדיף מזהה גלוי מהחלפה שגויה.
+ * The validation messages are written in the engine — shared with the server —
+ * and so they quote ids. Rather than duplicating the wording for the console,
+ * every recognised id inside quotes is swapped here for its name. Anything
+ * unrecognised (an option value, a number) is left alone — a visible id beats a
+ * wrong substitution.
  */
 export function humanizeMessage(naming: Naming, message: string): string {
   return message.replace(/"([^"]+)"/g, (whole, token: string) => {
@@ -212,7 +224,7 @@ export function humanizeMessage(naming: Naming, message: string): string {
   });
 }
 
-/** משתני הסשן שהתנאי נשען עליהם — לחישוב "מה חייב לקרות לפני". */
+/** The session variables the condition leans on — for working out "what has to happen first". */
 export function conditionVars(cond: Condition): string[] {
   if ('all' in cond) return cond.all.flatMap(conditionVars);
   if ('any' in cond) return cond.any.flatMap(conditionVars);
@@ -220,7 +232,7 @@ export function conditionVars(cond: Condition): string[] {
   return 'var' in cond ? [cond.var] : [];
 }
 
-/** מזהי השאלות שהתנאי נשען עליהן — הבסיס לבורר התשובות בסימולטור. */
+/** The ids of the questions the condition leans on — the basis for the simulator's answer pickers. */
 export function conditionQuestions(cond: Condition): string[] {
   if ('all' in cond) return cond.all.flatMap(conditionQuestions);
   if ('any' in cond) return cond.any.flatMap(conditionQuestions);

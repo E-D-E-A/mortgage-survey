@@ -1,18 +1,21 @@
-// נתוני דמו לפיתוח מסך הסטטיסטיקות: שאלון 'demo' עם שתי גרסאות ועשרות סשנים
-// סינתטיים — כל התוצאות (השלמה/סינון/מכסה/נטישה/כניסה-בלי-מענה), מסלולים A/B/C,
-// מענה חוזר אחרי חזרה אחורה, דילוגים על שאלת טקסט, וסשני בדיקה (?test=1).
-// שימוש: npm run db:seed  (דורש `npx supabase start` + סכמה מוחלת: npm run db:schema)
+// Demo data for developing the statistics screen: a 'demo' survey with two
+// versions and dozens of synthetic sessions — every outcome (complete / screenout
+// / quota / abandonment / arrived-without-answering), tracks A/B/C, a repeat
+// answer after going back, skipped text questions, and test sessions (?test=1).
+// Usage: npm run db:seed  (requires `npx supabase start` and the schema applied:
+// npm run db:schema)
 //
-// ריצה חוזרת בטוחה: survey_configs הוא append-only (trigger חוסם עדכון/מחיקה),
-// ולכן הקונפיגים מוכנסים עם on conflict do nothing; אירועי demo נמחקים ונזרעים
-// מחדש כך שאין הצטברות כפולה. מקומי בלבד — מסרבים למארח שאינו מקומי.
+// Safe to re-run: survey_configs is append-only (a trigger blocks update/delete),
+// so the configs are inserted with on conflict do nothing; the demo's events are
+// deleted and re-seeded so nothing accumulates twice. Local only — any non-local
+// host is refused.
 import { pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 
 export const V1 = '2026-08-01.1-demo';
 export const V2 = '2026-08-05.2-demo';
 
-// ─── קונפיגים: מבנה SurveyConfig אמיתי, מצומצם ─────────────────────────────
+// ─── configs: a real SurveyConfig shape, cut down ──────────────────────────
 const optionsV1 = [
   { id: 'active', label: 'יש לי משכנתה פעילה' },
   { id: 'past5', label: 'הייתה לי משכנתה בחמש השנים האחרונות' },
@@ -85,8 +88,9 @@ export const CONFIG_V1 = {
   screens: [...screensCommon(optionsV1), budgetScreen, whyScreen, ...endScreens],
 };
 
-// v2: אפשרות חדשה ב-s_status, ומסך budget הוסר — כדי שיהיו גם "spans N versions"
-// על שאלת הסטטוס וגם מסך שפרש (retired) במשפך המשולב.
+// v2: a new option on s_status, and the budget screen removed — so that the
+// combined funnel has both a "spans N versions" note on the status question and a
+// retired screen.
 export const CONFIG_V2 = {
   version: V2,
   randomVars: { price: [1200, 1900] },
@@ -98,7 +102,7 @@ export const CONFIG_V2 = {
   ],
 };
 
-// ─── RNG דטרמיניסטי — ריצות חוזרות מפיקות את אותם נתונים ────────────────────
+// ─── a deterministic RNG — repeated runs produce the same data ─────────────
 function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
@@ -119,7 +123,7 @@ function weighted(pairs) {
   return pairs[pairs.length - 1][0];
 }
 
-// הסכמה דורשת UUID תקני — נבנים מזהים דטרמיניסטיים חוקיים ממונה רץ:
+// The schema requires a well-formed UUID — valid deterministic ids are built from a running counter:
 let uidCounter = 0;
 const hex = (n, len) => n.toString(16).padStart(len, '0').slice(-len);
 const sessionUuid = (i) => `5eed0000-0000-4000-8000-${hex(i + 1, 12)}`;
@@ -138,7 +142,7 @@ const WHY_TEXTS = [
   'שאצטרך למחזר בתנאים גרועים',
 ];
 
-// ─── בניית סשן סינתטי אחד ───────────────────────────────────────────────────
+// ─── building one synthetic session ───────────────────────────────────────
 function buildSession(i, plan, rows) {
   const version = plan.version;
   const config = version === V1 ? CONFIG_V1 : CONFIG_V2;
@@ -149,8 +153,9 @@ function buildSession(i, plan, rows) {
   const startVars = { price, url_source: plan.source };
   if (plan.test) startVars.url_test = '1';
 
-  // payload נשאר אובייקט — postgres.js משדר אובייקט כ-json; מחרוזת מוכנה
-  // הייתה נשמרת כמחרוזת-בתוך-jsonb (קידוד כפול) ושוברת כל payload -> 'vars'
+  // payload stays an object — postgres.js sends an object as json; a pre-made
+  // string would be stored as a string-inside-jsonb (a double encoding) and break
+  // every payload -> 'vars'
   const push = (event_type, screen_id, payload) => {
     rows.push({
       event_uid: eventUuid(),
@@ -183,9 +188,9 @@ function buildSession(i, plan, rows) {
   const screens = config.screens;
   const idx = (id) => screens.findIndex((s) => s.id === id);
 
-  // intro: צפייה בלבד (מסך info לא מייצר answer)
+  // intro: a view only (an info screen produces no answer)
   view('intro', idx('intro'));
-  if (plan.outcome === 'bounced') return; // נכנסו ולא ענו כלל
+  if (plan.outcome === 'bounced') return; // arrived and never answered at all
 
   t += randInt(2000, 7000);
   view('consent', idx('consent'));
@@ -199,7 +204,7 @@ function buildSession(i, plan, rows) {
   };
   let status = statusBySegment[plan.segment]();
 
-  // מענה חוזר: עונים, חוזרים אחורה ומשנים — attempt 2 הוא הקובע
+  // A repeat answer: answer, go back and change it — attempt 2 is the one that counts
   if (plan.reanswer) {
     const first = plan.segment === 'A' ? 'planning' : 'active';
     answer('s_status', first, 1);
@@ -222,7 +227,7 @@ function buildSession(i, plan, rows) {
     return;
   }
 
-  // goals — רב-ברירה, 1–3 בחירות מוטות לפי מסלול
+  // goals — multi-choice, 1–3 selections biased by track
   view('goals', idx('goals'));
   const goalPool = plan.segment === 'A' ? ['rate', 'flex', 'monthly', 'advice'] : ['monthly', 'advice', 'rate', 'speed'];
   const nGoals = weighted([[1, 2], [2, 5], [3, 3]]);
@@ -230,7 +235,7 @@ function buildSession(i, plan, rows) {
 
   if (plan.outcome === 'abandoned' && plan.dropAt === 'trust') return;
 
-  // trust — מטריצה 1–5 עם קצת NA
+  // trust — a 1–5 matrix with a little NA
   view('trust', idx('trust'));
   const matrix = {};
   for (const item of ['bank', 'advisor', 'online']) {
@@ -238,7 +243,7 @@ function buildSession(i, plan, rows) {
   }
   answer('trust', matrix);
 
-  if (plan.outcome === 'abandoned') return; // נטישה אחרי trust
+  if (plan.outcome === 'abandoned') return; // abandonment after trust
 
   if (version === V1) {
     view('budget', idx('budget'));
@@ -253,7 +258,7 @@ function buildSession(i, plan, rows) {
   push('complete', 'end_complete', { variant: 'complete', answers: { ...answers, why: whyValue }, vars: { ...vars }, totalMs: t - startedAt.getTime() });
 }
 
-// ─── תוכנית הזריעה ──────────────────────────────────────────────────────────
+// ─── the seeding plan ─────────────────────────────────────────────────────
 function buildPlans() {
   const plans = [];
   const source = () => weighted([['facebook', 4], ['panel', 4], ['whatsapp', 2]]);
@@ -265,19 +270,21 @@ function buildPlans() {
   add(3, () => ({ outcome: 'quotafull', segment: 'A', source: source() }));
   add(8, (k) => ({ outcome: 'abandoned', segment: seg() === 'C' ? 'B' : 'A', source: source(), dropAt: k % 2 ? 'trust' : 'why', oldClient: k < 4 }));
   add(7, () => ({ outcome: 'bounced', segment: 'A', source: source() }));
-  // סשני בדיקה — מסומנים url_test, מוחרגים כברירת מחדל מכל סטטיסטיקה
+  // Test sessions — marked with url_test, excluded by default from every statistic
   add(6, (k) => ({ outcome: k < 3 ? 'complete' : k < 5 ? 'abandoned' : 'screenout', segment: k < 5 ? 'A' : 'C', source: 'internal', test: true, dropAt: 'why' }));
 
   return plans.map((p, i) => ({ ...p, version: i % 5 < 2 ? V1 : V2 }));
 }
 
-// ─── הזריעה עצמה ────────────────────────────────────────────────────────────
+// ─── the seeding itself ───────────────────────────────────────────────────
 export async function seedDemo(sql) {
   await sql`insert into surveys (slug, name, created_by) values ('demo', 'שאלון דמו — סטטיסטיקות', 'seed')
             on conflict (slug) do nothing`;
-  // survey_configs הוא append-only (trigger), אבל זריעה חוזרת צריכה replace —
-  // ב-DB מקומי חד-פעמי מותר להשבית את ה-trigger בתוך טרנזקציה ולהכניס טרי.
-  // sql.json ולא מחרוזת מוכנה — אחרת הקונפיג נשמר כמחרוזת-בתוך-jsonb.
+  // survey_configs is append-only (a trigger), but re-seeding needs replace
+  // semantics — in a disposable local DB it is fine to disable the trigger inside a
+  // transaction and insert fresh.
+  // sql.json and not a pre-made string — otherwise the config is stored as a
+  // string-inside-jsonb.
   await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(732913)`;
     await tx`alter table survey_configs disable trigger survey_configs_immutable`;

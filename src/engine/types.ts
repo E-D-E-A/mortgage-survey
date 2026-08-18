@@ -34,7 +34,7 @@ export type Condition =
 export interface Option {
   id: string;
   label: string;
-  /** בחירה באפשרות זו מנקה את כל השאר (למשל "אף אחד מאלה") */
+  /** Picking this option clears all the others (e.g. "none of these") */
   exclusive?: boolean;
 }
 
@@ -51,11 +51,11 @@ export interface GotoRule {
 
 interface BaseScreen {
   id: string;
-  /** המסך מדולג כשהתנאי לא מתקיים */
+  /** The screen is skipped when the condition does not hold */
   showIf?: Condition;
-  /** ניתוב מפורש אחרי מענה; בלעדיו ממשיכים למסך הבא שעובר showIf */
+  /** Explicit routing after an answer; without it, on to the next screen that passes its showIf */
   next?: GotoRule[];
-  /** חישוב משתני סשן (למשל segment) על בסיס התשובה */
+  /** Computes session vars (segment, say) from the answer */
   onSubmit?: SetVarRule[];
 }
 
@@ -99,7 +99,7 @@ export interface MatrixScreen extends BaseScreen {
   scaleMax: number;
   minLabel: string;
   maxLabel: string;
-  /** אם מוגדר — מוצגת עמודת "לא רלוונטי" בתווית זו */
+  /** When set — a "not applicable" column is shown under this label */
   naLabel?: string;
   shuffleItems?: boolean;
 }
@@ -111,7 +111,7 @@ export interface NumberScreen extends BaseScreen {
   min?: number;
   max?: number;
   unit?: string;
-  /** ערכים שלמים בלבד (גיל, מספר ילדים) — בלעדיו מתקבל גם 40.5 */
+  /** Whole numbers only (age, number of children) — without it 40.5 is accepted too */
   integer?: boolean;
 }
 
@@ -122,7 +122,7 @@ export interface TextScreen extends BaseScreen {
   multiline?: boolean;
   optional?: boolean;
   placeholder?: string;
-  /** תקרת תווים; ברירת המחדל היא TEXT_MAX_LENGTH ב-engine/input-rules.ts */
+  /** Character ceiling; the default is TEXT_MAX_LENGTH in engine/input-rules.ts */
   maxLength?: number;
 }
 
@@ -144,19 +144,31 @@ export type Screen =
   | EndScreen;
 
 /**
- * תוויות אנושיות למשתנה סשן — לתצוגה בקונסולת הניהול בלבד. המנוע מתעלם מהן,
- * ולכן שם המשתנה עצמו נשאר קוד האנליזה (ראו docs/codebook.md) גם כשהאדמין
- * רואה רק עברית.
+ * Human labels for a session var — for display in the admin console only. The
+ * engine ignores them, which is what keeps the variable name itself the analysis
+ * code (see docs/codebook.md) even when the admin only ever sees Hebrew.
  */
 export interface VarMeta {
   label: string;
-  /** ערך → תווית; ערך שאינו כאן מוצג כמות שהוא */
+  /** value → label; a value that is not here is shown as-is */
   values?: Record<string, string>;
+  /**
+   * value → quota: how many finished respondents are allowed with this value. A
+   * value absent from the map is unlimited — which is why "unlimited" is the
+   * absence of an entry and not 0 (0 is a real quota: a cell that is closed).
+   * The quota sits next to the labels rather than in a separate survey-level map
+   * because it is a property of the value — everything known about "young
+   * couple" is in one place.
+   *
+   * ⚠ Definition only. The counting and the routing live in engine/quota.ts and
+   * in the quota-get endpoint.
+   */
+  quotas?: Record<string, number>;
 }
 
 export interface SurveyConfig {
   version: string;
-  /** משתנים שמוגרלים פעם אחת בתחילת סשן — למשל מחיר לניסוי B39 */
+  /** Variables drawn once at the start of a session — the B39 price experiment, for instance */
   randomVars?: Record<string, (string | number)[]>;
   varMeta?: Record<string, VarMeta>;
   screens: Screen[];

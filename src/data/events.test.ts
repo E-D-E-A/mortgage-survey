@@ -1,7 +1,9 @@
-// רשימת סוגי האירועים חיה בשלוש שכבות: הלקוח, ה-Netlify Function והאילוץ
-// ב-Postgres. סוג שקיים באחת וחסר באחרת נכשל בשקט המסוכן ביותר — הפונקציה
-// מחזירה 400, הלקוח מסיק שהאצווה פסולה וזורק אותה, והאירוע נעלם.
-// אין להן טיפוס משותף (שתיים מהן אינן TypeScript), ולכן הבדיקה כאן.
+// The list of event types lives in three layers: the client, the Netlify
+// Function and the Postgres constraint. A type present in one and missing from
+// another fails in the most dangerous way possible — the function returns 400,
+// the client concludes the batch is invalid and throws it away, and the event
+// disappears. They share no type (two of them are not TypeScript), which is why
+// the check lives here.
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -33,7 +35,7 @@ describe('event type list stays in sync across the three layers', () => {
 
   it('the survey_events check constraint accepts exactly those types', () => {
     const sql = read('supabase/schema.sql');
-    // האילוץ המפורש (ה-alter) הוא זה שחל גם על התקנה קיימת
+    // The explicit constraint (the alter) is the one that also applies to an existing installation
     const constraint = sql.match(
       /add constraint survey_events_event_type_check\s*check \(event_type in \(([^)]*)\)\)/,
     )?.[1];

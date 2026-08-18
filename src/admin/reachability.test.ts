@@ -21,10 +21,11 @@ const screens = [
 const ids = (list: Screen[]) => list.map((s) => s.id);
 
 describe('fall-through neighbours', () => {
-  // הפאנל טוען "מגיעים לכאן מ־X" — טענה על הזרימה בפועל, ולכן היא נבדקת.
+  // The panel claims "you get here from X" — a claim about the real flow, so it is tested.
   it('lists only the screens that can really land here, nearest first', () => {
-    // a1/a2 אינם ברשימה: מ-a1 המסך a2 ודאי (אותו תנאי בדיוק), ולכן משם אי
-    // אפשר לנחות על demog בכלל — זה בדיוק העומס שהגיזום מסיר
+    // a1/a2 are not on the list: from a1 the screen a2 is certain (exactly the same
+    // condition), so from there demog cannot be landed on at all — this is exactly
+    // the clutter the pruning removes
     expect(ids(fallThroughSources(screens, 5))).toEqual(['b1', 'a3', 'intro']);
   });
 
@@ -43,19 +44,19 @@ describe('fall-through neighbours', () => {
   });
 
   it('names one landing per branch, not one per screen', () => {
-    // מ-intro: ראש ענף A, ראש ענף B, ואז המסך הראשון שמוצג תמיד
+    // From intro: the head of lane A, the head of lane B, then the first always-shown screen
     expect(ids(fallThroughTargets(screens, 0))).toEqual(['a1', 'b1', 'demog']);
-    // מ-a3 (segment=A): ענף B נגזם, ונשאר רק המסך שמוצג תמיד
+    // From a3 (segment=A): lane B is pruned, and only the always-shown screen is left
     expect(ids(fallThroughTargets(screens, 3))).toEqual(['demog']);
   });
 
   it('stops as soon as the next screen is certain', () => {
-    // a2 חולק תנאי זהה עם a1, ולכן אם a1 הוצג — a2 יוצג. אין המשך אחר.
+    // a2 shares an identical condition with a1, so if a1 was shown, a2 will be. There is no other continuation.
     expect(ids(fallThroughTargets(screens, 1))).toEqual(['a2']);
   });
 
   it('drops a branch whose condition contradicts the source', () => {
-    // מ-a3 (segment=A) אי אפשר לנחות על b1 (segment=B)
+    // From a3 (segment=A) there is no landing on b1 (segment=B)
     expect(ids(fallThroughTargets(screens, 3))).not.toContain('b1');
   });
 });

@@ -1,6 +1,9 @@
-// ENG-18: פילוח התפלגויות לפי מימד — משתנה סשן אפקטיבי או תוצאת הסשן.
-// סשן שנטש עם לקוח ישן (בלי vars באירועי answer) הוא "לא ידוע" (null).
-// הציפיות חושבו ביד. רץ רק עם DB_TESTS=1 מול הסטאק המקומי.
+// ENG-18: breaking distributions down by a dimension — an effective session
+// variable or the session's outcome.
+// A session abandoned by an older client (with no vars on the answer events) is
+// "unknown" (null).
+// The expectations were worked out by hand. Runs only with DB_TESTS=1 against the
+// local stack.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   applySchema,
@@ -17,9 +20,10 @@ import { ensureSurvey, idFactory, resetEvents, sessionEvents } from './fixtures'
 const V = '2026-08-01.1-bdtest';
 const ids = idFactory('d4');
 
-// s1: complete, segment A (בסיום), q1=x · s2: complete, segment B, q1=y
-// s3: נטש, לקוח ישן — בלי vars ב-answers ⇒ מימד לא ידוע; url_source=fb ידוע מההתחלה
-// s4: screenout, segment A, q1=x · s5: סשן בדיקה, segment A, q1=x — מוחרג
+// s1: complete, segment A (at the end), q1=x · s2: complete, segment B, q1=y
+// s3: abandoned, an older client — no vars on the answers ⇒ an unknown dimension;
+//     url_source=fb is known from the start
+// s4: screenout, segment A, q1=x · s5: a test session, segment A, q1=x — excluded
 const fixture = [
   ...sessionEvents(ids, 1, V, {
     startVars: { url_source: 'panel' },
@@ -51,13 +55,25 @@ const fixture = [
   }),
 ];
 
+// The published config the endpoint reads the offered dimensions from. A survey
+// that declares no variables can be broken down by nothing, so a fixture without
+// one cannot exercise the breakdown at all.
+const bdConfig = {
+  version: V,
+  varMeta: { segment: { label: 'מסלול המשיב', values: { A: 'מסלול א', B: 'מסלול ב' } } },
+  screens: [
+    { id: 'q1', type: 'single', prompt: 'שאלה', options: [{ id: 'x', label: 'איקס' }] },
+    { id: 'end', type: 'end', variant: 'complete', title: '', body: '' },
+  ],
+};
+
 describe.runIf(dbTestsEnabled)('stats_distributions with a dimension (ENG-18)', () => {
   let sql: Sql;
 
   beforeAll(async () => {
     sql = connectLocal();
     await applySchema(sql);
-    await ensureSurvey(sql, 'bdtest', 'שאלון פילוח', [{ version: V }]);
+    await ensureSurvey(sql, 'bdtest', 'שאלון פילוח', [{ version: V, config: bdConfig }]);
     await resetEvents(sql, [V], fixture);
   });
 
@@ -146,5 +162,14 @@ describe.runIf(dbTestsEnabled)('stats_distributions with a dimension (ENG-18)', 
       }),
     );
     expect(bad.status).toBe(400);
+
+    // Well formed, but not a dimension this survey offers. Without the check the
+    // caller would get a full breakdown by whatever that variable holds.
+    const notOffered = await handler(
+      new Request('http://localhost/.netlify/functions/admin-stats?survey=bdtest&by=url_pid', {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+    expect(notOffered.status).toBe(400);
   });
 });

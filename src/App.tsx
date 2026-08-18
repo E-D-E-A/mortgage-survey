@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { evaluate, interpolate } from './engine/conditions';
+import { evaluate, interpolate, mapInterpolatedTexts } from './engine/conditions';
 import { findNext } from './engine/navigation';
 import { progressRatio, pruneAnswers } from './engine/path';
 import { pickRandom } from './engine/random';
@@ -27,22 +27,27 @@ interface SurveyState {
   history: string[];
   startedAt: number;
   finished: boolean;
-  /** מקסימום רץ של ההתקדמות — פס שנסוג אחורה גרוע מפס לא מדויק */
+  /** A running maximum of the progress — a bar that retreats is worse than an imprecise one */
   maxProgress: number;
   /**
-   * כמה פעמים כבר נענה כל מסך. `history` הוא מחסנית ניווט ש-back מוציא ממנה,
-   * ולכן אי אפשר לספור ממנה מענה חוזר — צריך מונה שרק עולה.
+   * How many times each screen has been answered. `history` is a navigation
+   * stack that back pops from, so a repeat answer cannot be counted from it —
+   * that needs a counter that only ever goes up.
    */
   attempts: Record<string, number>;
 }
 
-// מפתחות מוגבלים לשאלון (session-scope.ts): שני שאלונים באותה לשונית לא
-// משחזרים זה את המצב של זה.
+// Keys scoped to the survey (session-scope.ts): two surveys in the same tab do
+// not restore each other's state.
 const STATE_KEY = 'sq_state_v1';
 const STARTED_KEY = 'sq_started_v1';
 
-function initVars(config: SurveyConfig): Vars {
-  const vars: Vars = {};
+// quota — the flags for cells that are already full (data/quota.ts). They come in
+// as ordinary session vars, which is also why they end up in the session_start
+// payload: analysis can tell which cells were closed the moment a respondent
+// arrived.
+export function initVars(config: SurveyConfig, quota: Vars): Vars {
+  const vars: Vars = { ...quota };
   for (const [name, values] of Object.entries(config.randomVars ?? {})) {
     vars[name] = pickRandom(values);
   }
@@ -52,12 +57,12 @@ function initVars(config: SurveyConfig): Vars {
   return vars;
 }
 
-function freshState(config: SurveyConfig): SurveyState {
+function freshState(config: SurveyConfig, quota: Vars): SurveyState {
   return {
     version: config.version,
     current: config.screens[0].id,
     answers: {},
-    vars: initVars(config),
+    vars: initVars(config, quota),
     history: [],
     startedAt: Date.now(),
     finished: false,
@@ -66,8 +71,9 @@ function freshState(config: SurveyConfig): SurveyState {
   };
 }
 
-// הקונפיג נבחר לפי הגרסה השמורה (loadConfig מצמיד גרסה לסשן), ולכן
-// אי-התאמה כאן אפשרית רק בפיתוח או אחרי איפוס — ואז מתחילים מחדש.
+// The config is chosen by the saved version (loadConfig pins a version to the
+// session), so a mismatch here is only possible in development or after a reset
+// — and then we start over.
 function restoreState(config: SurveyConfig): SurveyState | null {
   try {
     const raw = sessionStorage.getItem(scopedKey(STATE_KEY));
@@ -81,13 +87,14 @@ function restoreState(config: SurveyConfig): SurveyState | null {
   }
 }
 
-export default function App({ config }: { config: SurveyConfig }) {
+export default function App({ config, quota }: { config: SurveyConfig; quota: Vars }) {
   const [state, setState] = useState<SurveyState>(() => {
     const restored = restoreState(config);
     if (restored) return restored;
-    const fresh = freshState(config);
-    // sessionStorage guard: StrictMode מריץ את ה-initializer פעמיים בפיתוח,
-    // וכל הרצה מגרילה event_uid חדש — בלי הגנה נרשמות שתי שורות session_start
+    const fresh = freshState(config, quota);
+    // sessionStorage guard: StrictMode runs the initializer twice in
+    // development, and each run draws a fresh event_uid — without the guard two
+    // session_start rows are recorded
     if (sessionStorage.getItem(scopedKey(STARTED_KEY))) return fresh;
     sessionStorage.setItem(scopedKey(STARTED_KEY), '1');
     logEvent(config.version, 'session_start', null, {
@@ -123,10 +130,11 @@ export default function App({ config }: { config: SurveyConfig }) {
   }
 
   /**
-   * כמה רשומות היסטוריה דחפנו בלשונית הזאת. השאלון הוא דף אחד, ולכן בלי זה
-   * לחיצה על "אחורה" במכשיר — התנועה הכי טבעית במובייל — נוטשת את השאלון
-   * כולו במקום לחזור שאלה אחת. אחרי רענון המונה מתאפס אף שיש מסכים בהיסטוריה
-   * הפנימית, ולכן הוא נבדק לפני שקוראים ל-history.back().
+   * How many history entries we have pushed in this tab. The survey is a single
+   * page, so without this the device's "back" — the most natural gesture on
+   * mobile — abandons the whole survey instead of going back one question. After
+   * a refresh the counter resets even though the internal history still has
+   * screens in it, which is why it is checked before calling history.back().
    */
   const depth = useRef(0);
   const backRef = useRef(back);
@@ -137,7 +145,8 @@ export default function App({ config }: { config: SurveyConfig }) {
     const onPop = (e: PopStateEvent) => {
       const sq = (e.state as { sq?: number } | null)?.sq;
       const to = typeof sq === 'number' ? sq : 0;
-      // רק אחורה. "קדימה" יצריך לשחזר מסלול שכבר נגזם, ולכן הוא לא מזיז מסך.
+      // Backwards only. "Forward" would require restoring a path that has
+      // already been pruned, so it moves no screen.
       for (let i = depth.current - to; i > 0; i--) backRef.current();
       depth.current = to;
     };
@@ -146,13 +155,14 @@ export default function App({ config }: { config: SurveyConfig }) {
   }, []);
 
   const goBack = () => {
-    if (depth.current > 0) window.history.back(); // popstate הוא שיבצע את החזרה
-    else back(); // רענון באמצע השאלון — אין רשומת היסטוריה משלנו לפתוח
+    if (depth.current > 0) window.history.back(); // popstate is what performs the step back
+    else back(); // refreshed mid-survey — we have no history entry of our own to pop
   };
 
-  // מראה של state.attempts לאירוע ה-screen_view: הוא נורה מ-useEffect שתלוי
-  // במסך בלבד (תלות ב-attempts הייתה מייצרת screen_view כפול על כל מענה),
-  // ולכן הוא זקוק לערך עדכני בלי לעבור דרך תלות. מתעדכן ב-submit בלבד.
+  // A mirror of state.attempts for the screen_view event: that event fires from
+  // a useEffect that depends on the screen alone (depending on attempts would
+  // produce a duplicate screen_view on every answer), so it needs a current
+  // value without going through a dependency. Updated in submit only.
   const attemptsRef = useRef(state.attempts);
 
   const enteredAt = useRef(Date.now());
@@ -161,7 +171,7 @@ export default function App({ config }: { config: SurveyConfig }) {
     if (screen.type !== 'end') {
       logEvent(config.version, 'screen_view', screen.id, {
         index: config.screens.findIndex((s) => s.id === screen.id),
-        // צפייה חוזרת אחרי חזרה אחורה — אותו מספר כמו ב-answer שיבוא אחריה
+        // A repeat view after going back — the same number as the answer that follows it
         attempt: (attemptsRef.current[screen.id] ?? 0) + 1,
       });
     }
@@ -176,9 +186,10 @@ export default function App({ config }: { config: SurveyConfig }) {
       if (!rule.if || evaluate(rule.if, ctx)) vars[rule.var] = rule.value;
     }
 
-    // חזרה אחורה ומענה חוזר מפיקים שורת answer נוספת לאותו מסך; attempt
-    // מאפשר לניתוח לקחת את המענה האחרון בלי לנחש לפי חותמות זמן, ולזהות
-    // שהמענה החוזר הוא זה שמטה את avg_ms_on_screen כלפי מטה
+    // Going back and answering again produces another answer row for the same
+    // screen; attempt lets analysis take the last answer without guessing from
+    // timestamps, and lets it see that the repeat answer is what drags
+    // avg_ms_on_screen down
     const attempt = (state.attempts[screen.id] ?? 0) + 1;
     attemptsRef.current = { ...attemptsRef.current, [screen.id]: attempt };
     if (value !== undefined) {
@@ -186,8 +197,10 @@ export default function App({ config }: { config: SurveyConfig }) {
         value,
         ms: Date.now() - enteredAt.current,
         attempt,
-        // צילום ה-vars אחרי כללי onSubmit: סשן שנוטש בהמשך נושא את הפילוח
-        // (segment וכד') עד לנקודה שאליה הגיע — בלי זה נטישה = "לא ידוע" בניתוח
+        // A snapshot of vars after the onSubmit rules: a session that is
+        // abandoned later still carries its breakdown (segment and the like) up
+        // to the point it reached — without this, abandonment reads as "unknown"
+        // in analysis
         vars: { ...vars },
         ...extra,
       });
@@ -201,12 +214,14 @@ export default function App({ config }: { config: SurveyConfig }) {
     let finished = state.finished;
     if (next && next.type === 'end' && !finished) {
       finished = true;
-      // variant ו-EventType חולקים בכוונה את אותם שמות: complete / screenout /
-      // quotafull. מסך מכסה-מלאה נרשם כסוג משלו ולא מתערבב עם סינון אמיתי.
+      // variant and EventType deliberately share the same names: complete /
+      // screenout / quotafull. A quota-full screen is recorded as its own type
+      // and does not get mixed in with a genuine screenout.
       logEvent(config.version, next.variant, next.id, {
         variant: next.variant,
-        // ⚠ ה-payload נגזם: תשובות ממקטע שהמשיב נטש (חזר אחורה ושינה תשובה
-        // שמנתבת) אינן חלק מהתשובה הסופית שלו ואסור שיזהמו את הניתוח
+        // ⚠ The payload is pruned: answers from a branch the respondent left
+        // (went back and changed a routing answer) are not part of their final
+        // response and must not contaminate the analysis
         answers: pruneAnswers(config, { answers, vars }),
         vars,
         totalMs: Date.now() - state.startedAt,
@@ -232,9 +247,11 @@ export default function App({ config }: { config: SurveyConfig }) {
   const shown = withInterpolation(screen, ctx);
 
   /**
-   * מעבר מסך אינו טעינת דף: הכפתור שנלחץ נעלם, והמיקוד נופל ל-body. משתמש
-   * מקלדת נאלץ אז לטייל מחדש מראש הדף בכל שאלה, וקורא מסך שותק. העברת
-   * המיקוד לכותרת פותרת את שניהם — וגם מגלגלת את הדף לראש המסך החדש.
+   * Moving between screens is not a page load: the button that was clicked
+   * disappears and focus falls to body. A keyboard user then has to travel from
+   * the top of the page again on every question, and a screen reader says
+   * nothing. Moving focus to the heading solves both — and scrolls the page to
+   * the top of the new screen as well.
    */
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -260,8 +277,8 @@ export default function App({ config }: { config: SurveyConfig }) {
           <div className="progress-fill" style={{ width: `${percent}%` }} />
         </div>
       )}
-      {/* ההכרזה על המסך החדש נעשית בהעברת המיקוד לכותרת (ראו cardRef למעלה).
-          אזור live נוסף היה מקריא את אותה כותרת פעמיים */}
+      {/* The new screen is announced by moving focus to the heading (see cardRef
+          above). An additional live region would read that same heading twice */}
       <main className="card" key={screen.id} ref={cardRef}>
         <ScreenView screen={shown} submit={submit} initial={state.answers[screen.id]} />
         {screen.type !== 'end' && screen.type !== 'info' && state.history.length > 0 && (
@@ -274,31 +291,16 @@ export default function App({ config }: { config: SurveyConfig }) {
   );
 }
 
-/** מחיל אינטרפולציה של משתנים ({price} וכד') על נוסחי המסך לפני רינדור. */
+/** Applies variable interpolation ({price} and the like) to the screen text before rendering. */
 function withInterpolation(screen: Screen, ctx: SurveyContext): Screen {
-  const t = (s: string) => interpolate(s, ctx);
-  switch (screen.type) {
-    case 'info':
-      return { ...screen, title: t(screen.title), body: t(screen.body) };
-    case 'consent':
-      return { ...screen, title: t(screen.title), body: t(screen.body) };
-    case 'single':
-    case 'multi':
-      return { ...screen, prompt: t(screen.prompt) };
-    case 'matrix':
-      return { ...screen, prompt: t(screen.prompt) };
-    case 'number':
-    case 'text':
-      return { ...screen, prompt: t(screen.prompt) };
-    case 'end':
-      return { ...screen, title: t(screen.title), body: t(screen.body) };
-  }
+  return mapInterpolatedTexts(screen, (s) => interpolate(s, ctx));
 }
 
 /**
- * `initial` היא התשובה שכבר נשמרה למסך הזה. הצרה לטיפוס נעשית כאן ולא בתוך
- * ה-View: תשובה שנשמרה תחת סוג מסך אחר (עריכה בקונסולה שינתה את הסוג) פשוט
- * לא נזרעת, במקום לרנדר ערך שגוי.
+ * `initial` is the answer already saved for this screen. The narrowing to a type
+ * happens here and not inside the View: an answer saved under a different screen
+ * type (an edit in the console changed the type) is simply not seeded, rather
+ * than rendering a wrong value.
  */
 function ScreenView({
   screen,

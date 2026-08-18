@@ -1,29 +1,31 @@
 -- ============================================================
--- סכמת הדאטהבייס לשאלון — להדביק ולהריץ ב-Supabase SQL Editor
--- מודל: append-only. לדפדפן (anon) אין שום הרשאה — גם לא INSERT.
--- הכתיבה היחידה היא דרך Netlify Function עם service_role key.
--- קריאה נעשית רק מהדשבורד.
--- שינוי הרשאות? להריץ את הקובץ מחדש ב-SQL Editor — הקובץ בריפו
--- לא משנה כלום בעצמו.
+-- The survey's database schema — paste it into the Supabase SQL Editor and run.
+-- The model: append-only. The browser (anon) has no privilege at all — not even
+-- INSERT. The only write path is through a Netlify Function with the
+-- service_role key. Reading happens from the dashboard only.
+-- Changing permissions? Run this file again in the SQL Editor — the file in the
+-- repo changes nothing by itself.
 -- ============================================================
 
 create table if not exists public.survey_events (
   id             bigint generated always as identity primary key,
-  event_uid      uuid not null unique,          -- מזהה מהלקוח: retry לא יוצר כפילות
+  event_uid      uuid not null unique,          -- an id from the client: a retry creates no duplicate
   session_id     uuid not null,
   survey_version text not null,
   event_type     text not null check (event_type in
                    ('session_start','screen_view','answer','complete','screenout','quotafull')),
   screen_id      text,
   payload        jsonb not null default '{}'::jsonb,
-  client_ts      timestamptz,                   -- שעת הלקוח (לא אמינה, לניתוח בלבד)
+  client_ts      timestamptz,                   -- the client's clock (unreliable, for analysis only)
   created_at     timestamptz not null default now()
 );
 
--- create table if not exists לא נוגע בטבלה קיימת, ולכן הרחבת רשימת הסוגים
--- מחייבת החלפה מפורשת של האילוץ. Postgres נותן ל-check אנונימי בדיוק את השם
--- הזה, כך שגם התקנה ותיקה מתעדכנת בהרצה חוזרת של הקובץ.
--- ⚠ מסונכרן עם EventType ב-src/data/events.ts ועם EVENT_TYPES ב-events.mts.
+-- create table if not exists does not touch an existing table, so extending the
+-- list of types requires replacing the constraint explicitly. Postgres gives an
+-- anonymous check exactly this name, so an older installation is updated too when
+-- the file is re-run.
+-- ⚠ Kept in sync with EventType in src/data/events.ts and with EVENT_TYPES in
+-- events.mts.
 alter table public.survey_events drop constraint if exists survey_events_event_type_check;
 alter table public.survey_events add constraint survey_events_event_type_check
   check (event_type in ('session_start','screen_view','answer','complete','screenout','quotafull'));
@@ -32,27 +34,31 @@ create index if not exists survey_events_session_idx on public.survey_events (se
 create index if not exists survey_events_type_idx    on public.survey_events (event_type);
 create index if not exists survey_events_screen_idx  on public.survey_events (survey_version, screen_id);
 
--- RLS פעיל ובלי שום policy: anon ו-authenticated חסומים לחלוטין.
--- ה-Netlify Function כותב עם service_role, שעוקף RLS בכוונה —
--- ולכן הוולידציה נאכפת בפונקציה עצמה (netlify/functions/events.mts).
+-- RLS on, with no policy at all: anon and authenticated are blocked completely.
+-- The Netlify Function writes with service_role, which bypasses RLS by design —
+-- and so the validation is enforced in the function itself
+-- (netlify/functions/events.mts).
 alter table public.survey_events enable row level security;
 
 drop policy if exists survey_events_insert_anon on public.survey_events;
 revoke all on public.survey_events from anon, authenticated;
 
 -- ============================================================
--- שאלונים דינמיים: רשימת שאלונים, טיוטה לכל שאלון, וגרסאות שפורסמו
--- הדפדפן לעולם לא ניגש לטבלאות האלה ישירות — הכל דרך Netlify Functions:
---   config-get (קריאה ציבורית), admin-surveys / admin-draft / admin-publish
---   (עורכי first-edea בלבד).
+-- Dynamic surveys: the list of surveys, a draft per survey, and published
+-- versions. The browser never reaches these tables directly — everything goes
+-- through Netlify Functions:
+--   config-get (a public read), admin-surveys / admin-draft / admin-publish
+--   (first-edea editors only).
 -- ============================================================
 
--- שאלון = slug (מזהה בקישור הציבורי /s/<slug>) + שם לתצוגה.
--- מחיקה אמיתית מותרת רק לשאלון שלא פורסם מעולם — ה-FK מ-survey_configs
--- (בלי cascade) חוסם מחיקה של שאלון שיש לו גרסאות, כי אירועים מפנים אליהן.
--- שאלון שכבר פורסם "נמחק" ע"י ארכוב: archived_at מפסיק להגיש סשנים חדשים,
--- אבל קישור לגרסה מוצמדת ממשיך לעבוד עד שהמשיבים שבאמצע יסיימו.
--- ⚠ תבנית ה-slug משוכפלת ב-src/data/surveys.ts (SURVEY_SLUG_RE).
+-- A survey = a slug (its id in the public link /s/<slug>) + a display name.
+-- A real delete is allowed only for a survey never published — the FK from
+-- survey_configs (with no cascade) blocks deleting a survey that has versions,
+-- because events point at them.
+-- A survey that has been published is "deleted" by archiving: archived_at stops
+-- it being served to new sessions, while a link to a pinned version keeps working
+-- until the respondents in the middle have finished.
+-- ⚠ The slug pattern is duplicated in src/data/surveys.ts (SURVEY_SLUG_RE).
 create table if not exists public.surveys (
   slug        text primary key check (slug ~ '^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$'),
   name        text not null,
@@ -61,7 +67,7 @@ create table if not exists public.surveys (
   archived_at timestamptz
 );
 
--- טיוטה אחת לכל שאלון (עורך יחיד לשאלון)
+-- One draft per survey (a single editor per survey)
 create table if not exists public.survey_drafts (
   survey_id  text primary key references public.surveys(slug) on delete cascade,
   config     jsonb not null,
@@ -69,8 +75,9 @@ create table if not exists public.survey_drafts (
   updated_by text not null
 );
 
--- מיגרציה מהמודל של שאלון יחיד (survey_drafts.id = 1): הטיוטה הקיימת עוברת
--- לשאלון ברירת המחדל 'main', שהוא גם מה ש-‎/‎ ממשיך להגיש לקישורים ותיקים.
+-- The migration from the single-survey model (survey_drafts.id = 1): the existing
+-- draft moves to the default survey 'main', which is also what / keeps serving to
+-- old links.
 do $$
 begin
   if exists (select 1 from information_schema.columns
@@ -94,10 +101,10 @@ begin
   end if;
 end $$;
 
--- גרסאות שפורסמו — immutable append-only. סשן של משיב מוצמד לגרסה שבה התחיל,
--- ולכן אסור שגרסה שפורסמה תשתנה אי-פעם.
--- version נשאר מפתח יחיד וגלובלי (survey_events מפנה אליו בעמודה אחת),
--- ולכן הוא נושא את ה-slug בתוכו: 2026-08-08.1-<slug>.
+-- Published versions — immutable and append-only. A respondent's session is
+-- pinned to the version it started on, so a published version must never change.
+-- version stays a single, global key (survey_events refers to it through one
+-- column), which is why it carries the slug inside it: 2026-08-08.1-<slug>.
 create table if not exists public.survey_configs (
   version      text primary key,
   survey_id    text not null references public.surveys(slug),
@@ -106,8 +113,8 @@ create table if not exists public.survey_configs (
   published_by text not null
 );
 
--- ה-backfill למטה הוא UPDATE — ה-trigger שחוסם שינוי חייב לרדת לפניו
--- (ולחזור מיד אחריו).
+-- The backfill below is an UPDATE — the trigger that blocks changes has to come
+-- down before it (and go straight back up after).
 drop trigger if exists survey_configs_immutable on public.survey_configs;
 
 alter table public.survey_configs add column if not exists survey_id text;
@@ -134,7 +141,7 @@ create index if not exists survey_configs_published_idx
 create index if not exists survey_configs_survey_idx
   on public.survey_configs (survey_id, published_at desc);
 
--- אכיפת אי-שינוי ברמת ה-DB (הגנה לעומק — גם service_role ייחסם)
+-- Immutability enforced at the DB level (defence in depth — service_role is blocked too)
 create or replace function public.reject_config_mutation() returns trigger
 language plpgsql as $$
 begin
@@ -146,7 +153,7 @@ create trigger survey_configs_immutable
   before update or delete on public.survey_configs
   for each row execute function public.reject_config_mutation();
 
--- אותה עמדת הרשאות כמו survey_events: RLS פעיל, אפס policies
+-- The same permissions posture as survey_events: RLS on, zero policies
 alter table public.surveys        enable row level security;
 alter table public.survey_drafts  enable row level security;
 alter table public.survey_configs enable row level security;
@@ -155,11 +162,13 @@ revoke all on public.survey_drafts  from anon, authenticated;
 revoke all on public.survey_configs from anon, authenticated;
 
 -- ============================================================
--- הרשאות מפורשות ל-service_role (צד השרת של Netlify בלבד).
--- בפרויקטי ענן ותיקים service_role קיבל הכל דרך default privileges; בהתקנות
--- חדשות — וגם בסטאק המקומי של supabase start — אובייקטים אינם נחשפים
--- אוטומטית, ולכן ההענקה כאן מפורשת. anon/authenticated נשארים חסומים לגמרי.
--- survey_configs בכוונה בלי update/delete — ה-trigger למעלה אוכף append-only.
+-- Explicit grants for service_role (Netlify's server side only).
+-- In older cloud projects service_role got everything through default privileges;
+-- in new installations — and in supabase start's local stack too — objects are
+-- not exposed automatically, so the grants here are explicit. anon/authenticated
+-- stay blocked completely.
+-- survey_configs deliberately has no update/delete — the trigger above enforces
+-- append-only.
 -- ============================================================
 grant usage on schema public to service_role;
 grant select, insert                 on public.survey_events  to service_role;
@@ -169,14 +178,16 @@ grant select, insert                 on public.survey_configs to service_role;
 grant usage, select on all sequences in schema public to service_role;
 
 -- ============================================================
--- Views לניתוח (נגישות רק מהדשבורד / service key)
--- מוגדרים אחרי survey_configs כי הם נשענים עליו כדי לתרגם survey_version
--- (המזהה היחיד שיש בשורת האירוע) לשאלון שאליו היא שייכת.
+-- Views for analysis (reachable only from the dashboard / with the service key)
+-- Defined after survey_configs because they lean on it to translate
+-- survey_version — the only identifier an event row carries — into the survey it
+-- belongs to.
 -- ============================================================
 
--- תשובה מלאה אחת לשורה — לייצוא CSV.
--- אירועי הסיום הם complete / screenout / quotafull; outcome שומר על ההבחנה
--- ביניהם, כך שסינון אמיתי לא מתערבב עם מכסה מלאה.
+-- One complete response per row — for CSV export.
+-- The end events are complete / screenout / quotafull; outcome preserves the
+-- distinction between them, so a genuine screenout is never mixed up with a full
+-- quota.
 create or replace view public.completed_responses
   with (security_invoker = true) as
 select
@@ -197,7 +208,7 @@ group by session_id;
 revoke all on public.completed_responses from anon, authenticated;
 grant select on public.completed_responses to service_role;
 
--- משפך פר-מסך: צפיות, תשובות, זמן ממוצע — לבקרת איכות ונשירה
+-- The per-screen funnel: views, answers, average time — for quality control and drop-off
 create or replace view public.screen_funnel
   with (security_invoker = true) as
 select
@@ -219,17 +230,20 @@ revoke all on public.screen_funnel from anon, authenticated;
 grant select on public.screen_funnel to service_role;
 
 -- ============================================================
--- סטטיסטיקות למסך ה-stats בקונסולה (ENG-12..ENG-18)
--- שכבה 1: session_stats — שורת סיכום אחת לכל סשן.
+-- Statistics for the console's stats screen (ENG-12..ENG-18)
+-- Layer 1: session_stats — one summary row per session.
 --
--- "סשן בדיקה" = vars של session_start מכילים url_test (קישור שנפתח עם ?test=1).
--- זו נקודת ההגדרה היחידה של הכלל — כל פונקציות הסטטיסטיקה מסננות דרכה,
--- וקונסולת הניהול יכולה לבקש include_test כדי לראות גם אותם.
+-- A "test session" = session_start's vars contain url_test (a link opened with
+-- ?test=1). This is the single point where that rule is defined — every
+-- statistics function filters through it, and the admin console can ask for
+-- include_test to see them as well.
 --
--- vars אפקטיביים = מהאירוע האחרון שנושא vars: אירוע סיום עדיף על answer
--- מועשר, שעדיף על session_start. סשן שנטש עם לקוח ישן (בלי vars ב-answer)
--- נשאר עם ה-vars ההתחלתיים — משתנה מחושב כמו segment יופיע בו כ"לא ידוע".
--- ⚠ הכלל url_test והשמות כאן מסונכרנים עם tests/sync/stats-sql.test.ts.
+-- Effective vars = from the last event that carries vars: an end event beats an
+-- enriched answer, which beats session_start. A session abandoned by an older
+-- client (with no vars on answer) is left with its initial vars — a computed
+-- variable like segment will show up as "unknown" for it.
+-- ⚠ The url_test rule and the names here are kept in sync with
+-- tests/sync/stats-sql.test.ts.
 -- ============================================================
 
 create or replace view public.session_stats
@@ -254,12 +268,14 @@ group by session_id;
 revoke all on public.session_stats from anon, authenticated;
 grant select on public.session_stats to service_role;
 
--- שכבה 2: פונקציות אגרגציה שה-endpoint המאומת (admin-stats) קורא דרך rpc.
--- drop לפני create — שינוי חתימה או עמודות החזרה ב-create or replace נכשל,
--- וה-drop המפורש משאיר את הקובץ ניתן להרצה חוזרת.
+-- Layer 2: the aggregation functions the authenticated endpoint (admin-stats)
+-- calls through rpc.
+-- drop before create — changing a signature or the returned columns fails under
+-- create or replace, and the explicit drop keeps the file re-runnable.
 
--- אריחי הסקירה: סה"כ, הושלמו, סוננו, מכסה מלאה, ונטישה מפוצלת לשניים —
--- "נטשו באמצע" (ענו לפחות פעם אחת) מול "נכנסו ולא ענו כלל" (בוטים/הצצה).
+-- The overview tiles: total, completed, screened out, quota full, and
+-- abandonment split in two — "abandoned mid-survey" (answered at least once)
+-- versus "arrived and never answered" (bots / a glance).
 drop function if exists public.stats_overview(text, text, boolean);
 create function public.stats_overview(p_survey text, p_version text, p_include_test boolean)
 returns table (
@@ -290,9 +306,10 @@ $$;
 revoke execute on function public.stats_overview(text, text, boolean) from public, anon, authenticated;
 grant execute on function public.stats_overview(text, text, boolean) to service_role;
 
--- משפך פר-מסך: צפו, ענו, נטשו-כאן (הצפייה האחרונה של סשן בלי אירוע סיום),
--- וחציון זמן ניסיון-ראשון בלבד — מענה חוזר אחרי חזרה אחורה מהיר בסדר גודל
--- והיה מטה את החציון כלפי מטה. מסכי end לא מופיעים: אין להם screen_view.
+-- The per-screen funnel: viewed, answered, dropped-here (the last view of a
+-- session with no end event), and the median first-attempt time only — a repeat
+-- answer after going back is an order of magnitude faster and would drag the
+-- median down. End screens do not appear: they have no screen_view.
 drop function if exists public.stats_funnel(text, text, boolean);
 create function public.stats_funnel(p_survey text, p_version text, p_include_test boolean)
 returns table (
@@ -319,7 +336,7 @@ as $$
     where e.screen_id is not null and e.event_type in ('screen_view', 'answer')
   ),
   drops as (
-    -- הצפייה האחרונה של כל סשן שלא הגיע לאירוע סיום = המסך שבו נעלם
+    -- The last view of each session that never reached an end event = the screen it disappeared on
     select distinct on (ev.session_id) ev.session_id, ev.screen_id
     from ev
     join s using (session_id)
@@ -344,9 +361,10 @@ $$;
 revoke execute on function public.stats_funnel(text, text, boolean) from public, anon, authenticated;
 grant execute on function public.stats_funnel(text, text, boolean) to service_role;
 
--- התשובה הסופית: שורה אחת לכל סשן×מסך — האירוע עם ה-attempt הגבוה ביותר
--- (שוויון נשבר לפי זמן). מי שחזר אחורה ושינה תשובה נספר פעם אחת, עם מה שבחר
--- בסוף. value נשאר jsonb גולמי — הפירוש (אטומים, תוויות) נעשה בשכבות שמעל.
+-- The final answer: one row per session×screen — the event with the highest
+-- attempt (ties broken by time). Someone who went back and changed their answer
+-- is counted once, with what they chose in the end. value stays raw jsonb — the
+-- interpretation (atoms, labels) happens in the layers above.
 create or replace view public.final_answers
   with (security_invoker = true) as
 select distinct on (e.session_id, e.screen_id)
@@ -364,14 +382,18 @@ order by e.session_id, e.screen_id,
 revoke all on public.final_answers from anon, authenticated;
 grant select on public.final_answers to service_role;
 
--- התפלגויות: כלל פריסת-אטומים אחד לכל סוגי השאלות הסגורות —
---   מחרוזת/מספר/בוליאני → אטום אחד (הערך עצמו כטקסט)
---   מערך (רב-ברירה)     → אטום לכל אפשרות שנבחרה
---   אובייקט (מטריצה)    → אטום לכל פריט, item_id = הפריט, המפתח = הציון/na
---   null (דילוג מכוון)   → לא אטום; נספר בסטטיסטיקות התשובות הפתוחות בלבד
--- פילוח (p_by): שם משתנה סשן אפקטיבי, או ‎_outcome‎ לתוצאת הסשן. סשן בלי
--- ערך למימד מקבל dim_value=null — "לא ידוע" בתצוגה, לעולם לא נזרק.
--- התוצאה: ספירות גולמיות לפי (מסך, פריט, מפתח, מימד) — תוויות ואחוזים בדפדפן.
+-- Distributions: one atom-expansion rule for every kind of closed question —
+--   string/number/boolean → one atom (the value itself as text)
+--   array (multi-choice)  → an atom per option selected
+--   object (matrix)       → an atom per item, item_id = the item, the key = the
+--                            rating or na
+--   null (a deliberate skip) → not an atom; counted in the open-answer statistics
+--                            only
+-- The breakdown (p_by): an effective session variable name, or _outcome for the
+-- session's outcome. A session with no value for the dimension gets
+-- dim_value=null — "unknown" in the display, never discarded.
+-- The result: raw counts by (screen, item, key, dimension) — labels and
+-- percentages are the browser's job.
 drop function if exists public.stats_distributions(text, text, boolean);
 drop function if exists public.stats_distributions(text, text, boolean, text);
 create function public.stats_distributions(
@@ -429,8 +451,10 @@ $$;
 revoke execute on function public.stats_distributions(text, text, boolean, text) from public, anon, authenticated;
 grant execute on function public.stats_distributions(text, text, boolean, text) to service_role;
 
--- בסיסי אחוזים לפילוח: כמה סשנים ענו (תשובה סופית שאינה null) על כל מסך,
--- בכל ערך מימד — המכנה של אחוזי-מהעונים בקבוצה. אותם פילטרים כמו למעלה.
+-- The percentage bases for a breakdown: how many sessions answered (a final
+-- answer that is not null) on each screen, within each dimension value — the
+-- denominator of the share-of-respondents-in-the-group percentages. The same
+-- filters as above.
 drop function if exists public.stats_bases(text, text, boolean, text);
 create function public.stats_bases(
   p_survey text, p_version text, p_include_test boolean, p_by text default null
@@ -469,9 +493,10 @@ $$;
 revoke execute on function public.stats_bases(text, text, boolean, text) from public, anon, authenticated;
 grant execute on function public.stats_bases(text, text, boolean, text) to service_role;
 
--- תשובות פתוחות, מטא-דאטה שלא דורש קריאה: שלושת המצבים — ענו (תשובה סופית
--- שאינה null), דילגו במכוון (תשובה סופית null), נטשו (צפו במסך ולא ענו כלל) —
--- ואחוזוני אורך התשובה. שום ניתוח תוכן: אורכים וספירות בלבד.
+-- Open-text answers, the metadata that requires no reading: the three states —
+-- answered (a final answer that is not null), deliberately skipped (a final answer
+-- of null), abandoned (viewed the screen and never answered) — and the answer
+-- length percentiles. No content analysis: lengths and counts only.
 drop function if exists public.open_answer_stats(text, text, boolean, text);
 create function public.open_answer_stats(
   p_survey text, p_version text, p_include_test boolean, p_screen text
@@ -548,13 +573,22 @@ $$;
 revoke execute on function public.open_answer_stats(text, text, boolean, text) from public, anon, authenticated;
 grant execute on function public.open_answer_stats(text, text, boolean, text) to service_role;
 
--- הרשימה עצמה: תשובות טקסט גולמיות, חדש-ראשון, מדופדף. הדפדפן מוסר אילו
--- מסכים הם שאלות טקסט (ל-SQL אין מושג סוגי מסכים — הקונפיג חי בדפדפן).
--- p_segment: ערך של משתנה segment; ‎__unknown__‎ = סשנים בלי ערך; null = הכל.
+-- The list itself: raw text answers, newest first, paged. The browser tells us
+-- which screens are text questions (SQL has no notion of screen types — the config
+-- lives in the browser).
+-- p_dim:   which session variable to report and filter by — any mark or draw.
+--          It used to be hardcoded to 'segment', the name the research
+--          questionnaire happens to use; a survey built in the console names its
+--          marks mark1, mark2… so the filter offered no values, every row read as
+--          unknown, and picking "unknown" returned everything. It looked like the
+--          personas had never been recorded.
+-- p_value: the value to keep; __unknown__ = sessions with no value for p_dim;
+--          null = everything.
 drop function if exists public.open_answers(text, text, boolean, text[], text, int, int);
+drop function if exists public.open_answers(text, text, boolean, text[], text, text, int, int);
 create function public.open_answers(
   p_survey text, p_version text, p_include_test boolean,
-  p_screens text[], p_segment text, p_limit int, p_offset int
+  p_screens text[], p_dim text, p_value text, p_limit int, p_offset int
 )
 returns table (
   total          bigint,
@@ -562,14 +596,15 @@ returns table (
   value          text,
   created_at     timestamptz,
   survey_version text,
-  segment        text,
+  dim_value      text,
   outcome        text
 )
 language sql stable
 set search_path = public
 as $$
   with s as (
-    select session_id, outcome, vars ->> 'segment' as segment
+    select session_id, outcome,
+           case when p_dim is null then null else vars ->> p_dim end as dim_value
     from session_stats
     where survey_id = p_survey
       and started_at is not null
@@ -582,32 +617,65 @@ as $$
     f.value #>> '{}' as value,
     f.created_at,
     f.survey_version,
-    s.segment,
+    s.dim_value,
     coalesce(s.outcome, 'abandoned') as outcome
   from final_answers f
   join s using (session_id)
   where (p_version is null or f.survey_version = p_version)
     and f.screen_id = any (p_screens)
     and jsonb_typeof(f.value) = 'string'
-    and (p_segment is null
-         or (p_segment = '__unknown__' and s.segment is null)
-         or s.segment = p_segment)
+    and (p_dim is null or p_value is null
+         or (p_value = '__unknown__' and s.dim_value is null)
+         or s.dim_value = p_value)
   order by f.created_at desc
   limit p_limit offset p_offset
 $$;
 
-revoke execute on function public.open_answers(text, text, boolean, text[], text, int, int) from public, anon, authenticated;
-grant execute on function public.open_answers(text, text, boolean, text[], text, int, int) to service_role;
+revoke execute on function public.open_answers(text, text, boolean, text[], text, text, int, int) from public, anon, authenticated;
+grant execute on function public.open_answers(text, text, boolean, text[], text, text, int, int) to service_role;
+
+-- Quotas: how many respondents *finished* with each mark value. This is the only
+-- function here a public endpoint calls (quota-get, with no authentication) — which
+-- is why it takes an explicit list of marks and returns counts for those alone,
+-- rather than an open window onto respondents' vars.
+--
+-- 'complete' only: a screenout is not a persona we collected, and someone already
+-- sent to the quota-full screen must not be counted twice. Test sessions are
+-- excluded through session_stats — without that our own ?test=1 clicks would close
+-- the real study's quotas.
+drop function if exists public.quota_counts(text, text[]);
+create function public.quota_counts(p_survey text, p_marks text[])
+returns table (
+  mark  text,
+  value text,
+  n     int
+)
+language sql stable
+set search_path = public
+as $$
+  select m.mark, s.vars ->> m.mark, count(*)::int
+  from session_stats s
+  cross join unnest(p_marks) as m(mark)
+  where s.survey_id = p_survey
+    and s.outcome = 'complete'
+    and not s.is_test
+    and s.vars ? m.mark
+  group by m.mark, s.vars ->> m.mark
+$$;
+
+revoke execute on function public.quota_counts(text, text[]) from public, anon, authenticated;
+grant execute on function public.quota_counts(text, text[]) to service_role;
 
 -- ============================================================
--- הגנה לעומק: חסימת יצירת חשבונות שאינם first-edea.com
--- ה-hook הזה רץ לפני יצירת משתמש ב-Supabase Auth, ולכן חשבון גוגל
--- שאינו מהדומיין לא נוצר בכלל (במקום להיווצר ואז לקבל 403).
+-- Defence in depth: blocking the creation of accounts outside first-edea.com
+-- This hook runs before a user is created in Supabase Auth, so a Google account
+-- from another domain is never created at all (instead of being created and then
+-- getting a 403).
 --
--- שכבה נוספת בלבד — האכיפה האמיתית היא בדיקת הדומיין ב-requireAdmin
--- (netlify/functions/lib/session.ts), שרצה בכל בקשה.
+-- An additional layer only — the real enforcement is the domain check in
+-- requireAdmin (netlify/functions/lib/session.ts), which runs on every request.
 --
--- ⚠️ ה-SQL לבד לא מפעיל כלום: יש לרשום את הפונקציה בדשבורד תחת
+-- ⚠️ The SQL alone enables nothing: the function has to be registered in the dashboard under
 --    Authentication → Hooks → Before User Created → Postgres function.
 -- ============================================================
 
@@ -633,6 +701,6 @@ begin
 end;
 $$;
 
--- רק מנגנון ה-Auth יכול להריץ את ה-hook
+-- Only the Auth machinery may execute the hook
 grant execute on function public.restrict_signup_to_domain(jsonb) to supabase_auth_admin;
 revoke execute on function public.restrict_signup_to_domain(jsonb) from anon, authenticated, public;

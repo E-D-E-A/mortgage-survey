@@ -14,11 +14,12 @@ const ENDPOINT = '/.netlify/functions/events';
 
 export const eventsEnabled = import.meta.env.PROD;
 
-// ⚠ הרשימה משוכפלת בשלושה מקומות שחייבים להישאר מסונכרנים: כאן,
-// EVENT_TYPES ב-netlify/functions/events.mts, וה-check על survey_events
-// ב-supabase/schema.sql. סוג שלא מוכר בשרת מפיל את כל האצווה ל-400,
-// והלקוח זורק אותה — האירוע אובד בשקט.
-// שלושת סוגי הסיום נגזרים מ-EndScreen['variant'] ונושאים את אותם שמות.
+// ⚠ This list is duplicated in three places that must stay in sync: here,
+// EVENT_TYPES in netlify/functions/events.mts, and the check on survey_events in
+// supabase/schema.sql. A type the server does not recognise fails the whole
+// batch with a 400, and the client throws it away — the event is lost silently.
+// The three end types are derived from EndScreen['variant'] and carry the same
+// names.
 export type EventType =
   | 'session_start'
   | 'screen_view'
@@ -37,9 +38,9 @@ interface EventRow {
   client_ts: string;
 }
 
-// התור משותף לכל השאלונים (כל שורה נושאת את survey_version שלה), אבל
-// ה-session_id מוגבל לשאלון — אחרת פתיחת שאלון שני באותה לשונית הייתה
-// נספרת כאותו סשן.
+// The queue is shared across surveys (each row carries its own survey_version),
+// but the session_id is scoped to the survey — otherwise opening a second survey
+// in the same tab would be counted as the same session.
 const QUEUE_KEY = 'sq_queue_v1';
 const DEV_KEY = 'sq_dev_events_v1';
 const SESSION_KEY = 'sq_session_v1';
@@ -60,7 +61,7 @@ function persistQueue() {
   try {
     localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
   } catch {
-    /* מכסת אחסון מלאה — נמשיך מהזיכרון בלבד */
+    /* Storage quota full — we carry on from memory only */
   }
 }
 
@@ -118,7 +119,7 @@ function scheduleRetry(ms: number) {
 async function flush(keepalive = false): Promise<void> {
   if (!eventsEnabled || flushing || queue.length === 0) return;
   flushing = true;
-  // keepalive מוגבל ל-64KB — נשלח באצוות קטנות
+  // keepalive is capped at 64KB — send in small batches
   const batch = queue.slice(0, 20);
   try {
     const res = await fetch(ENDPOINT, {
@@ -132,7 +133,7 @@ async function flush(keepalive = false): Promise<void> {
       persistQueue();
       if (queue.length > 0) scheduleRetry(250);
     } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
-      // האצווה פסולה — retry לא יעזור; זורקים אותה כדי לא להיתקע לנצח
+      // The batch is invalid — retrying will not help; drop it rather than block forever
       console.warn('[survey] batch rejected', res.status);
       queue = queue.slice(batch.length);
       persistQueue();
@@ -147,7 +148,7 @@ async function flush(keepalive = false): Promise<void> {
   }
 }
 
-// ניסיון אחרון לרוקן את התור כשהדף נסגר/עובר לרקע
+// A last attempt to drain the queue when the page closes or goes to the background
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => void flush(true));
   document.addEventListener('visibilitychange', () => {

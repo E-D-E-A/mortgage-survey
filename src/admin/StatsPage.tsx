@@ -1,7 +1,9 @@
-// מסך הסטטיסטיקות של שאלון (/admin/<slug>/stats) — קריאה בלבד, בלי שום
-// מנגנון טיוטה/שמירה. הנתונים נטענים טריים בכל ביקור ובכל שינוי פקד
-// (ה-endpoint מסומן no-store): צפייה חיה בשטח חשובה מקאש.
-// סשני בדיקה (?test=1) מוחרגים כברירת מחדל; המתג מחזיר אותם לצורך דיבוג.
+// A survey's statistics screen (/admin/<slug>/stats) — read-only, with no
+// draft/save machinery at all. The data is loaded fresh on every visit and on
+// every control change (the endpoint is marked no-store): watching the field live
+// matters more than caching.
+// Test sessions (?test=1) are excluded by default; the toggle brings them back
+// for debugging.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,11 +16,10 @@ import {
   type StatsBundle,
 } from './api';
 import {
+  answerFilters,
   binNumbers,
   binNumbersByDim,
-  chosenConfig,
   dimensionLegend,
-  dimensionOptions,
   formatCount,
   formatDuration,
   formatPercent,
@@ -32,12 +33,13 @@ import {
   type QuestionCardModel,
   type SplitSpec,
 } from './stats';
+import { chosenConfig, dimensionOptions } from './dimensions';
 import { LogoutIcon } from './Icons';
 import { supabase } from './supabaseClient';
 
 interface Props {
   slug: string;
-  /** שם התצוגה מרשימת השאלונים — עד שה-bundle מגיע עם השם מהשרת */
+  /** The display name from the survey list — until the bundle arrives with the name from the server */
   name: string;
   email: string;
   onBack: () => void;
@@ -259,8 +261,9 @@ function FunnelSection({ bundle, version }: { bundle: StatsBundle; version: stri
   );
 }
 
-// ─── לשונית התשובות הפתוחות (ENG-16) ────────────────────────────────────────
-// קריאה בלבד, כלשונן: שום קידוד, שום ניתוח תוכן — רק סינון, אורכים ודפדוף.
+// ─── the open-text answers tab (ENG-16) ─────────────────────────────────────
+// Read-only, exactly as written: no coding, no content analysis — only filtering,
+// lengths and paging.
 
 const PAGE_SIZE = 50;
 
@@ -278,8 +281,12 @@ function OpenAnswersTab({
   onAuthError: () => void;
 }) {
   const questions = textScreens(bundle.versions, version);
+  const filters = answerFilters(bundle.versions, version);
   const [screen, setScreen] = useState('all');
-  const [segment, setSegment] = useState('all');
+  // Which mark or draw to show beside each answer. The first one available, so
+  // the column says something useful before anyone touches the controls.
+  const [dim, setDim] = useState(filters[0]?.key ?? '');
+  const [value, setValue] = useState('all');
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<OpenAnswersPage | null>(null);
   const [failed, setFailed] = useState(false);
@@ -289,7 +296,15 @@ function OpenAnswersTab({
 
   useEffect(() => {
     setOffset(0);
-  }, [screensKey, segment, version, includeTest]);
+  }, [screensKey, dim, value, version, includeTest]);
+
+  // A dimension from one version may not exist in another
+  useEffect(() => {
+    if (dim && !filters.some((f) => f.key === dim)) {
+      setDim(filters[0]?.key ?? '');
+      setValue('all');
+    }
+  }, [dim, filters]);
 
   useEffect(() => {
     if (screens.length === 0) return;
@@ -299,7 +314,8 @@ function OpenAnswersTab({
       screens,
       version,
       includeTest,
-      segment: segment === 'all' ? undefined : segment,
+      dim: dim || undefined,
+      value: value === 'all' ? undefined : value,
       limit: PAGE_SIZE,
       offset,
     })
@@ -313,8 +329,8 @@ function OpenAnswersTab({
     return () => {
       stale = true;
     };
-    // התלות היא screensKey (מחרוזת יציבה) — מערך ה-screens נגזר ממנה בכל רינדור
-  }, [slug, screensKey, segment, version, includeTest, offset, onAuthError]);
+    // The dependency is screensKey (a stable string) — the screens array is derived from it on every render
+  }, [slug, screensKey, dim, value, version, includeTest, offset, onAuthError]);
 
   if (questions.length === 0) {
     return <p className="stats-empty">בשאלון הזה אין שאלות פתוחות (שאלות טקסט).</p>;
@@ -323,8 +339,8 @@ function OpenAnswersTab({
     return <p className="stats-empty">טעינת התשובות נכשלה — אפשר לנסות לרענן.</p>;
   }
 
-  const config = chosenConfig(bundle.versions, version);
-  const segmentValues = config?.varMeta?.segment?.values ?? {};
+  const chosen = filters.find((f) => f.key === dim);
+  const valueLabels = new Map(chosen?.values ?? []);
   const questionLabel = new Map(questions.map((q) => [q.id, q.label]));
 
   return (
@@ -341,18 +357,39 @@ function OpenAnswersTab({
             ))}
           </select>
         </label>
-        <label className="stats-control">
-          מסלול המשיב
-          <select className="a-input" value={segment} onChange={(e) => setSegment(e.target.value)}>
-            <option value="all">הכול</option>
-            {Object.entries(segmentValues).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-            <option value="__unknown__">לא ידוע</option>
-          </select>
-        </label>
+        {filters.length > 0 && (
+          <>
+            <label className="stats-control">
+              פילוח לפי
+              <select
+                className="a-input"
+                value={dim}
+                onChange={(e) => {
+                  setDim(e.target.value);
+                  setValue('all');
+                }}
+              >
+                {filters.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="stats-control">
+              ערך
+              <select className="a-input" value={value} onChange={(e) => setValue(e.target.value)}>
+                <option value="all">הכול</option>
+                {(chosen?.values ?? []).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+                <option value="__unknown__">לא ידוע</option>
+              </select>
+            </label>
+          </>
+        )}
       </div>
 
       {page && (
@@ -397,7 +434,7 @@ function OpenAnswersTab({
                       {' · '}
                       <bdi dir="ltr">{row.survey_version}</bdi>
                       {' · '}
-                      {row.segment ? (segmentValues[row.segment] ?? row.segment) : 'לא ידוע'}
+                      {row.dim_value ? (valueLabels.get(row.dim_value) ?? row.dim_value) : 'לא ידוע'}
                       {' · '}
                       {outcomeLabel(row.outcome)}
                     </p>
@@ -441,8 +478,9 @@ function DistributionsSection({
   version: string;
   by: string;
 }) {
-  // הפילוח פעיל רק אם השרת באמת החזיר את המימד הזה (bundle.by) — אחרת
-  // הנתונים שביד הם ללא פילוח והמקרא היה משקר
+  // The breakdown is active only if the server really returned that dimension
+  // (bundle.by) — otherwise the data in hand carries no breakdown and the legend
+  // would be lying
   const active = by !== '' && bundle.by === by;
   const legend: DimensionLegend | null = active
     ? dimensionLegend(bundle.distributions, by, chosenConfig(bundle.versions, version))
@@ -513,8 +551,9 @@ function QuestionCard({ card, split }: { card: QuestionCardModel; split?: SplitS
 }
 
 /**
- * עמודות אופקיות ב-RTL: הבסיס בצד ימין (inline-start), הקצה המעוגל בקצה
- * הנתון בלבד; הערך יושב בקצה כל עמודה — טקסט בטוקן טקסט, לא בצבע הסדרה.
+ * Horizontal bars in RTL: the baseline on the right (inline-start), the rounded
+ * cap on the data end only; the value sits at the end of each bar — in the text
+ * token, not in the series colour.
  */
 function ChoiceBars({ card, split }: { card: QuestionCardModel; split?: SplitSpec }) {
   if (split) return <GroupedChoiceBars card={card} split={split} />;
@@ -543,8 +582,9 @@ function ChoiceBars({ card, split }: { card: QuestionCardModel; split?: SplitSpe
 }
 
 /**
- * מצב פילוח: לכל אפשרות תת-עמודה לכל ערך מימד, בסדר ובצבעי המקרא. האחוז של
- * כל קבוצה מחושב מתוך העונים באותה קבוצה (stats_bases) — לא מתוך כלל העונים.
+ * Breakdown mode: each option gets a sub-bar per dimension value, in the
+ * legend's order and colours. Each group's percentage is computed out of the
+ * respondents in that group (stats_bases) — not out of all respondents.
  */
 function GroupedChoiceBars({ card, split }: { card: QuestionCardModel; split: SplitSpec }) {
   const max = Math.max(
@@ -585,9 +625,10 @@ function GroupedChoiceBars({ card, split }: { card: QuestionCardModel; split: Sp
 }
 
 /**
- * פס ההדגשה של סולם המטריצה: חמישה עוגנים בגוון המותג, בהיר→כהה, שאומתו עם
- * ה-validator של מיומנות ה-dataviz במצב ordinal (מונוטוני, מרווחי L, ≥2:1).
- * סולם בגודל אחר נדגם מאותו פס באינטרפולציה — אותו דפוס מאומת.
+ * The matrix scale's ramp: five anchors in the brand hue, light→dark, validated
+ * with the dataviz skill's validator in ordinal mode (monotonic, L-spaced, ≥2:1).
+ * A scale of a different size is sampled from that same ramp by interpolation —
+ * the same validated pattern.
  */
 const SCALE_RAMP = ['#58bfa9', '#2aa78e', '#008f75', '#00705c', '#005243'];
 const NA_COLOR = '#d7dadf';
@@ -709,7 +750,7 @@ function NumberHistogram({ card, split }: { card: QuestionCardModel; split?: Spl
   const mean = values.reduce((s, v) => s + v.value * v.count, 0) / total;
 
   if (split) {
-    // אותם סלים לכל הקבוצות — השוואה דורשת צירים זהים; עמודה צמודה לכל קבוצה
+    // The same buckets for every group — comparison requires identical axes; one adjacent bar per group
     const bins = binNumbersByDim(card.atoms, 7);
     const max = Math.max(
       ...bins.flatMap((b) => Object.values(b.counts)),
@@ -752,7 +793,7 @@ function NumberHistogram({ card, split }: { card: QuestionCardModel; split?: Spl
   const max = Math.max(...bins.map((b) => b.count));
   return (
     <div className="nh-chart">
-      {/* ציר מספרי קוראים משמאל לימין גם בעברית */}
+      {/* A numeric axis reads left to right, in Hebrew too */}
       <div className="nh-plot" dir="ltr">
         {bins.map((bin) => (
           <div key={bin.from} className="nh-col-slot" title={`${formatCount(bin.from)}–${formatCount(bin.to)}: ${formatCount(bin.count)}`}>

@@ -1,6 +1,7 @@
-// שכבת השמות היא מה שהאדמין קורא בכל מסך בקונסולה — אם היא נופלת חזרה למזהים
-// בשקט, כל הממשק חוזר להיות s_status ו-segment בלי שאף בדיקה תיפול. לכן הנפילה
-// האחורית עצמה נבדקת כאן במפורש.
+// The naming layer is what the admin reads on every screen of the console — if it
+// silently falls back to ids, the whole interface reverts to s_status and segment
+// without a single test failing. So the fallback itself is asserted here
+// explicitly.
 
 import { describe, expect, it } from 'vitest';
 import type { SurveyConfig } from '../engine/types';
@@ -91,10 +92,45 @@ describe('value naming', () => {
   it('collects randomVars and onSubmit vars alike', () => {
     expect(naming.vars.sort()).toEqual(['price', 'segment']);
   });
+
+  it('lists a draw once, however many places also mention it', () => {
+    // The list feeds the condition dropdowns; a name offered twice reads as two
+    // different variables that happen to share a label.
+    const c: SurveyConfig = {
+      version: 'test',
+      randomVars: { price: [99, 199] },
+      varMeta: { price: { label: 'מחיר' } },
+      screens: [
+        { id: 'a', type: 'info', title: '', body: '', onSubmit: [{ var: 'price', value: 150 }] },
+      ],
+    };
+    expect(makeNaming(c).vars.filter((v) => v === 'price')).toHaveLength(1);
+  });
+
+  it('offers draws before the marks the screens set — the order the dropdown shows', () => {
+    const c: SurveyConfig = {
+      version: 'test',
+      randomVars: { price: [99, 199] },
+      screens: [
+        { id: 'a', type: 'info', title: '', body: '', onSubmit: [{ var: 'segment', value: 'A' }] },
+      ],
+    };
+    expect(makeNaming(c).vars).toEqual(['price', 'segment']);
+  });
+
+  it('shows a draw value by its number when no Hebrew name was given to it', () => {
+    const c: SurveyConfig = {
+      version: 'test',
+      randomVars: { price: [99, 199] },
+      varMeta: { price: { label: 'מחיר' } },
+      screens: [],
+    };
+    expect(varValueLabel(makeNaming(c), 'price', 99)).toBe('99');
+  });
 });
 
 describe('conditionSentence', () => {
-  // הנושא הוא תמיד "התשובה" — לשון נקבה — כי התנאי בוחן את התשובה, לא את השאלה
+  // The subject is always "the answer" — feminine in Hebrew — because the condition examines the answer, not the question
   it('writes a question leaf as the answer to its wording, not ids', () => {
     expect(conditionSentence(naming, { q: 's_status', op: 'eq', value: 'active' })).toBe(
       'התשובה ל״מה מתאר את מצבך בנוגע למשכנתה?״ היא קיימת כיום משכנתה',

@@ -11,14 +11,14 @@ const opts: Option[] = [
 
 describe('orderOptions', () => {
   it('keeps the author order untouched when there is no shuffle', () => {
-    // b_who מציב בכוונה אפשרות בלעדית ("רק אני") ראשונה — אסור להזיז אותה
+    // b_who deliberately puts an exclusive option ("only me") first — it must not be moved
     const authored: Option[] = [{ id: 'alone', label: 'רק אני', exclusive: true }, ...opts.slice(0, 2)];
     expect(orderOptions(authored, false).map((o) => o.id)).toEqual(['alone', 'a', 'b']);
     expect(orderOptions(authored, undefined).map((o) => o.id)).toEqual(['alone', 'a', 'b']);
   });
 
   it('never lets a shuffle move an exclusive option out of last place', () => {
-    // הבאג המקורי: "הכול ברור לי" נחתה במקום 7 מתוך 10 והוטתה כאפשרות תוכן
+    // The original bug: "it is all clear to me" landed 7th out of 10 and was read as a content option
     for (let i = 0; i < 200; i++) {
       const ordered = orderOptions(opts, true);
       expect(ordered).toHaveLength(opts.length);
@@ -59,7 +59,7 @@ describe('numberFieldError', () => {
   });
 
   it('explains every way s_age can block the button', () => {
-    // הבאג המקורי: "המשך" ב-opacity 0.35 ואפס הודעות
+    // The original bug: "continue" at opacity 0.35 and not one message
     expect(numberFieldError(age, '15')).toContain('בין 16 ל-120');
     expect(numberFieldError(age, '150')).toContain('בין 16 ל-120');
     expect(numberFieldError(age, '0')).toContain('בין 16 ל-120');
@@ -100,8 +100,8 @@ describe('textLimit', () => {
   });
 
   it('ignores a limit that would block all typing and strand the respondent', () => {
-    // maxLength={0} על השדה חוסם כל הקלדה, ובמסך לא-אופציונלי "המשך" נשאר
-    // חסום לנצח — בדיוק משפחת הבאגים של A7
+    // maxLength={0} on the field blocks all typing, and on a non-optional screen
+    // "continue" stays disabled forever — exactly the A7 family of bugs
     for (const bad of [0, -5, 1.5, NaN]) expect(textLimit({ maxLength: bad })).toBe(1000);
   });
 });

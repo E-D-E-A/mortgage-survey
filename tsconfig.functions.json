@@ -9,7 +9,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    // בדיקות האינטגרציה מייבאות את קבצי ה-.mts של הפונקציות ישירות
+    // The integration tests import the functions' .mts files directly
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },

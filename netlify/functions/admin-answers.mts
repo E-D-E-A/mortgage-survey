@@ -1,12 +1,14 @@
-// דפדוף התשובות הפתוחות — קריאה בלבד, עורכי first-edea בלבד (requireAdmin).
-// הדפדפן מוסר אילו מסכים הם שאלות טקסט (הקונפיג חי אצלו); כאן רק מסננים,
-// סופרים אורכים ומדפדפים. שום ניתוח תוכן — הטקסט חוזר כלשונו.
+// Paging through the open-text answers — read-only, first-edea editors only
+// (requireAdmin). The browser tells us which screens are text questions (the
+// config lives there); here we only filter, measure lengths and page. No content
+// analysis whatsoever — the text comes back exactly as written.
 //
-//   GET ?survey=<slug>&screens=<id,id,...>&version=<version|all>&segment=<value|__unknown__>
+//   GET ?survey=<slug>&screens=<id,id,...>&version=<version|all>
+//       &dim=<session var>&value=<value|__unknown__>
 //       &include_test=<1|0>&limit=<1..100>&offset=<n>
-//     → { stats: [...], total, rows: [{ screen_id, value, created_at, survey_version, segment, outcome }] }
+//     → { stats: [...], total, rows: [{ screen_id, value, created_at, survey_version, dim_value, outcome }] }
 //
-// טרי תמיד (no-store). ⚠ שמות ה-rpc מסונכרנים עם schema.sql (tests/sync).
+// Always fresh (no-store). ⚠ The rpc names are kept in sync with schema.sql (tests/sync).
 
 import { requireAdmin } from './lib/session';
 import { json, rpc, supaHeaders, supabaseEnv } from './lib/supabase';
@@ -18,7 +20,9 @@ const MAX_SCREENS = 50;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 100_000;
-const MAX_SEGMENT_CHARS = 200;
+const MAX_VALUE_CHARS = 200;
+// The same shape admin-stats accepts for its breakdown dimension
+const DIM_RE = /^[A-Za-z0-9_]{1,64}$/;
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
@@ -44,9 +48,16 @@ export default async (req: Request): Promise<Response> => {
 
   const includeTest = params.get('include_test') === '1';
   const versionParam = params.get('version') ?? 'all';
-  const segment = params.get('segment');
-  if (segment !== null && (segment.length === 0 || segment.length > MAX_SEGMENT_CHARS)) {
-    return new Response('invalid segment', { status: 400 });
+  // Which session variable to report and filter by. Hardcoding 'segment' here
+  // meant the filter silently did nothing on every survey built in the console,
+  // where the marks are named mark1, mark2…
+  const dim = params.get('dim');
+  if (dim !== null && !DIM_RE.test(dim)) {
+    return new Response('invalid dim', { status: 400 });
+  }
+  const value = params.get('value');
+  if (value !== null && (value.length === 0 || value.length > MAX_VALUE_CHARS)) {
+    return new Response('invalid value', { status: 400 });
   }
 
   const limit = parseIntParam(params.get('limit'), DEFAULT_LIMIT);
@@ -75,7 +86,8 @@ export default async (req: Request): Promise<Response> => {
     rpc(env, 'open_answers', {
       ...common,
       p_screens: screens,
-      p_segment: segment,
+      p_dim: dim,
+      p_value: value,
       p_limit: limit,
       p_offset: offset,
     }),
@@ -87,13 +99,28 @@ export default async (req: Request): Promise<Response> => {
   const rows = (answerRows as ({ total: number | string } & Record<string, unknown>)[]).map(
     ({ total: _total, ...row }) => row,
   );
-  const total = (answerRows as { total: number | string }[])[0]?.total ?? 0;
+  // total rides on the rows, so a page past the end carries no rows and no total
+  // — and the tab would report "0 answers" for a question that has plenty. One
+  // more call, only on that page, recovers the real number.
+  let total = Number((answerRows as { total: number | string }[])[0]?.total ?? 0);
+  if (rows.length === 0 && offset > 0) {
+    const firstPage = await rpc(env, 'open_answers', {
+      ...common,
+      p_screens: screens,
+      p_dim: dim,
+      p_value: value,
+      p_limit: 1,
+      p_offset: 0,
+    });
+    if (firstPage instanceof Response) return firstPage;
+    total = Number((firstPage as { total: number | string }[])[0]?.total ?? 0);
+  }
 
   return json(
     {
-      // מטא-דאטה רק למסכים שהתבקשו — ה-rpc מחזיר את כולם וזול יותר לסנן כאן
+      // Metadata only for the screens that were asked for — the rpc returns them all and filtering here is cheaper
       stats: (statsRows as { screen_id: string }[]).filter((s) => requested.has(s.screen_id)),
-      total: Number(total),
+      total,
       rows,
     },
     200,

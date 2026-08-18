@@ -1,16 +1,19 @@
-// בדיקת מסלול: האדמין עונה על השאלות שמנתבות, ורואה בדיוק לאן זה מוביל.
+// The path check: the admin answers the questions that route, and sees exactly
+// where that leads.
 //
-// זה הכלי שהופך שאלון מסועף מ"אוסף תנאים" ל"מסלול" — כי הוא לא מסביר את
-// הכללים אלא מריץ אותם. המנוע הוא אותו simulatePath שנבדק מול ההרצה האמיתית,
-// ולכן מה שמוצג כאן הוא מה שיקרה, לא הערכה.
+// This is the tool that turns a branching survey from "a pile of conditions" into
+// "a path" — because it does not explain the rules, it runs them. The engine is
+// the same simulatePath that is tested against a real run, so what is shown here
+// is what will happen, not an estimate.
 //
-// ⚠ בוררים תשובות ולא משתנים בכוונה: showIf של s_timeline נשען על *התשובה*
-// ל-s_status ולא על segment, ולכן "קיצור דרך" של הצבת מסלול ידנית היה מציג
-// מסלולים שלא קיימים.
+// ⚠ The pickers set answers and not variables, deliberately: s_timeline's showIf
+// leans on the *answer* to s_status and not on segment, so the "shortcut" of
+// setting a track by hand would display paths that do not exist.
 
 import { useMemo } from 'react';
 import { simulatePath } from '../engine/path';
-import type { AnswerValue, Answers, Condition, Screen, SurveyConfig } from '../engine/types';
+import { quotaCells, quotaFullVar } from '../engine/quota';
+import type { AnswerValue, Answers, Condition, Screen, SurveyConfig, Vars } from '../engine/types';
 import type { Naming } from './display';
 import { conditionQuestions, screenLabel, varLabel, varValueLabel } from './display';
 import { CloseIcon } from './Icons';
@@ -20,11 +23,14 @@ interface Props {
   naming: Naming;
   answers: Answers;
   onAnswers: (answers: Answers) => void;
+  /** The quota state the check runs under — the very session vars a real respondent gets on entry */
+  quotaFull: Vars;
+  onQuotaFull: (vars: Vars) => void;
   onSelect: (id: string) => void;
   onClose: () => void;
 }
 
-/** כל התנאים בקונפיג, מכל שלושת המנגנונים. */
+/** Every condition in the config, from all three mechanisms. */
 function allConditions(config: SurveyConfig): Condition[] {
   return config.screens.flatMap((s) =>
     [s.showIf, ...(s.next ?? []).map((r) => r.if), ...(s.onSubmit ?? []).map((r) => r.if)].filter(
@@ -34,17 +40,28 @@ function allConditions(config: SurveyConfig): Condition[] {
 }
 
 /**
- * רק השאלות שבאמת משנות מסלול. בשאלון של 62 מסכים אלה שש — וזה ההבדל בין
- * כלי שאפשר להשתמש בו לבין טופס שצריך למלא מחדש בכל בדיקה.
+ * Only the questions that actually change the path. In a 62-screen survey that is
+ * six of them — and that is the difference between a tool you can use and a form
+ * you have to fill in again for every check.
  */
 export function routingQuestions(config: SurveyConfig): Screen[] {
   const referenced = new Set(allConditions(config).flatMap(conditionQuestions));
   return config.screens.filter((s) => referenced.has(s.id));
 }
 
-export function Simulator({ config, naming, answers, onAnswers, onSelect, onClose }: Props) {
+export function Simulator({
+  config,
+  naming,
+  answers,
+  onAnswers,
+  quotaFull,
+  onQuotaFull,
+  onSelect,
+  onClose,
+}: Props) {
   const questions = useMemo(() => routingQuestions(config), [config]);
-  const steps = useMemo(() => simulatePath(config, answers), [config, answers]);
+  const cells = useMemo(() => quotaCells(config), [config]);
+  const steps = useMemo(() => simulatePath(config, answers, quotaFull), [config, answers, quotaFull]);
   const last = steps[steps.length - 1];
 
   const set = (id: string, value: AnswerValue) => onAnswers({ ...answers, [id]: value });
@@ -78,6 +95,36 @@ export function Simulator({ config, naming, answers, onAnswers, onSelect, onClos
         )}
       </div>
 
+      {/* A full quota is not something the respondent answers but the state of
+          the study at the moment they arrive, so it is a separate control — and
+          it is also the one thing here that cannot be checked on the live survey
+          without waiting for a quota to genuinely fill */}
+      {cells.length > 0 && (
+        <div className="sim-quotas">
+          <span className="a-label">מכסות שכבר התמלאו</span>
+          {cells.map(({ mark, value }) => {
+            const key = quotaFullVar(mark, value);
+            return (
+              <label className="a-check compact" key={key}>
+                <input
+                  type="checkbox"
+                  checked={quotaFull[key] === true}
+                  onChange={(e) => {
+                    const next = { ...quotaFull };
+                    if (e.target.checked) next[key] = true;
+                    else delete next[key];
+                    onQuotaFull(next);
+                  }}
+                />
+                <span>
+                  {varLabel(naming, mark)} = {varValueLabel(naming, mark, value)}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
       <div className="simulator-path">
         <div className="sim-summary">
           המשיב הזה יראה {steps.length} מסכים
@@ -107,7 +154,7 @@ export function Simulator({ config, naming, answers, onAnswers, onSelect, onClos
   );
 }
 
-/** בורר תשובה לפי סוג המסך — נוסח האפשרויות, לא מזהים. */
+/** An answer picker per screen type — the option wording, not the ids. */
 function AnswerPicker({
   screen,
   value,
