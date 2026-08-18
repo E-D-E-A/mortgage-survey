@@ -35,6 +35,7 @@ export interface ValidationIssue {
     | 'random-var-values'
     | 'random-var-overwritten'
     | 'unknown-interpolation'
+    | 'unknown-draw-value'
     | 'quota';
   screenId?: string;
   message: string;
@@ -219,6 +220,43 @@ function checkOptionValues(
       code: 'unknown-option',
       screenId,
       message: `תנאי במסך "${screenId}" מחפש את התשובה "${value}" בשאלה "${leaf.q}", אבל אין שם אפשרות כזאת — ${effect}`,
+    });
+  }
+}
+
+/**
+ * A condition that compares a draw against a value the draw cannot produce.
+ *
+ * This is what editing a draw's value looks like from the condition's side: the
+ * list moves on, the condition keeps naming the value that used to be there, and
+ * no respondent will ever hold it again. The branch dies in silence — the same
+ * failure checkOptionValues catches for questions, arriving by a different door.
+ *
+ * ⚠ Only the operators whose value is meant to name one of the draw's values.
+ * `gt` and `lt` compare against a threshold, which is deliberately not one of
+ * them — a price experiment asking "above 100" names no arm at all.
+ */
+function checkDrawValues(
+  screenId: string,
+  leaf: { var: string; op: string; value?: unknown },
+  config: SurveyConfig,
+  issues: ValidationIssue[],
+): void {
+  if (!OPTION_VALUE_OPS.has(leaf.op)) return;
+  const draw = config.randomVars?.[leaf.var];
+  if (!draw) return;
+
+  const known = new Set(draw.map((v) => String(v)));
+  for (const value of Array.isArray(leaf.value) ? leaf.value : [leaf.value]) {
+    if (value === undefined || value === null || known.has(String(value))) continue;
+    // ne is the mirror image, exactly as it is for an option id: a value the draw
+    // cannot produce makes the condition true for everyone, not dead
+    const effect = leaf.op === 'ne' ? 'התנאי יתקיים אצל כל משיב' : 'המסלול הזה לעולם לא ייפתח';
+    issues.push({
+      level: 'error',
+      code: 'unknown-draw-value',
+      screenId,
+      message: `תנאי במסך "${screenId}" מחפש בהגרלה "${leaf.var}" את הערך "${String(value)}", שאינו ברשימת הערכים שלה — ${effect}`,
     });
   }
 }
@@ -500,6 +538,7 @@ export function validateConfig(config: SurveyConfig): ValidationIssue[] {
         });
       }
       if ('q' in leaf) checkOptionValues(s.id, leaf, screens, idToIndex, issues);
+      if ('var' in leaf) checkDrawValues(s.id, leaf, config, issues);
     }
 
     // `{name}` interpolation in the screen text. interpolate leaves the token as

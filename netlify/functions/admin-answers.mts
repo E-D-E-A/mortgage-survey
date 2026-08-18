@@ -99,13 +99,28 @@ export default async (req: Request): Promise<Response> => {
   const rows = (answerRows as ({ total: number | string } & Record<string, unknown>)[]).map(
     ({ total: _total, ...row }) => row,
   );
-  const total = (answerRows as { total: number | string }[])[0]?.total ?? 0;
+  // total rides on the rows, so a page past the end carries no rows and no total
+  // — and the tab would report "0 answers" for a question that has plenty. One
+  // more call, only on that page, recovers the real number.
+  let total = Number((answerRows as { total: number | string }[])[0]?.total ?? 0);
+  if (rows.length === 0 && offset > 0) {
+    const firstPage = await rpc(env, 'open_answers', {
+      ...common,
+      p_screens: screens,
+      p_dim: dim,
+      p_value: value,
+      p_limit: 1,
+      p_offset: 0,
+    });
+    if (firstPage instanceof Response) return firstPage;
+    total = Number((firstPage as { total: number | string }[])[0]?.total ?? 0);
+  }
 
   return json(
     {
       // Metadata only for the screens that were asked for — the rpc returns them all and filtering here is cheaper
       stats: (statsRows as { screen_id: string }[]).filter((s) => requested.has(s.screen_id)),
-      total: Number(total),
+      total,
       rows,
     },
     200,

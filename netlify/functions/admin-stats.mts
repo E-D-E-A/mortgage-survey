@@ -18,13 +18,15 @@
 import { requireAdmin } from './lib/session';
 import { json, rpc, supaHeaders, supabaseEnv } from './lib/supabase';
 import { isValidSlug } from '../../src/data/surveys';
+import type { SurveyConfig } from '../../src/engine/types';
+import { dimensionOptions } from '../../src/admin/dimensions';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 interface VersionRow {
   version: string;
   published_at: string;
-  config: unknown;
+  config: SurveyConfig;
 }
 
 export default async (req: Request): Promise<Response> => {
@@ -66,6 +68,16 @@ export default async (req: Request): Promise<Response> => {
   const version = versionParam === 'all' ? null : versionParam;
   if (version !== null && !versions.some((v) => v.version === version)) {
     return new Response('unknown version', { status: 400 });
+  }
+
+  // The dimension has to be one the console actually offers. The pattern above
+  // only says the name is well formed; on its own it would let an authenticated
+  // caller break the sample down by any session variable the survey happens to
+  // carry — a panel id, say. "The offered dimensions and nothing else" is a rule
+  // of the feature, so it is enforced here rather than only by the dropdown that
+  // draws the menu, and from the same function the dropdown is drawn from.
+  if (by !== null && !dimensionOptions(versions, versionParam).some((d) => d.key === by)) {
+    return new Response('unknown dimension', { status: 400 });
   }
 
   const rpcArgs = { p_survey: survey, p_version: version, p_include_test: includeTest };

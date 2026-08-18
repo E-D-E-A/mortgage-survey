@@ -200,6 +200,14 @@ describe.runIf(dbTestsEnabled)('admin-answers endpoint (ENG-16)', () => {
     expect(last.rows[0].value).not.toBe(first.rows[0].value);
   });
 
+  it('still reports the real total on a page past the last one', async () => {
+    // The count rides along on the rows, so an offset beyond the end returns
+    // neither — and the tab would say a question with 51 answers has none.
+    const body = await (await call('survey=oatest&screens=bulk&limit=10&offset=500', token)).json();
+    expect(body.rows).toHaveLength(0);
+    expect(body.total).toBe(51);
+  });
+
   it('passes the dimension and its value through to the query', async () => {
     const body = await (await call('survey=oatest&screens=why&dim=segment&value=B', token)).json();
     expect(body.rows.map((r: { value: string }) => r.value)).toEqual(['הבירוקרטיה']);

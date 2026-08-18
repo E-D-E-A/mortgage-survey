@@ -469,6 +469,29 @@ describe('removing a draw that is still referenced', () => {
     expect(validateConfig(removeRandomVar(cfg, 'ghost'))).toEqual(validateConfig(cfg));
   });
 
+  it('editing a value out from under a condition is caught by validation', () => {
+    // The console lets a draw's value be edited at any time, deliberately — the
+    // lock is on the code, not the value. So the guard against breaking a
+    // condition this way has to be the validator, not the field.
+    const cfg: SurveyConfig = {
+      version: 't',
+      randomVars: { pitch: ['saving', 'speed'] },
+      screens: [
+        info('a'),
+        info('b', { showIf: { var: 'pitch', op: 'eq', value: 'saving' } }),
+        done,
+      ],
+    };
+    expect(validateConfig(cfg)).toEqual([]);
+
+    const next = setRandomValueAt(cfg, 'pitch', 0, 'save');
+
+    expect(next.randomVars?.pitch).toEqual(['save', 'speed']);
+    const issue = validateConfig(next).find((i) => i.code === 'unknown-draw-value');
+    expect(issue?.screenId).toBe('b');
+    expect(issue?.message).toContain('saving');
+  });
+
   it('finds a reference buried in a nested condition, and flags it after the delete', () => {
     const cfg: SurveyConfig = {
       version: 't',

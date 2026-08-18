@@ -213,6 +213,88 @@ describe('validateConfig · random variables', () => {
     expect(issue?.message).toContain('price');
   });
 
+  it('a condition comparing a draw against a value it cannot produce is an error', () => {
+    // What editing a draw's value looks like from the condition's side: the list
+    // moved on, the condition still names what used to be there, and the branch
+    // is now unreachable for everyone.
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { pitch: ['saving', 'speed'] },
+      screens: [
+        info('a'),
+        info('b', { showIf: { var: 'pitch', op: 'eq', value: 'save' } }),
+        end('e'),
+      ],
+    };
+    const issue = errors(c).find((i) => i.code === 'unknown-draw-value');
+    expect(issue?.screenId).toBe('b');
+    expect(issue?.message).toContain('save');
+    expect(issue?.message).toContain('לעולם לא ייפתח');
+  });
+
+  it('the same mistake under ne makes the condition always true, and says so', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { pitch: ['saving', 'speed'] },
+      screens: [info('a'), info('b', { showIf: { var: 'pitch', op: 'ne', value: 'gone' } }), end('e')],
+    };
+    expect(errors(c).find((i) => i.code === 'unknown-draw-value')?.message).toContain(
+      'יתקיים אצל כל משיב',
+    );
+  });
+
+  it('checks every member of an "in" list against the draw', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { pitch: ['saving', 'speed'] },
+      screens: [
+        info('a'),
+        info('b', { showIf: { var: 'pitch', op: 'in', value: ['saving', 'gone'] } }),
+        end('e'),
+      ],
+    };
+    const found = validateConfig(c).filter((i) => i.code === 'unknown-draw-value');
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain('gone');
+  });
+
+  it('a threshold comparison names no arm and is left alone', () => {
+    // "price above 100" is not trying to name one of the drawn values, and
+    // flagging it would make every numeric experiment unpublishable.
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [79, 149, 249] },
+      screens: [
+        info('a'),
+        info('b', { showIf: { var: 'price', op: 'gt', value: 100 } }),
+        end('e'),
+      ],
+    };
+    expect(codes(c)).not.toContain('unknown-draw-value');
+  });
+
+  it('a numeric drawn value matches a condition written against the number', () => {
+    const c: SurveyConfig = {
+      version: 't',
+      randomVars: { price: [79, 149] },
+      screens: [
+        info('a'),
+        info('b', { showIf: { var: 'price', op: 'eq', value: 79 } }),
+        end('e'),
+      ],
+    };
+    expect(codes(c)).not.toContain('unknown-draw-value');
+  });
+
+  it('a mark that is not a draw is not judged against any value list', () => {
+    const c = cfg([
+      info('a', { onSubmit: [{ var: 'seg', value: 'A' }] }),
+      info('b', { showIf: { var: 'seg', op: 'eq', value: 'whatever' } }),
+      end('e'),
+    ]);
+    expect(codes(c)).not.toContain('unknown-draw-value');
+  });
+
   it('reading a draw in a condition stays clean — only assigning to it is the mistake', () => {
     const c: SurveyConfig = {
       version: 't',

@@ -4,6 +4,10 @@
 
 import type { Screen, SurveyConfig } from '../engine/types';
 import type { BaseStat, DistStat, FunnelStat, StatsOverview, StatsVersion } from './api';
+import { chosenConfig } from './dimensions';
+
+export { chosenConfig, dimensionOptions } from './dimensions';
+export type { DimensionOption } from './dimensions';
 
 export interface OverviewTile {
   key: 'total' | 'completed' | 'screened_out' | 'quota_full' | 'abandoned';
@@ -71,10 +75,6 @@ export interface FunnelRow {
 
 const screenLabel = (s: Screen): string =>
   'prompt' in s && s.prompt ? s.prompt : 'title' in s && s.title ? s.title : s.id;
-
-/** The config that dictates order and labels: the latest under "all versions", or the version selected */
-export const chosenConfig = (versions: StatsVersion[], selected: string): SurveyConfig | undefined =>
-  (selected === 'all' ? versions[0] : versions.find((v) => v.version === selected))?.config;
 
 /**
  * The funnel's row order is set by a config — the events themselves have no
@@ -388,32 +388,6 @@ export function questionCards(
 
 // ─── breakdowns (ENG-18) ────────────────────────────────────────────────────
 
-export interface DimensionOption {
-  key: string;
-  label: string;
-}
-
-/**
- * The dimensions offered for a breakdown: varMeta variables (by their labels),
- * randomVars variables (experiment arms), the arrival source url_source, and the
- * session outcome. Deliberately not every url_* (panel ids = one value per
- * person's worth of cardinality).
- */
-export function dimensionOptions(versions: StatsVersion[], selected: string): DimensionOption[] {
-  const config = chosenConfig(versions, selected);
-  const out: DimensionOption[] = [];
-  const seen = new Set<string>();
-  for (const [key, meta] of Object.entries(config?.varMeta ?? {})) {
-    out.push({ key, label: meta.label || key });
-    seen.add(key);
-  }
-  for (const key of Object.keys(config?.randomVars ?? {})) {
-    if (!seen.has(key)) out.push({ key, label: key });
-  }
-  out.push({ key: 'url_source', label: 'מקור הגעה' });
-  out.push({ key: '_outcome', label: 'תוצאת הסשן' });
-  return out;
-}
 
 /** A dimension the open-answers tab can filter by, with the values it can offer. */
 export interface AnswerFilter {

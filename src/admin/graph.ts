@@ -227,7 +227,7 @@ export function buildFlow(config: SurveyConfig): Flow {
           : target.showIf
             ? describeCondition(target.showIf, screens, meta)
             : rules.length > 0 || k > 0
-              ? 'אחרת' // הענף האחרון של פיצול — גם כשהפיצול נובע מ-showIf בלבד
+              ? 'אחרת' // The last branch of a fork — including a fork that comes from showIf alone
               : '',
         conditional: !sameLane && (Boolean(target.showIf) || rules.length > 0 || k > 0),
         kind: k === 0 ? 'primary' : 'skip',

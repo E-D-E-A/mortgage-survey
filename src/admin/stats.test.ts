@@ -485,7 +485,7 @@ describe('questionCards — matrix', () => {
     expect(advisor.na).toBe(1);
   });
 
-  it('carries the base N from the funnel, like every other card', () => {
+  it('carries the matrix card’s base N from the funnel, like every other card', () => {
     // Every card states how many people answered; a matrix reading its base from
     // its own atom counts would report the item total instead, which for a
     // five-row matrix is five times the number of respondents.
@@ -503,7 +503,7 @@ describe('questionCards — number values', () => {
     ]);
   });
 
-  it('carries the base N from the funnel, like every other card', () => {
+  it('carries the number card’s base N from the funnel, like every other card', () => {
     expect(questionCards(mxDist, mxFunnel, mxVersions, 'all')[1].base).toBe(6);
   });
 });
