@@ -21,6 +21,12 @@ import { DefineForm } from './DefineForm';
 import { makeNaming } from './display';
 import type { SurveyConfig } from '../engine/types';
 
+// Rendering, async state and a stubbed round trip make these slower than a unit
+// test, and vitest's 5s default is sized for unit tests — on a loaded machine
+// that margin ran out and turned a passing test red. `delay: null` also drops
+// user-event's pause between keystrokes, which is most of the cost of typing.
+vi.setConfig({ testTimeout: 15_000 });
+
 // The copy the tests reach for, in one place: a rewording is a one-line fix here
 // rather than a sweep through the file.
 const LABEL_FIELD = 'שם ההגרלה — כך היא תיראה בקונסולה';
@@ -120,7 +126,7 @@ describe('DefineForm', () => {
   });
 
   it('will not create anything until the name has been written', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     expect(screen.getByRole('button', { name: CREATE })).toHaveProperty('disabled', true);
 
@@ -131,7 +137,7 @@ describe('DefineForm', () => {
   it('refuses a code that is not a plain English analysis code', async () => {
     // The rule the data file depends on. Checked through the form because that is
     // the only place it is enforced.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await user.type(screen.getByLabelText(LABEL_FIELD), 'מחיר');
 
@@ -151,7 +157,7 @@ describe('DefineForm', () => {
   });
 
   it('refuses a code another variable already holds', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm();
     await user.type(screen.getByLabelText(LABEL_FIELD), 'מחיר');
     await user.clear(screen.getByLabelText(CODE_FIELD));
@@ -191,7 +197,7 @@ describe('the draws section', () => {
   });
 
   it('creates a draw, and warns that one value is not an experiment', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     let latest: SurveyConfig | undefined;
     render(<EditorHarness initial={bare} onConfig={(c) => (latest = c)} />);
 
@@ -206,7 +212,7 @@ describe('the draws section', () => {
   });
 
   it('stops warning once a second value is there', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const oneValue: SurveyConfig = { ...bare, randomVars: { price: [79] }, varMeta: { price: { label: 'מחיר' } } };
     render(<EditorHarness initial={oneValue} />);
     expect(screen.getByText(TOO_FEW_VALUES)).toBeDefined();
@@ -216,7 +222,7 @@ describe('the draws section', () => {
   });
 
   it('edits a value and keeps it a number, so numeric conditions still compare', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     let latest: SurveyConfig | undefined;
     const two: SurveyConfig = { ...bare, randomVars: { price: [79, 149] }, varMeta: { price: { label: 'מחיר' } } };
     render(<EditorHarness initial={two} onConfig={(c) => (latest = c)} />);
@@ -230,7 +236,7 @@ describe('the draws section', () => {
   });
 
   it('renames a draw and repoints the wording that uses it', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     let latest: SurveyConfig | undefined;
     const used: SurveyConfig = {
       version: 't',
@@ -256,7 +262,7 @@ describe('the draws section', () => {
   it('warns which screens a deletion would break, and names them', async () => {
     // Validation would report the wreckage afterwards. The admin needs to know
     // before they click, which is the only reason this confirmation exists.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const used: SurveyConfig = {
       version: 't',
@@ -280,7 +286,7 @@ describe('the draws section', () => {
   });
 
   it('deletes the draw when the warning is accepted', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     let latest: SurveyConfig | undefined;
     const two: SurveyConfig = { ...bare, randomVars: { price: [79, 149] }, varMeta: { price: { label: 'מחיר' } } };
@@ -307,7 +313,7 @@ describe('the quotas section', () => {
   });
 
   it('stores the ceiling that was typed', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     let latest: SurveyConfig | undefined;
     render(<EditorHarness initial={withMark} onConfig={(c) => (latest = c)} />);
 
@@ -317,7 +323,7 @@ describe('the quotas section', () => {
   });
 
   it('keeps 0 — a closed cell is a real quota, not an empty field', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     let latest: SurveyConfig | undefined;
     render(<EditorHarness initial={withMark} onConfig={(c) => (latest = c)} />);
 
@@ -328,7 +334,7 @@ describe('the quotas section', () => {
   });
 
   it('clearing the field removes the ceiling rather than setting it to nothing', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     let latest: SurveyConfig | undefined;
     const capped: SurveyConfig = {
       ...withMark,

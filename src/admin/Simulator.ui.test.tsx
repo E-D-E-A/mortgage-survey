@@ -16,6 +16,12 @@ import { Simulator } from './Simulator';
 import { makeNaming } from './display';
 import type { Answers, SurveyConfig, Vars } from '../engine/types';
 
+// Rendering, async state and a stubbed round trip make these slower than a unit
+// test, and vitest's 5s default is sized for unit tests — on a loaded machine
+// that margin ran out and turned a passing test red. `delay: null` also drops
+// user-event's pause between keystrokes, which is most of the cost of typing.
+vi.setConfig({ testTimeout: 15_000 });
+
 const config: SurveyConfig = {
   version: 't',
   varMeta: {
@@ -98,7 +104,7 @@ describe('the path check’s quota switches', () => {
   });
 
   it('ticking the switch reroutes the previewed respondent to the quota-full screen', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<SimulatorHarness initialAnswers={{ s_status: 'planning' }} />);
 
     // Open cell: the respondent walks the survey to the end
@@ -112,7 +118,7 @@ describe('the path check’s quota switches', () => {
   it('a filled cell the respondent does not fall into leaves their path alone', async () => {
     // The switch that matters is the one for the value this respondent is marked
     // with — closing any other cell must not turn them away.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<SimulatorHarness initialAnswers={{ s_status: 'planning' }} />);
 
     await user.click(screen.getByRole('checkbox', { name: /פרסונה = בעל דירה/ }));
@@ -121,7 +127,7 @@ describe('the path check’s quota switches', () => {
   });
 
   it('un-ticking it puts the respondent back on the normal path', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<SimulatorHarness initialAnswers={{ s_status: 'planning' }} />);
     const cell = screen.getByRole('checkbox', { name: /פרסונה = זוג צעיר/ });
 
@@ -133,7 +139,7 @@ describe('the path check’s quota switches', () => {
   });
 
   it('the switch state is what the panel renders, so it survives a re-render', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<SimulatorHarness initialAnswers={{ s_status: 'planning' }} />);
     const cell = screen.getByRole('checkbox', { name: /פרסונה = זוג צעיר/ });
 

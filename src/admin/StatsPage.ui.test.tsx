@@ -23,6 +23,12 @@ import userEvent from '@testing-library/user-event';
 import type { OpenAnswersPage, StatsBundle } from './api';
 import type { SurveyConfig } from '../engine/types';
 
+// Rendering, async state and a stubbed round trip make these slower than a unit
+// test, and vitest's 5s default is sized for unit tests — on a loaded machine
+// that margin ran out and turned a passing test red. `delay: null` also drops
+// user-event's pause between keystrokes, which is most of the cost of typing.
+vi.setConfig({ testTimeout: 15_000 });
+
 vi.mock('./supabaseClient', () => ({
   accessToken: async () => 'test-token',
   supabase: { auth: { signOut: vi.fn() } },
@@ -194,7 +200,7 @@ describe('the overview tiles', () => {
 
 describe('the control bar', () => {
   it('asks for one version once the researcher picks it', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     serve();
     renderPage();
     await loaded();
@@ -205,7 +211,7 @@ describe('the control bar', () => {
   });
 
   it('asks for the test sessions only once the toggle is on', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     serve();
     renderPage();
     await loaded();
@@ -219,7 +225,7 @@ describe('the control bar', () => {
   });
 
   it('carries the chosen breakdown through to the request', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     serve();
     renderPage();
     await loaded();
@@ -291,7 +297,7 @@ describe('empty and failed states', () => {
 
 describe('the open-answers tab', () => {
   it('lists the raw text with its session context, under a header that needs no reading', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     serve();
     renderPage();
     await loaded();
@@ -312,7 +318,7 @@ describe('the open-answers tab', () => {
   it('asks the answers endpoint only for the survey’s text questions', async () => {
     // The browser is what knows which screens are open questions — SQL has no
     // notion of a screen type, so sending the wrong list returns the wrong tab.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     serve();
     renderPage();
     await loaded();

@@ -22,6 +22,12 @@ import App from './App';
 import { quotaFullVar } from './engine/quota';
 import type { SurveyConfig, Vars } from './engine/types';
 
+// Rendering, async state and a stubbed round trip make these slower than a unit
+// test, and vitest's 5s default is sized for unit tests — on a loaded machine
+// that margin ran out and turned a passing test red. `delay: null` also drops
+// user-event's pause between keystrokes, which is most of the cost of typing.
+vi.setConfig({ testTimeout: 15_000 });
+
 const PRICES = [79, 149, 249];
 const FULL_YOUNG_COUPLE: Vars = { [quotaFullVar('persona', 'young_couple')]: true };
 
@@ -99,7 +105,7 @@ afterEach(() => {
 
 describe('a drawn value is settled once per session', () => {
   it('shows the same price on every screen the respondent walks through', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<App config={config} quota={{}} />);
 
     expect(pricesOnScreen()).toEqual([79]);
@@ -112,7 +118,7 @@ describe('a drawn value is settled once per session', () => {
   });
 
   it('going back and answering again does not draw a new one', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<App config={config} quota={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'מתחילים' }));
@@ -120,15 +126,19 @@ describe('a drawn value is settled once per session', () => {
     await user.click(screen.getByRole('button', { name: CONTINUE }));
 
     await user.click(screen.getByRole('button', { name: /חזרה לשאלה הקודמת/ }));
+    // Going back runs through history.back(), and jsdom delivers popstate on a
+    // later tick — so wait for the question to actually be back on screen rather
+    // than assuming it already is.
+    const no = await screen.findByRole('radio', { name: 'לא' });
     expect(pricesOnScreen()).toEqual([79]);
 
-    await user.click(screen.getByRole('radio', { name: 'לא' }));
+    await user.click(no);
     await user.click(screen.getByRole('button', { name: CONTINUE }));
     expect(pricesOnScreen()).toEqual([79]);
   });
 
   it('a refresh mid-survey restores the price rather than rolling a new one', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const first = render(<App config={config} quota={{}} />);
     await user.click(screen.getByRole('button', { name: 'מתחילים' }));
     expect(pricesOnScreen()).toEqual([79]);
@@ -145,7 +155,7 @@ describe('the events a session records', () => {
   it('every answer carries the vars as they stand after that screen', async () => {
     // Without this snapshot a session that is abandoned later reads as "unknown"
     // in every breakdown, however far the respondent actually got.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<App config={config} quota={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'מתחילים' }));
@@ -170,7 +180,7 @@ describe('the events a session records', () => {
 
 describe('a full quota, from the respondent’s side', () => {
   it('sends them to the quota-full screen as soon as they are marked', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<App config={config} quota={FULL_YOUNG_COUPLE} />);
 
     await user.click(screen.getByRole('button', { name: 'מתחילים' }));
@@ -182,7 +192,7 @@ describe('a full quota, from the respondent’s side', () => {
   });
 
   it('a respondent whose cell is open finishes the survey as normal', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<App config={config} quota={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'מתחילים' }));
