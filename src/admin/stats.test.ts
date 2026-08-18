@@ -7,7 +7,6 @@ import {
   binNumbers,
   binNumbersByDim,
   dimensionLegend,
-  dimensionOptions,
   formatCount,
   formatDuration,
   formatPercent,
@@ -15,6 +14,7 @@ import {
   overviewTiles,
   questionCards,
 } from './stats';
+import { dimensionOptions } from './dimensions';
 import type { StatsOverview, StatsVersion } from './api';
 import type { SurveyConfig } from '../engine/types';
 

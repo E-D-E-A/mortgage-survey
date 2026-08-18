@@ -19,9 +19,7 @@ import {
   answerFilters,
   binNumbers,
   binNumbersByDim,
-  chosenConfig,
   dimensionLegend,
-  dimensionOptions,
   formatCount,
   formatDuration,
   formatPercent,
@@ -35,6 +33,7 @@ import {
   type QuestionCardModel,
   type SplitSpec,
 } from './stats';
+import { chosenConfig, dimensionOptions } from './dimensions';
 import { LogoutIcon } from './Icons';
 import { supabase } from './supabaseClient';
 

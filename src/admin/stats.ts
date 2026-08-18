@@ -6,9 +6,6 @@ import type { Screen, SurveyConfig } from '../engine/types';
 import type { BaseStat, DistStat, FunnelStat, StatsOverview, StatsVersion } from './api';
 import { chosenConfig } from './dimensions';
 
-export { chosenConfig, dimensionOptions } from './dimensions';
-export type { DimensionOption } from './dimensions';
-
 export interface OverviewTile {
   key: 'total' | 'completed' | 'screened_out' | 'quota_full' | 'abandoned';
   label: string;
