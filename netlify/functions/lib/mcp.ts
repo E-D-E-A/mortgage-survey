@@ -63,27 +63,25 @@ export interface StoredIdempotentResult {
 }
 
 /**
- * The stored result for a key this user has already executed, or null. Expired
- * keys are swept here rather than by a scheduled job — Netlify functions have
- * no scheduler on the free plan, and a sweep on the write path (≤ the write
- * budget per hour) costs nothing that matters.
+ * The stored result for a key this user has already executed on this survey,
+ * or null. Scoped by survey as well as user — the same key sent for a
+ * different survey must execute, not silently replay another survey's result.
+ * Expired rows are excluded here and swept in storeIdempotentResult (i.e. on
+ * executed writes only, which the write budget bounds) — a lookup must stay a
+ * single cheap read, because the caller meters it against the read budget.
  */
 export async function findIdempotentReplay(
   env: SupabaseEnv,
   email: string,
   key: string,
+  survey: string,
 ): Promise<StoredIdempotentResult | Response | null> {
-  const headers = supaHeaders(env.key);
   const cutoff = new Date(Date.now() - IDEMPOTENCY_TTL_HOURS * 3600_000).toISOString();
-  await fetch(
-    `${env.url}/rest/v1/mcp_idempotency_keys?created_at=lt.${encodeURIComponent(cutoff)}`,
-    { method: 'DELETE', headers },
-  );
   const res = await fetch(
     `${env.url}/rest/v1/mcp_idempotency_keys?user_email=eq.${encodeURIComponent(email)}` +
-      `&idem_key=eq.${encodeURIComponent(key)}&created_at=gte.${encodeURIComponent(cutoff)}` +
-      `&select=status,response`,
-    { headers },
+      `&idem_key=eq.${encodeURIComponent(key)}&survey_id=eq.${encodeURIComponent(survey)}` +
+      `&created_at=gte.${encodeURIComponent(cutoff)}&select=status,response`,
+    { headers: supaHeaders(env.key) },
   );
   if (!res.ok) return new Response('upstream error', { status: 502 });
   const rows = (await res.json()) as StoredIdempotentResult[];
@@ -95,6 +93,10 @@ export async function findIdempotentReplay(
  * (two requests racing the same key) is tolerated: the loser's insert conflicts
  * and is ignored, and the optimistic lock on the draft itself already ensured
  * only one of them actually wrote.
+ *
+ * The TTL sweep lives here, on the write path: executed writes are bounded by
+ * the write budget, so the sweep cannot be driven in a loop — putting it on
+ * the replay path handed an unmetered caller a table scan per request.
  */
 export async function storeIdempotentResult(
   env: SupabaseEnv,
@@ -104,6 +106,11 @@ export async function storeIdempotentResult(
   status: number,
   response: unknown,
 ): Promise<void> {
+  const cutoff = new Date(Date.now() - IDEMPOTENCY_TTL_HOURS * 3600_000).toISOString();
+  await fetch(
+    `${env.url}/rest/v1/mcp_idempotency_keys?created_at=lt.${encodeURIComponent(cutoff)}`,
+    { method: 'DELETE', headers: supaHeaders(env.key) },
+  );
   await fetch(
     `${env.url}/rest/v1/mcp_idempotency_keys?on_conflict=user_email,idem_key`,
     {

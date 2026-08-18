@@ -34,7 +34,13 @@ const authFile =
   process.env.SURVEY_MCP_AUTH_FILE ?? join(homedir(), '.mortgage-survey-mcp', 'auth.json');
 
 const auth = new AuthManager({ supabaseUrl, anonKey, loginPort, authFile, log });
-const api = new HttpApiClient(apiUrl, () => auth.token());
+const api = new HttpApiClient(
+  apiUrl,
+  () => auth.token(),
+  // A 401 means the session is dead server-side (revoked, banned) — drop the
+  // cache so the next tool call genuinely re-opens the browser login.
+  () => auth.reset(),
+);
 const server = createSurveyMcpServer({ api });
 
 const transport = new StdioServerTransport();

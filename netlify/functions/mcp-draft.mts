@@ -80,16 +80,19 @@ async function getDraft(
   if (new URL(req.url).searchParams.get('include') !== 'published') return json(draft);
 
   // The published side, for the dry-run code-lock check: how many versions
-  // exist, and the latest one's config. One extra query, only when asked for.
+  // exist, and the latest one's config. One query: limit=1 for the config,
+  // Prefer: count=exact so Content-Range carries the total — fetching every
+  // published config just to count them would move megabytes for a number.
   const pubRes = await fetch(
-    `${env.url}/rest/v1/survey_configs?${scope}&select=version,config&order=published_at.desc`,
-    { headers },
+    `${env.url}/rest/v1/survey_configs?${scope}&select=version,config&order=published_at.desc&limit=1`,
+    { headers: { ...headers, Prefer: 'count=exact' } },
   );
   if (!pubRes.ok) return new Response('upstream error', { status: 502 });
   const published = (await pubRes.json()) as { version: string; config: unknown }[];
+  const total = Number(pubRes.headers.get('content-range')?.split('/')[1] ?? published.length);
   return json({
     ...draft,
-    published_versions: published.length,
+    published_versions: Number.isFinite(total) ? total : published.length,
     latest_published: published.length > 0 ? published[0] : null,
   });
 }
@@ -149,9 +152,14 @@ async function putDraft(
     );
   }
 
-  // Idempotency replay comes before the budget: returning a stored result
-  // executes nothing, so a network-level retry never burns a write.
-  const replay = await findIdempotentReplay(env, email, idemKey);
+  // Every PUT costs a read-budget token up front — including replays. A
+  // replay executes nothing and must not burn a write (that is what makes a
+  // network-level retry safe), but leaving it unmetered handed a loop free
+  // auth checks and DB reads; the read budget is the loop's ceiling.
+  const readLimited = await enforceRateLimit(env, email, 'read');
+  if (readLimited) return readLimited;
+
+  const replay = await findIdempotentReplay(env, email, idemKey, slug);
   if (replay instanceof Response) return replay;
   if (replay) {
     return json(replay.response, replay.status, { 'X-Idempotent-Replay': 'true' });
@@ -161,10 +169,21 @@ async function putDraft(
   if (limited) return limited;
 
   // The validation gate. The console path deliberately skips this (a human may
-  // save mid-edit); the agent path deliberately does not.
-  const issues = validateConfig(config as SurveyConfig);
-  const errors = issues.filter((i) => i.level === 'error');
-  const warnings = issues.filter((i) => i.level === 'warning');
+  // save mid-edit); the agent path deliberately does not. A config the checks
+  // cannot even walk (screens: [null], say) is a 400, not an unhandled crash —
+  // fail closed, but with an answer the client can act on.
+  let errors: ReturnType<typeof validateConfig>;
+  let warnings: ReturnType<typeof validateConfig>;
+  try {
+    const issues = validateConfig(config as SurveyConfig);
+    errors = issues.filter((i) => i.level === 'error');
+    warnings = issues.filter((i) => i.level === 'warning');
+  } catch {
+    return json(
+      { error: 'invalid-request', message: 'הקונפיג אינו במבנה שאפשר בכלל לבדוק — ודאו שכל מסך הוא אובייקט עם id וסוג' },
+      400,
+    );
+  }
   if (errors.length > 0) {
     return json({ error: 'validation', errors, warnings }, 422);
   }
@@ -181,7 +200,14 @@ async function putDraft(
   if (!pubRes.ok) return new Response('upstream error', { status: 502 });
   const publishedRows = (await pubRes.json()) as { config: SurveyConfig }[];
   if (publishedRows.length > 0) {
-    const locked = codeLockViolations(publishedRows[0].config, config as SurveyConfig);
+    let locked: ReturnType<typeof codeLockViolations>;
+    try {
+      locked = codeLockViolations(publishedRows[0].config, config as SurveyConfig);
+    } catch {
+      // A published row the checker cannot walk means pre-existing corruption;
+      // refusing the write is the only safe answer.
+      return new Response('published config unreadable', { status: 500 });
+    }
     if (locked.length > 0) {
       return json(
         {

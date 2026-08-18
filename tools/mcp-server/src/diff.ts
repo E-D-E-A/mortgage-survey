@@ -7,6 +7,7 @@ import {
   makeNaming,
   optionalConditionSentence,
   screenLabel,
+  squash,
   type Naming,
 } from '../../../src/admin/display';
 import type { Screen, SurveyConfig } from '../../../src/engine/types';
@@ -133,15 +134,18 @@ export function diffConfigs(before: SurveyConfig | null, after: SurveyConfig): C
   for (const name of new Set([...Object.keys(metaBefore), ...Object.keys(metaAfter)])) {
     const b = metaBefore[name];
     const a = metaAfter[name];
+    // squash: labels are free text; one line each, no matter what is in them
     if (!b) {
-      metaChanges.push(`נוסף סימון "${a.label}" [${name}]`);
+      metaChanges.push(`נוסף סימון "${squash(a.label)}" [${name}]`);
       continue;
     }
     if (!a) {
-      metaChanges.push(`הוסר סימון "${b.label}" [${name}]`);
+      metaChanges.push(`הוסר סימון "${squash(b.label)}" [${name}]`);
       continue;
     }
-    if (b.label !== a.label) metaChanges.push(`תווית ${name}: "${b.label}" ← "${a.label}"`);
+    if (b.label !== a.label) {
+      metaChanges.push(`תווית ${name}: "${squash(b.label)}" ← "${squash(a.label)}"`);
+    }
     if (stable(b.values) !== stable(a.values)) {
       metaChanges.push(`תוויות הערכים של ${name} השתנו`);
     }

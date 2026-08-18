@@ -247,7 +247,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         'DRY RUN — writes nothing. Takes the full intended config and the base updated_at from get_draft, validates it, checks the analysis-code lock, and returns a structured diff plus a change_id. Show the diff and validation to the user and get explicit confirmation before apply_change.',
       inputSchema: {
         survey: slugSchema,
-        config: configSchema.describe('The complete intended survey config — not a partial patch'),
+        // Deliberately opaque at the SDK layer: zod's object parsing rebuilds
+        // objects and reorders keys, and the config must reach the server
+        // byte-identical to what was composed. The boundary validation runs
+        // in-handler (configSchema.safeParse) against the untouched value.
+        config: z
+          .unknown()
+          .describe('The complete intended SurveyConfig JSON — not a partial patch'),
         base_updated_at: z
           .string()
           .nullable()
@@ -267,6 +273,24 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     guarded(async ({ survey, config, base_updated_at, summary }) => {
+      // Mirror the server's 500KB cap before doing any work — a looping agent
+      // proposing oversized configs should hit a cheap local wall, not fill
+      // the proposal store and then discover the 413 at apply time.
+      if (JSON.stringify(config).length > 500_000) {
+        return errorResult(
+          'Config exceeds the 500KB cap — it would be rejected at apply (413). הקונפיג גדול מ־500KB; יש לצמצם אותו.',
+        );
+      }
+      // Untrusted input: check the load-bearing structure here, but keep using
+      // the ORIGINAL object — parsing output would reorder its keys.
+      const shape = configSchema.safeParse(config);
+      if (!shape.success) {
+        const issues = shape.error.issues
+          .map((i) => `- ${i.path.join('.') || '(root)'}: ${i.message}`)
+          .join('\n');
+        return errorResult(`The config is structurally malformed:\n${issues}`);
+      }
+
       const current = await api.getDraft(survey, true);
       if (!current.ok) return failureResult(current);
 
@@ -349,9 +373,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         survey: z.string(),
         updated_at: z.string(),
       },
+      // destructiveHint stays true (the spec's default): the write REPLACES
+      // the draft revision it was proposed against, and a client that gates
+      // its confirmation UI on this hint must show the prompt. The optimistic
+      // lock narrows what can be lost, but "additive only" would be a lie.
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },

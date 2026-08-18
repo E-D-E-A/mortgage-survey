@@ -9,6 +9,7 @@ import {
   screenKindLabel,
   screenLabel,
   screenRef,
+  squash,
   varLabel,
   varValueLabel,
   type Naming,
@@ -30,8 +31,10 @@ function screenLines(naming: Naming, screen: Screen, index: number): string[] {
     );
   }
   for (const rule of screen.onSubmit ?? []) {
-    const value = varValueLabel(naming, rule.var, rule.value);
-    const base = `   קובע: ${varLabel(naming, rule.var)} = ${value}`;
+    // squash: labels are admin-authored free text; a newline inside one must
+    // not be able to forge extra outline lines
+    const value = squash(varValueLabel(naming, rule.var, rule.value));
+    const base = `   קובע: ${squash(varLabel(naming, rule.var))} = ${value}`;
     lines.push(rule.if ? `${base} אם ${optionalConditionSentence(naming, rule.if)}` : base);
   }
   return lines;
@@ -47,7 +50,7 @@ export function buildOutline(config: SurveyConfig): string {
   if (draws.length > 0) {
     lines.push('', 'הגרלות (A/B):');
     for (const [name, values] of draws) {
-      lines.push(`- ${varLabel(naming, name)} [${name}]: ${values.map(String).join(' / ')}`);
+      lines.push(`- ${squash(varLabel(naming, name))} [${name}]: ${values.map(String).join(' / ')}`);
     }
   }
 
@@ -59,17 +62,18 @@ export function buildOutline(config: SurveyConfig): string {
       const values = Object.entries(meta.values ?? {})
         .map(([code, label]) => {
           const quota = meta.quotas?.[code];
-          return quota === undefined ? `${code}="${label}"` : `${code}="${label}" (מכסה ${quota})`;
+          const clean = squash(label);
+          return quota === undefined ? `${code}="${clean}"` : `${code}="${clean}" (מכסה ${quota})`;
         })
         .join(', ');
-      lines.push(`- ${meta.label} [${name}]${values ? `: ${values}` : ''}`);
+      lines.push(`- ${squash(meta.label)} [${name}]${values ? `: ${values}` : ''}`);
     }
   }
   if (quotas.length > 0) {
     lines.push('', 'מכסות:');
     for (const cell of quotas) {
       lines.push(
-        `- ${varLabel(naming, cell.mark)} = ${varValueLabel(naming, cell.mark, cell.value)}: עד ${cell.limit} משיבים`,
+        `- ${squash(varLabel(naming, cell.mark))} = ${squash(varValueLabel(naming, cell.mark, cell.value))}: עד ${cell.limit} משיבים`,
       );
     }
   }

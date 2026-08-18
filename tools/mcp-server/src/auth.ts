@@ -75,9 +75,14 @@ class FileStorage {
 }
 
 function openBrowser(url: string): void {
+  // win32 does NOT go through `cmd /c start`: cmd splits an unquoted command
+  // line at every `&`, and an OAuth authorize URL is full of them — the
+  // browser would open a truncated URL with no code_challenge. rundll32's
+  // FileProtocolHandler takes the URL as a real argv element, ampersands and
+  // all.
   const [cmd, args] =
     process.platform === 'win32'
-      ? ['cmd', ['/c', 'start', '', url]]
+      ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
       : process.platform === 'darwin'
         ? ['open', [url]]
         : ['xdg-open', [url]];

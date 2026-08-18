@@ -282,6 +282,21 @@ describe('large configs and round-trips', () => {
     expect(JSON.stringify(full.structured.config)).toBe(JSON.stringify(big));
   });
 
+  it('an oversized proposal is refused locally, before it can fill the store', async () => {
+    harness = await connectHarness();
+    const updatedAt = harness.api.seedDraft('demo', baseConfig());
+    const huge = baseConfig();
+    (huge.screens[0] as { body: string }).body = 'ש'.repeat(600_000);
+    const res = await harness.callTool('propose_change', {
+      survey: 'demo',
+      config: huge,
+      base_updated_at: updatedAt,
+      summary: 'גדול מדי',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('500KB');
+  });
+
   it('the server 413 (500KB cap) surfaces clearly', async () => {
     harness = await connectHarness();
     const { changeId } = await proposed();

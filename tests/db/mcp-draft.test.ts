@@ -22,6 +22,7 @@ import { validateConfig } from '../../src/engine/validate';
 import type { SurveyConfig } from '../../src/engine/types';
 
 const SLUG = 'mcptest';
+const SLUG2 = 'mcptest2';
 const ADMIN = 'mcp-admin@first-edea.com';
 const OUTSIDER = 'mcp-outsider@gmail.com';
 
@@ -104,9 +105,9 @@ describe.runIf(dbTestsEnabled)('mcp-draft: the strict agent write path', () => {
   };
 
   const clearState = async () => {
-    await sql`delete from survey_drafts where survey_id = ${SLUG}`;
-    await sql`delete from mcp_idempotency_keys where survey_id = ${SLUG}`;
-    await sql`delete from mcp_audit_log where survey_id = ${SLUG}`;
+    await sql`delete from survey_drafts where survey_id in (${SLUG}, ${SLUG2})`;
+    await sql`delete from mcp_idempotency_keys where survey_id in (${SLUG}, ${SLUG2})`;
+    await sql`delete from mcp_audit_log where survey_id in (${SLUG}, ${SLUG2})`;
     await sql`delete from mcp_rate_limits where true`;
     await sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(732913)`;
@@ -126,6 +127,8 @@ describe.runIf(dbTestsEnabled)('mcp-draft: the strict agent write path', () => {
     await applySchema(sql);
     await sql`insert into surveys (slug, name, created_by)
               values (${SLUG}, 'שאלון MCP', 'test') on conflict (slug) do nothing`;
+    await sql`insert into surveys (slug, name, created_by)
+              values (${SLUG2}, 'שאלון MCP ב', 'test') on conflict (slug) do nothing`;
     await createAdminUser(ADMIN);
     await createAdminUser(OUTSIDER);
     token = await signIn(ADMIN);
@@ -233,6 +236,14 @@ describe.runIf(dbTestsEnabled)('mcp-draft: the strict agent write path', () => {
     expect(row!.config).toEqual(clean());
     const audit = await sql`select * from mcp_audit_log where survey_id = ${SLUG}`;
     expect(audit).toHaveLength(1);
+
+    // The key is scoped per survey: the same key on ANOTHER survey must
+    // execute there, not silently replay this survey's stored result.
+    const other = await put(token, validPut({ idempotency_key: key }), SLUG2);
+    expect(other.status).toBe(200);
+    expect(other.headers.get('X-Idempotent-Replay')).toBeNull();
+    const rows = await sql`select config from survey_drafts where survey_id = ${SLUG2}`;
+    expect(rows).toHaveLength(1);
   });
 
   it('rate limit: writes beyond the hourly budget → 429 with retry-after seconds', async () => {
@@ -256,6 +267,16 @@ describe.runIf(dbTestsEnabled)('mcp-draft: the strict agent write path', () => {
       expect(body.error).toBe('rate-limit');
       expect(body.retry_after_seconds).toBeGreaterThan(0);
       expect(body.retry_after_seconds).toBeLessThanOrEqual(3600);
+
+      // A replay executes nothing, so an exhausted WRITE budget must not block
+      // it — that is what keeps a retry after a network failure safe. It is
+      // metered against the read budget instead (generous here).
+      const [{ idem_key }] = await sql`
+        select idem_key from mcp_idempotency_keys
+        where user_email = ${rlUser} order by created_at asc limit 1`;
+      const replay = await put(rlToken, validPut({ idempotency_key: idem_key as string }));
+      expect(replay.status).toBe(200);
+      expect(replay.headers.get('X-Idempotent-Replay')).toBe('true');
 
       // The budget is per user — the other editor is unaffected. The draft
       // already exists (the rl user created it), so the write needs the

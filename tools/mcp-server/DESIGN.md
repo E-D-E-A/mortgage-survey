@@ -102,10 +102,11 @@ Six tools, annotated accurately:
 - `propose_change` — also `readOnlyHint: true`: it writes nothing anywhere; it
   stages a proposal in process memory. Keeping it read-only is deliberate — the
   approval friction belongs on `apply_change`, the one tool that mutates.
-- `apply_change` — `readOnlyHint: false, destructiveHint: false` (the
-  optimistic lock means it can only replace a draft revision it has seen, never
-  clobber unseen work), `idempotentHint: true` (the change_id doubles as the
-  server-side idempotency key, so a retry cannot double-apply).
+- `apply_change` — `readOnlyHint: false, destructiveHint: true` (the write
+  *replaces* the draft revision it was proposed against — "additive only"
+  would be an overclaim, and a client that gates its confirmation UI on this
+  hint must show the prompt), `idempotentHint: true` (the change_id doubles as
+  the server-side idempotency key, so a retry cannot double-apply).
 
 **Byte-for-byte configs.** `propose_change` accepts `config` as `z.unknown()`
 and validates it in-handler with the boundary schema, keeping the *original*
@@ -151,9 +152,13 @@ where the same `validateConfig` gates it again.
   It fails **closed**: if the counter is unreachable, the request is a 502,
   not a free pass.
 - **Idempotency keys** store only *executed* writes (rejections are
-  deterministic and cheap to recompute). Replay returns the stored response
-  with `X-Idempotent-Replay: true` and burns no write budget. TTL 24h, swept
-  opportunistically on the write path — no scheduler needed.
+  deterministic and cheap to recompute), scoped per `(user, key, survey)` — the
+  same key on another survey executes rather than silently replaying a foreign
+  result. Every PUT is metered against the *read* budget before the replay
+  lookup, and only a fresh execution charges the write budget: a retry after a
+  network failure stays free of write cost, while a replay loop still has a
+  ceiling. TTL 24h, swept on executed writes only (bounded by the write
+  budget), with an index on `created_at` so the sweep is not a table scan.
 - **The audit log** records who/when/survey/revision-before/revision-after plus
   the agent-supplied summary, on every executed write. It has no FK to
   `surveys`: a log that can block a survey delete is not a log.

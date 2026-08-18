@@ -715,6 +715,10 @@ create table if not exists public.mcp_audit_log (
 create index if not exists mcp_audit_survey_idx
   on public.mcp_audit_log (survey_id, created_at desc);
 
+-- The TTL sweep filters on created_at; without this it is a table scan
+create index if not exists mcp_idem_created_idx
+  on public.mcp_idempotency_keys (created_at);
+
 alter table public.mcp_rate_limits      enable row level security;
 alter table public.mcp_idempotency_keys enable row level security;
 alter table public.mcp_audit_log        enable row level security;

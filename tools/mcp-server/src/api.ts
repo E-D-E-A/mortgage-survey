@@ -76,6 +76,13 @@ export class HttpApiClient implements ApiClient {
   constructor(
     private readonly baseUrl: string,
     private readonly token: TokenSource,
+    /**
+     * Called on a 401 so the auth layer can drop its cached session — the
+     * tool's error text promises the NEXT call opens a fresh browser login,
+     * and without this hook a still-unexpired-but-revoked token would keep
+     * being replayed until it aged out.
+     */
+    private readonly onUnauthorized: () => Promise<void> = async () => {},
   ) {}
 
   private async call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
@@ -96,6 +103,7 @@ export class HttpApiClient implements ApiClient {
       body = { message: text };
     }
     if (!res.ok) {
+      if (res.status === 401) await this.onUnauthorized().catch(() => {});
       return { ok: false, status: res.status, body: body as ApiFailure['body'] };
     }
     return { ok: true, data: body as T };
