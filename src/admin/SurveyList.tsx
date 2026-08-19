@@ -199,16 +199,24 @@ function SurveyCard({
               <a href={url} target="_blank" rel="noreferrer" dir="ltr">
                 {url}
               </a>
-              <div className="survey-sources">
-                {LINK_SOURCES.map((source) => (
-                  <CopyLinkButton
-                    key={source.id}
-                    url={sourceLink(url, source)}
-                    label={source.label}
-                    test={source.test}
-                  />
-                ))}
-              </div>
+              {/* An archived survey keeps its link — it still shows the past
+                  respondents where they were — but it accepts nobody new, so
+                  handing it to a channel would spend on a closed door. The link
+                  stays readable; the copy buttons do not. */}
+              {survey.archived_at ? (
+                <span className="a-hint">— בארכיון: הקישור מציג ״השאלון נסגר״ ואינו מקבל משיבים</span>
+              ) : (
+                <div className="survey-sources">
+                  {LINK_SOURCES.map((source) => (
+                    <CopyLinkButton
+                      key={source.id}
+                      url={sourceLink(url, source)}
+                      label={source.label}
+                      test={source.test}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <span className="a-hint">

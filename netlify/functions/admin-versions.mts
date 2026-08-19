@@ -16,10 +16,15 @@
 
 import { requireAdmin } from './lib/session';
 import { json, supaHeaders, supabaseEnv } from './lib/supabase';
-import { isValidSlug } from '../../src/data/surveys';
+import { isValidSlug, MAX_VERSION_CHARS } from '../../src/data/surveys';
 
-/** Matches the console's own cap on a version name (admin-publish builds them). */
-const MAX_VERSION_CHARS = 64;
+
+/**
+ * How many versions the picker asks for. Newest first, so a survey with a long
+ * publish history still gets the ones anybody looks at; the alternative was an
+ * unbounded select that grows for the life of the survey.
+ */
+const LIST_LIMIT = 200;
 
 export default async (req: Request): Promise<Response> => {
   const session = await requireAdmin(req);
@@ -46,7 +51,8 @@ export default async (req: Request): Promise<Response> => {
 
   if (version === null) {
     const res = await fetch(
-      `${env.url}/rest/v1/survey_configs?${scope}&select=version,published_at&order=published_at.desc`,
+      `${env.url}/rest/v1/survey_configs?${scope}&select=version,published_at` +
+        `&order=published_at.desc&limit=${LIST_LIMIT}`,
       { headers },
     );
     if (!res.ok) return new Response('upstream error', { status: 502 });

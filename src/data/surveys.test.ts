@@ -3,6 +3,7 @@ import {
   DEFAULT_SURVEY_SLUG,
   isValidSlug,
   resolveRoute,
+  SURVEY_SLUG_MAX,
   slugify,
   surveyPath,
 } from './surveys';
@@ -72,6 +73,24 @@ describe('surveyPath / resolveRoute', () => {
     expect(resolveRoute('/s/')).toEqual({ kind: 'broken-link' });
     expect(resolveRoute('/s/Bad Slug')).toEqual({ kind: 'broken-link' });
     expect(resolveRoute('/s/%E4%A1')).toEqual({ kind: 'broken-link' });
+  });
+
+  // Two different failures, and only one of them throws. %E4%A1 above is
+  // undecodable, so decodeURIComponent raises and the catch handles it. These
+  // decode perfectly well and are then rejected by isValidSlug — a separate
+  // branch, and the one that would quietly mount a survey under a slug nobody
+  // created if it ever stopped rejecting.
+  it('rejects input that decodes cleanly but is still not a slug', () => {
+    expect(resolveRoute('/s/%20')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/%D7%A9%D7%9C%D7%95%D7%9D')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/-leading-hyphen')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/UPPER')).toEqual({ kind: 'broken-link' });
+  });
+
+  it('applies the slug length limit on the path, not just in isValidSlug', () => {
+    const longest = 'a'.repeat(SURVEY_SLUG_MAX);
+    expect(resolveRoute(`/s/${longest}`)).toEqual({ kind: 'survey', slug: longest });
+    expect(resolveRoute(`/s/${'a'.repeat(SURVEY_SLUG_MAX + 1)}`)).toEqual({ kind: 'broken-link' });
   });
 
   it('routes the console', () => {

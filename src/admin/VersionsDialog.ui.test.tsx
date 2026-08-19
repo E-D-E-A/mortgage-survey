@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { VersionsDialog } from './VersionsDialog';
+import { ApiError } from './api';
 import type { SurveyConfig } from '../engine/types';
 
 vi.setConfig({ testTimeout: 15_000 });
@@ -134,6 +135,108 @@ describe('reading a published version', () => {
     // v2 dropped the age question — the diff has to say so, by name.
     expect(await screen.findByText(/מסכים שהוסרו/)).toBeDefined();
     expect(screen.getByText(/מה גילך\?/)).toBeDefined();
+  });
+
+  // The comparison must read the same way regardless of which side you opened
+  // first. Read backwards, the dropped age question is reported as ADDED — and
+  // "what changed" is the exact question someone opens this to answer.
+  it('reads oldest to newest whichever version was opened first', async () => {
+    const { user } = setup();
+    await user.click(await screen.findByText(V1)); // open the OLDER one
+    await user.selectOptions(await screen.findByLabelText('השוואה מול'), V2);
+    expect(await screen.findByText(/מסכים שהוסרו/)).toBeDefined();
+    expect(screen.queryByText(/מסכים שנוספו/)).toBeNull();
+  });
+});
+
+describe('when there is nothing, or something fails', () => {
+  const renderWith = (draftConfig: SurveyConfig | null = configV2) => {
+    const onRestore = vi.fn();
+    render(
+      <VersionsDialog
+        slug="main"
+        draftConfig={draftConfig}
+        draftDirty={false}
+        onRestore={onRestore}
+        onClose={() => {}}
+      />,
+    );
+    return { user: userEvent.setup(), onRestore };
+  };
+
+  // "Never published" and "the request failed" need different words: one means
+  // wait until you publish, the other means try again.
+  it('tells a never-published survey apart from a failed request', async () => {
+    listVersions.mockRejectedValue(new ApiError(404));
+    renderWith();
+    expect(await screen.findByText(/עדיין לא פורסמה אף גרסה/)).toBeDefined();
+    cleanup();
+
+    listVersions.mockRejectedValue(new Error('network'));
+    renderWith();
+    expect(await screen.findByText(/טעינת רשימת הגרסאות נכשלה/)).toBeDefined();
+  });
+
+  // The list endpoint answers an unpublished survey with an empty array, not a
+  // 404, so the picker used to show the draft row and then simply stop.
+  it('explains an empty list instead of showing nothing', async () => {
+    listVersions.mockResolvedValue([]);
+    renderWith();
+    expect(await screen.findByText(/עדיין לא פורסמה אף גרסה/)).toBeDefined();
+    expect(screen.getByText('טיוטה')).toBeDefined();
+  });
+
+  it('reports a version whose content will not load', async () => {
+    listVersions.mockResolvedValue([{ version: V1, published_at: '2026-08-01T09:00:00Z' }]);
+    getVersion.mockRejectedValue(new Error('boom'));
+    const { user } = renderWith();
+    await user.click(await screen.findByText(V1));
+    expect(await screen.findByText(/טעינת תוכן הגרסה נכשלה/)).toBeDefined();
+  });
+
+  it('reports a comparison that will not load', async () => {
+    listVersions.mockResolvedValue([
+      { version: V2, published_at: '2026-08-09T05:03:02Z' },
+      { version: V1, published_at: '2026-08-01T09:00:00Z' },
+    ]);
+    getVersion.mockResolvedValueOnce({
+      version: V2,
+      published_at: '2026-08-09T05:03:02Z',
+      config: configV2,
+    });
+    const { user } = renderWith();
+    await user.click(await screen.findByText(V2));
+    getVersion.mockRejectedValue(new Error('boom'));
+    await user.selectOptions(await screen.findByLabelText('השוואה מול'), V1);
+    expect(await screen.findByText(/טעינת הגרסאות להשוואה נכשלה/)).toBeDefined();
+  });
+
+  // The state right after a first publish: versions[1] is undefined, and the
+  // dialog reads it directly to label "הקודמת".
+  it('survives a survey with exactly one published version', async () => {
+    listVersions.mockResolvedValue([{ version: V1, published_at: '2026-08-01T09:00:00Z' }]);
+    getVersion.mockResolvedValue({
+      version: V1,
+      published_at: '2026-08-01T09:00:00Z',
+      config: configV1,
+    });
+    renderWith();
+    const row = (await screen.findByText(V1)).closest('article')!;
+    expect(within(row).getByText('פעילה')).toBeDefined();
+    expect(within(row).queryByText('הקודמת')).toBeNull();
+  });
+
+  it('says a draft will be created when the survey has none', async () => {
+    listVersions.mockResolvedValue([{ version: V1, published_at: '2026-08-01T09:00:00Z' }]);
+    getVersion.mockResolvedValue({
+      version: V1,
+      published_at: '2026-08-01T09:00:00Z',
+      config: configV1,
+    });
+    const { user } = renderWith(null);
+    await user.click(await screen.findByText(V1));
+    await user.click(await screen.findByRole('button', { name: 'שחזור לתוך הטיוטה' }));
+    expect(await screen.findByText(/אין עדיין טיוטה — תיווצר אחת/)).toBeDefined();
   });
 });
 

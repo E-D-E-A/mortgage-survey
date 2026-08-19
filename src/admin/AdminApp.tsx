@@ -604,6 +604,7 @@ function Editor({
           <button
             className="a-btn secondary editing-what"
             onClick={() => setVersionsOpen(true)}
+            disabled={draft.phase === 'loading' || draft.phase === 'forbidden'}
             title={
               liveVersion
                 ? `עורכים את הטיוטה. הגרסה שהמשיבים מקבלים עכשיו היא ${liveVersion}`
@@ -837,7 +838,7 @@ function Editor({
           slug={slug}
           draftConfig={config}
           draftDirty={draft.dirty}
-          onRestore={(restored) => draft.update(() => restored)}
+          onRestore={(restored) => draft.replace(restored)}
           onClose={() => setVersionsOpen(false)}
         />
       )}

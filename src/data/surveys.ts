@@ -16,6 +16,17 @@ export const DEFAULT_SURVEY_SLUG = 'main';
 
 export const SURVEY_SLUG_MAX = 40;
 
+/**
+ * The longest a published version name can be.
+ *
+ * ⚠ One definition, because three endpoints depend on agreeing: admin-publish
+ * builds the name and slices to this, config-get and admin-versions accept one
+ * up to this. A reader with a smaller cap than the writer rejects versions that
+ * legitimately exist — and only the long ones, which are the ones carrying a
+ * descriptive label.
+ */
+export const MAX_VERSION_CHARS = 100;
+
 /** Lowercase letters, digits and hyphens; does not start or end with a hyphen. */
 export const SURVEY_SLUG_RE = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;
 

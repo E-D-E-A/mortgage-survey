@@ -140,6 +140,37 @@ describe('per-source copy buttons', () => {
     expect(screen.queryByRole('button', { name: /פייסבוק/ })).toBeNull();
     expect(screen.getByText(/יתחיל לעבוד אחרי פרסום הגרסה הראשונה/)).toBeDefined();
   });
+
+  // An archived survey has published versions, so it used to render a full row
+  // of live-looking copy buttons — for a link that answers "השאלון נסגר".
+  // Spending a channel on that is exactly what these buttons exist to prevent.
+  it('offers no copy buttons for an archived survey, and says why', async () => {
+    const user = userEvent.setup();
+    renderList([{ ...published, archived_at: '2026-08-15T00:00:00Z' }]);
+    // Archived surveys are collapsed behind their own toggle.
+    await user.click(screen.getByRole('button', { name: /ארכיון \(1\)/ }));
+    for (const label of ['פייסבוק', 'ווטסאפ', 'פאנל', 'בדיקה פנימית']) {
+      expect(screen.queryByRole('button', { name: new RegExp(label) })).toBeNull();
+    }
+    expect(screen.getByText(/בארכיון: הקישור מציג/)).toBeDefined();
+    // The link itself stays readable — it is where past respondents went.
+    expect(screen.getByRole('link', { name: `${ORIGIN}/s/main` })).toBeDefined();
+  });
+
+  // The component's own comment promises this degrades quietly: the link is on
+  // screen and can be selected by hand.
+  it('does not break or claim success when the clipboard refuses', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('blocked')) },
+    });
+    renderList();
+    const button = screen.getByRole('button', { name: /פייסבוק/ });
+    await user.click(button);
+    expect(button.textContent).toContain('פייסבוק');
+    expect(button.textContent).not.toContain('✓');
+  });
 });
 
 describe('the public link', () => {

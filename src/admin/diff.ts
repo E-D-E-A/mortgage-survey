@@ -189,8 +189,11 @@ export function diffConfigs(before: SurveyConfig | null, after: SurveyConfig): C
 }
 
 /** The diff as indented Hebrew text — what the model shows the human for confirmation. */
-export function renderDiff(diff: ConfigDiff): string {
-  if (diff.empty) return 'אין הבדל בין ההצעה לטיוטה הנוכחית.';
+export function renderDiff(diff: ConfigDiff, emptyMessage = 'אין הבדל בין השניים.'): string {
+  // The empty case is the one line that cannot be caller-neutral: the MCP flow
+  // is comparing a proposal against the draft, the console is comparing two
+  // published versions. Everything else here reads the same either way.
+  if (diff.empty) return emptyMessage;
   const lines: string[] = [];
   if (diff.screens_added.length > 0) {
     lines.push('מסכים שנוספו:');

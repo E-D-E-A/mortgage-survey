@@ -400,7 +400,7 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         warnings.length > 0 ? `\n\nאזהרות (לא חוסמות):\n${warnings.map((w) => `- ${w.message}`).join('\n')}` : '';
       return textResult(
         `הצעה מוכנה (טרם נשמר דבר). change_id: ${changeId}\n\n` +
-          `תקציר: ${summary}\n\nהשינויים:\n${renderDiff(diff)}${warningText}\n\n` +
+          `תקציר: ${summary}\n\nהשינויים:\n${renderDiff(diff, 'אין הבדל בין ההצעה לטיוטה הנוכחית.')}${warningText}\n\n` +
           'הציגו את השינויים והאזהרות למשתמש וקבלו אישור מפורש לפני apply_change.',
         { ok: true, change_id: changeId, diff, errors: [], warnings, code_lock: [] },
       );

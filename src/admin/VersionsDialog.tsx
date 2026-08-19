@@ -97,13 +97,23 @@ export function VersionsDialog({ slug, draftConfig, draftDirty, onRestore, onClo
     [slug],
   );
 
+  /**
+   * Compares two versions, always oldest → newest.
+   *
+   * ⚠ Not in the order they were picked. A diff read backwards reports removed
+   * screens as added, which is precisely the question someone opens this to
+   * answer — and the heading alone was not enough to stop it being misread.
+   * The list arrives newest-first, so a later index is the older version.
+   */
   const compare = useCallback(
-    async (fromVersion: string, toVersion: string) => {
+    async (a: string, b: string, ordered: VersionSummary[]) => {
       setPane({ view: 'busy' });
+      const indexOf = (v: string) => ordered.findIndex((x) => x.version === v);
+      const [olderVersion, newerVersion] = indexOf(a) > indexOf(b) ? [a, b] : [b, a];
       try {
         const [from, to] = await Promise.all([
-          getVersion(slug, fromVersion),
-          getVersion(slug, toVersion),
+          getVersion(slug, olderVersion),
+          getVersion(slug, newerVersion),
         ]);
         setPane({ view: 'compare', from, to });
       } catch {
@@ -157,6 +167,15 @@ export function VersionsDialog({ slug, draftConfig, draftDirty, onRestore, onClo
 
             {phase.step === 'loading' && <p className="a-hint">טוענים גרסאות…</p>}
             {phase.step === 'error' && <p className="a-hint">{phase.message}</p>}
+            {/* The list endpoint answers an unpublished survey with an empty
+                array, not a 404 — so without this the picker just stopped after
+                the draft row, with nothing saying why. */}
+            {phase.step === 'ready' && versions.length === 0 && (
+              <p className="a-hint">
+                עדיין לא פורסמה אף גרסה. אחרי הפרסום הראשון תופיע כאן כל גרסה, ויהיה אפשר לקרוא
+                אותה, להשוות ולשחזר.
+              </p>
+            )}
 
             {versions.map((v) => (
               <article
@@ -200,8 +219,9 @@ export function VersionsDialog({ slug, draftConfig, draftDirty, onRestore, onClo
                     value={compareWith}
                     onChange={(e) => {
                       setCompareWith(e.target.value);
-                      if (e.target.value) void compare(e.target.value, pane.loaded.version);
+                      if (e.target.value) void compare(e.target.value, pane.loaded.version, versions);
                     }}
+                    title="ההשוואה נקראת תמיד מהישנה לחדשה, ולא לפי סדר הבחירה"
                   >
                     <option value="">— בחרו גרסה —</option>
                     {versions
@@ -254,12 +274,22 @@ export function VersionsDialog({ slug, draftConfig, draftDirty, onRestore, onClo
                   תוכן הגרסה <bdi dir="ltr">{confirmRestore.version}</bdi> ייטען לעורך במקום
                   הטיוטה הנוכחית. הגרסה עצמה לא משתנה, ושום דבר לא מתפרסם.
                 </p>
-                {/* The one case where this loses work: unsaved edits are only in
-                    memory, so there is nothing to go back to once they are replaced. */}
-                {draftDirty && (
+                {/* Two different losses. Unsaved edits are only in memory, so
+                    they go the moment they are replaced. A saved draft survives
+                    the restore in the undo stack — but if it was never
+                    published, saving over it leaves it in no version table and
+                    no draft row, and it is gone for good. */}
+                {draftDirty ? (
                   <p className="dialog-note warning-note">
-                    בטיוטה יש שינויים שלא נשמרו, והם יאבדו. אפשר לסגור, לשמור, ואז לשחזר.
+                    בטיוטה יש שינויים שלא נשמרו, והם יאבדו מיד. אפשר לסגור, לשמור, ואז לשחזר.
                   </p>
+                ) : (
+                  draftConfig && (
+                    <p className="dialog-note warning-note">
+                      תוכן הטיוטה הנוכחית יוחלף. אם הוא לא פורסם מעולם, אחרי שמירה לא תהיה דרך
+                      לחזור אליו — עד לשמירה אפשר לבטל בעזרת ביטול פעולה.
+                    </p>
+                  )
                 )}
                 {!draftConfig && <p className="a-hint">לשאלון הזה אין עדיין טיוטה — תיווצר אחת.</p>}
               </div>
