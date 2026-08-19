@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SURVEY_SLUG,
   isValidSlug,
-  slugFromPath,
+  resolveRoute,
   slugify,
   surveyPath,
 } from './surveys';
@@ -48,23 +48,36 @@ describe('slugify', () => {
   });
 });
 
-describe('surveyPath / slugFromPath', () => {
-  it('keeps the default survey on the original link', () => {
-    expect(surveyPath(DEFAULT_SURVEY_SLUG)).toBe('/');
-    expect(slugFromPath('/')).toBe(DEFAULT_SURVEY_SLUG);
-    expect(slugFromPath('/index.html')).toBe(DEFAULT_SURVEY_SLUG);
+describe('surveyPath / resolveRoute', () => {
+  it('puts every survey under /s/, the default one included', () => {
+    expect(surveyPath(DEFAULT_SURVEY_SLUG)).toBe(`/s/${DEFAULT_SURVEY_SLUG}`);
+    expect(surveyPath('pilot-2')).toBe('/s/pilot-2');
   });
 
   it('round-trips a named survey', () => {
-    expect(surveyPath('pilot-2')).toBe('/s/pilot-2');
-    expect(slugFromPath('/s/pilot-2')).toBe('pilot-2');
-    expect(slugFromPath('/s/pilot-2/')).toBe('pilot-2');
+    expect(resolveRoute('/s/pilot-2')).toEqual({ kind: 'survey', slug: 'pilot-2' });
+    expect(resolveRoute('/s/pilot-2/')).toEqual({ kind: 'survey', slug: 'pilot-2' });
   });
 
-  it('returns null for a broken link instead of silently serving another survey', () => {
-    expect(slugFromPath('/s/')).toBeNull();
-    expect(slugFromPath('/s/Bad Slug')).toBeNull();
-    expect(slugFromPath('/s/%E4%A1')).toBeNull();
+  // The reason this rule exists: App logs session_start on mount, so any path
+  // that resolves to a survey becomes a counted respondent. `/` used to serve
+  // the main survey, and so did every typo and crawler hit.
+  it('never serves a survey from a path that is not /s/<slug>', () => {
+    for (const path of ['/', '/index.html', '/pricing', '/s', '/s/pilot-2/extra', '/admn']) {
+      expect(resolveRoute(path)).toEqual({ kind: 'landing' });
+    }
+  });
+
+  it('marks a malformed /s/ link as broken rather than serving another survey', () => {
+    expect(resolveRoute('/s/')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/Bad Slug')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/%E4%A1')).toEqual({ kind: 'broken-link' });
+  });
+
+  it('routes the console', () => {
+    expect(resolveRoute('/admin')).toEqual({ kind: 'admin' });
+    expect(resolveRoute('/admin/demo')).toEqual({ kind: 'admin' });
+    expect(resolveRoute('/admin/demo/stats')).toEqual({ kind: 'admin' });
   });
 });
 
