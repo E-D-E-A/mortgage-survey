@@ -62,6 +62,44 @@ const errorResult = (text: string): CallToolResult => ({
   isError: true,
 });
 
+/**
+ * The config argument, as an object, whatever shape it arrived in.
+ *
+ * It is declared `z.unknown()` so the SDK hands it over untouched (see the
+ * comment on propose_change's inputSchema). The cost of an untyped parameter
+ * is that its JSON Schema carries no `type`, and a client that decides how to
+ * serialise an argument from its declared type sends the config as JSON *text*
+ * instead of as an object — every propose then dies on "(root): Expected
+ * object, received string" with nothing the caller can do about it.
+ *
+ * Parsing that text here is not a second interpretation of the config: it is
+ * the same bytes the client composed, and JSON.parse preserves their key
+ * order, so the byte-identical round-trip the opacity exists to protect still
+ * holds.
+ */
+function configAsObject(value: unknown): { ok: true; config: unknown } | { ok: false; error: string } {
+  if (typeof value !== 'string') return { ok: true, config: value };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error:
+          'The config arrived as JSON text that does not describe an object. הקונפיג חייב להיות אובייקט JSON מלא.',
+      };
+    }
+    return { ok: true, config: parsed };
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        'The config arrived as text that is not valid JSON: ' +
+        (e instanceof Error ? e.message : String(e)) +
+        '\nהקונפיג הגיע כמחרוזת שאינה JSON תקין.',
+    };
+  }
+}
+
 /** A failed admin-API call, translated into guidance the model can act on. */
 function failureResult(f: ApiFailure): CallToolResult {
   const detail = jsonBlock(f.body);
@@ -251,9 +289,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         // objects and reorders keys, and the config must reach the server
         // byte-identical to what was composed. The boundary validation runs
         // in-handler (configSchema.safeParse) against the untouched value.
+        // Untyped means some clients send it as JSON text; configAsObject
+        // absorbs that without the SDK ever touching the value.
         config: z
           .unknown()
-          .describe('The complete intended SurveyConfig JSON — not a partial patch'),
+          .describe(
+            'The complete intended SurveyConfig JSON — not a partial patch. A JSON object, or the same object as a JSON string.',
+          ),
         base_updated_at: z
           .string()
           .nullable()
@@ -272,7 +314,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    guarded(async ({ survey, config, base_updated_at, summary }) => {
+    guarded(async ({ survey, config: incoming, base_updated_at, summary }) => {
+      // Normalise before the size check — a config sent as text would otherwise
+      // be measured with its quoting and escapes counted in.
+      const asObject = configAsObject(incoming);
+      if (!asObject.ok) return errorResult(asObject.error);
+      const config = asObject.config;
+
       // Mirror the server's 500KB cap before doing any work — a looping agent
       // proposing oversized configs should hit a cheap local wall, not fill
       // the proposal store and then discover the 413 at apply time.
