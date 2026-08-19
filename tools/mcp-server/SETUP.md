@@ -83,6 +83,10 @@ claude mcp add mortgage-survey \
 (`http://localhost:8888`) ולסטאק Supabase המקומי (`npx supabase start`) עם
 מפתחות הדמו הציבוריים — אפשר לבדוק הכול בלי לגעת בענן.
 
+כתובת ה-callback של ההתחברות כבר מוגדרת ב-`supabase/config.toml` לסטאק
+המקומי. כניסת Google מקומית דורשת את ההגדרה החד-פעמית שמתוארת ב-README
+(`SUPABASE_AUTH_GOOGLE_CLIENT_ID/SECRET` ב-`.env` + הפעלה מחדש של הסטאק).
+
 ---
 
 ## התחברות
