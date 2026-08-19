@@ -40,7 +40,12 @@ const CONSENT_ANSWERS: Record<string, string> = {
   declined: 'סירב/ה להשתתף',
 };
 
-function squash(text: string): string {
+/**
+ * One line, bounded length. Exported for the MCP outline/diff renderers: a
+ * label is a single line by contract, and flattening it here means a label
+ * containing newlines can never forge additional lines in a rendered outline.
+ */
+export function squash(text: string): string {
   const clean = text.replace(/\s+/g, ' ').trim();
   return clean.length > MAX_LABEL ? `${clean.slice(0, MAX_LABEL - 1)}…` : clean;
 }

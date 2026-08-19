@@ -16,11 +16,16 @@ const root = new URL('../../', import.meta.url);
 const HEBREW = /[א-ת]/;
 const LATIN = /[A-Za-z]/;
 
+// tools/ hosts nested packages, so their installed/built artifacts must be
+// skipped — a dependency's .d.ts is not ours to police.
+const SKIPPED_DIRS = new Set(['node_modules', 'dist']);
+
 function sources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(new URL(`${dir}/`, root), { withFileTypes: true })) {
     const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory()) sources(path, out);
-    else if (/\.(ts|tsx|mts)$/.test(entry.name)) out.push(path);
+    if (entry.isDirectory()) {
+      if (!SKIPPED_DIRS.has(entry.name)) sources(path, out);
+    } else if (/\.(ts|tsx|mts)$/.test(entry.name)) out.push(path);
   }
   return out;
 }
@@ -34,7 +39,7 @@ function commentBody(line: string): string | null {
 describe('code comments are written in English', () => {
   it('no comment in the source is written in Hebrew', () => {
     const offenders: string[] = [];
-    for (const file of [...sources('src'), ...sources('netlify'), ...sources('tests')]) {
+    for (const file of [...sources('src'), ...sources('netlify'), ...sources('tests'), ...sources('tools')]) {
       readFileSync(new URL(file, root), 'utf8')
         .split(/\r?\n/)
         .forEach((line, i) => {

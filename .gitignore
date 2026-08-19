@@ -20,3 +20,7 @@ docs/
 
 # נוצר ע"י סביבת ה-Edge Functions של Netlify
 deno.lock
+
+# MCP desktop-extension bundles — built by npm run mcp:pack, shared out of band
+*.mcpb
+.mcpb-stage/
