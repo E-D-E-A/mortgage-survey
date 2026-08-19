@@ -8,6 +8,9 @@
   ],
   "scripts": {
     "dev": "vite",
+    "free-ports": "node scripts/free-ports.mjs",
+    "predev:netlify": "node scripts/free-ports.mjs",
+    "dev:netlify": "node scripts/dev-netlify.mjs",
     "build": "tsc --noEmit && tsc -p tsconfig.functions.json && tsc -p tools/mcp-server/tsconfig.json && vite build",
     "mcp:build": "npm run build --workspace tools/mcp-server",
     "mcp:pack": "node scripts/pack-mcpb.mjs",
