@@ -87,14 +87,25 @@ export class HttpApiClient implements ApiClient {
 
   private async call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
     const token = await this.token();
-    const res = await fetch(`${this.baseUrl}/.netlify/functions/${path}`, {
-      ...init,
-      headers: {
-        ...init?.headers,
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/.netlify/functions/${path}`, {
+        ...init,
+        headers: {
+          ...init?.headers,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    } catch (err) {
+      // Name the destination: "fetch failed" alone reads like a server bug,
+      // when nine times out of ten it is SURVEY_API_URL pointing at a
+      // netlify dev that is not running (the localhost default).
+      throw new Error(
+        `cannot reach ${this.baseUrl} (${(err as Error).message}) — ` +
+          'check SURVEY_API_URL: unset means the local netlify dev at localhost:8888',
+      );
+    }
     const text = await res.text();
     let body: unknown;
     try {
