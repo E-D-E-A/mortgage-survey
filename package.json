@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && tsc -p tsconfig.functions.json && tsc -p tools/mcp-server/tsconfig.json && vite build",
     "mcp:build": "npm run build --workspace tools/mcp-server",
+    "mcp:pack": "node scripts/pack-mcpb.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "db:schema": "node scripts/apply-schema.mjs",
