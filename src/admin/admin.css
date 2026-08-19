@@ -1555,6 +1555,21 @@ a.a-btn { text-decoration: none; }
   word-break: break-all;
 }
 
+/* One copy button per channel. The test link sits apart from the real ones —
+   sending it to a respondent would tag genuine answers as a test. */
+.survey-sources {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.survey-sources .copy-test {
+  margin-inline-start: auto;
+  color: var(--warning);
+  border-style: dashed;
+}
+
 .survey-meta { margin: 0; }
 
 .survey-card-actions {
