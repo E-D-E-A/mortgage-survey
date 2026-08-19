@@ -31,6 +31,7 @@ import { Simulator } from './Simulator';
 import { ValidationPanel } from './ValidationPanel';
 import { PanelResizer } from './PanelResizer';
 import { PublishDialog } from './PublishDialog';
+import { VersionsDialog } from './VersionsDialog';
 import { SurveySettings } from './SurveySettings';
 import { CloseIcon, ErrorIcon, LogoutIcon, PanelIcon, RedoIcon, UndoIcon, WarningIcon } from './Icons';
 import './admin.css';
@@ -237,6 +238,7 @@ function Console({ email, onAuthError }: { email: string; onAuthError: () => voi
       // Analysis codes lock on the first publish; until the list has loaded the
       // publish state is unknown and the codes lock. See admin/codeLock.ts.
       codesLocked={codesLockedFor(survey)}
+      liveVersion={survey?.latest_version ?? null}
       email={email}
       onBack={() => {
         void surveys.reload();
@@ -306,6 +308,8 @@ interface EditorProps {
   archived: boolean;
   /** Whether the analysis codes are already locked — that is, whether the survey has ever been published */
   codesLocked: boolean;
+  /** The version respondents are getting right now, or null before the first publish */
+  liveVersion: string | null;
   email: string;
   onBack: () => void;
   onStats: () => void;
@@ -317,6 +321,7 @@ function Editor({
   name,
   archived,
   codesLocked,
+  liveVersion,
   email,
   onBack,
   onStats,
@@ -328,6 +333,7 @@ function Editor({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [publishOpen, setPublishOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   // null = the path check is off. An object (even an empty one) = it is open and
   // marking a path on the diagram.
   const [simAnswers, setSimAnswers] = useState<Answers | null>(null);
@@ -592,6 +598,26 @@ function Editor({
           >
             {draft.saving ? 'שומר…' : 'שמירה'}
           </button>
+          {/* The editor only ever holds the draft, and used to say so nowhere —
+              so there was no way to tell live content from someone's abandoned
+              unpublished work. This states it, and opens the versions. */}
+          <button
+            className="a-btn secondary editing-what"
+            onClick={() => setVersionsOpen(true)}
+            title={
+              liveVersion
+                ? `עורכים את הטיוטה. הגרסה שהמשיבים מקבלים עכשיו היא ${liveVersion}`
+                : 'עורכים את הטיוטה. עדיין לא פורסמה אף גרסה, ולכן הקישור הציבורי לא עובד'
+            }
+          >
+            עורכים: טיוטה
+            {draft.dirty && <span className="chip chip-warning">לא נשמר</span>}
+            {liveVersion && (
+              <span className="chip chip-live" dir="ltr">
+                {liveVersion}
+              </span>
+            )}
+          </button>
           <button
             className="a-btn secondary"
             onClick={() => setSettingsOpen(true)}
@@ -803,6 +829,16 @@ function Editor({
           codesLocked={codesLocked}
           onUpdate={draft.update}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {versionsOpen && (
+        <VersionsDialog
+          slug={slug}
+          draftConfig={config}
+          draftDirty={draft.dirty}
+          onRestore={(restored) => draft.update(() => restored)}
+          onClose={() => setVersionsOpen(false)}
         />
       )}
 

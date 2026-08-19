@@ -2276,3 +2276,85 @@ a.a-btn { text-decoration: none; }
   gap: var(--space-3);
   margin-block-start: var(--space-3);
 }
+
+/* ── Versions dialog ────────────────────────────────────────────────────────
+   A frozen version has no editor and must never get one, so it is read as an
+   outline. The pane scrolls on its own: an outline is as long as the survey. */
+.versions-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: var(--space-3);
+  min-height: 320px;
+  max-height: 60vh;
+}
+
+.versions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  padding-inline-end: var(--space-2);
+  border-inline-end: 1px solid var(--border);
+}
+
+.version-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.version-row.selected { border-color: var(--primary-strong); }
+
+.version-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+  color: inherit;
+  font: inherit;
+}
+
+.version-name { font-weight: 600; word-break: break-all; }
+
+.chip-draft { color: var(--muted); }
+
+.versions-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+}
+
+.versions-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.version-outline {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The editor only ever holds the draft — this is where it says so. */
+.editing-what {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}

@@ -19,8 +19,8 @@ import { screenKindLabel, screenLabel } from '../../../src/admin/display';
 import type { Answers, SurveyConfig, Vars } from '../../../src/engine/types';
 import type { ApiClient, ApiFailure } from './api';
 import { AuthRequiredError } from './auth';
-import { buildOutline } from './outline';
-import { diffConfigs, renderDiff } from './diff';
+import { buildOutline } from '../../../src/admin/outline';
+import { diffConfigs, renderDiff } from '../../../src/admin/diff';
 import { ProposalStore } from './proposals';
 import { configSchema, quotaCellsSchema, seedVarsSchema, slugSchema, summarySchema } from './schema';
 

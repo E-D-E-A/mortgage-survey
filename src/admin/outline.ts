@@ -1,7 +1,10 @@
-// A compact, human-readable Hebrew outline of a survey config — what get_draft
-// hands the model (and through it, the teammate) instead of a wall of JSON.
-// Built with the console's own naming layer (makeNaming / conditionSentence),
-// so the sentences here are the sentences the admin sees in /admin.
+// A compact, human-readable Hebrew outline of a survey config — screens in
+// order, routing and conditions as sentences, draws, marks and quotas.
+//
+// Two callers, one wording: get_draft hands this to the model instead of a wall
+// of JSON, and the console renders a published version with it. That is what
+// makes a frozen version readable at all — there is no editor for one, and
+// there must not be, so the outline IS the read-only view.
 
 import {
   makeNaming,
@@ -13,9 +16,9 @@ import {
   varLabel,
   varValueLabel,
   type Naming,
-} from '../../../src/admin/display';
-import { quotaCells } from '../../../src/engine/quota';
-import type { Screen, SurveyConfig } from '../../../src/engine/types';
+} from './display';
+import { quotaCells } from '../engine/quota';
+import type { Screen, SurveyConfig } from '../engine/types';
 
 function screenLines(naming: Naming, screen: Screen, index: number): string[] {
   const lines: string[] = [`${index + 1}. [${screen.id}] ${screenKindLabel(screen)} — ${screenLabel(screen)}`];

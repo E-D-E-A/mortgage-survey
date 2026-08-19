@@ -99,6 +99,31 @@ export async function getDraft(slug: string): Promise<DraftData> {
   return (await res.json()) as DraftData;
 }
 
+export interface VersionSummary {
+  version: string;
+  published_at: string;
+}
+
+/** Every published version of a survey, newest first. */
+export async function listVersions(slug: string): Promise<VersionSummary[]> {
+  const res = await call(`admin-versions?survey=${encodeURIComponent(slug)}`);
+  if (!res.ok) throw new ApiError(res.status, `versions load failed: ${res.status}`);
+  return ((await res.json()) as { versions: VersionSummary[] }).versions;
+}
+
+export interface PublishedVersion extends VersionSummary {
+  config: SurveyConfig;
+}
+
+/** One published version, content included. Frozen — there is no way to write it back. */
+export async function getVersion(slug: string, version: string): Promise<PublishedVersion> {
+  const res = await call(
+    `admin-versions?survey=${encodeURIComponent(slug)}&version=${encodeURIComponent(version)}`,
+  );
+  if (!res.ok) throw new ApiError(res.status, `version load failed: ${res.status}`);
+  return (await res.json()) as PublishedVersion;
+}
+
 export class ConflictError extends Error {}
 
 /** A save failure that is not 401/403/409 — it carries the status code so we can explain it to the editor. */

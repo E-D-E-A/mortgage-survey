@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { connectHarness, type McpHarness } from './helpers';
 import { baseConfig, goldenConfig } from './fixtures';
-import type { ConfigDiff } from '../../tools/mcp-server/src/diff';
+import type { ConfigDiff } from '../../src/admin/diff';
 
 describe('the golden task: add a persona branch, an A/B draw and a quota', () => {
   let harness: McpHarness;
