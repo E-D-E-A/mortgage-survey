@@ -90,6 +90,24 @@ const manifest = {
 };
 writeFileSync(join(stageDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
+// Tripwire: the bundle must contain no secret. The only secret this repo can
+// even reach is the service_role key — if it is available here (env or .env),
+// prove it did NOT leak into any staged file before packing. The anon key is
+// public by design (it ships in the console's browser bundle); service_role
+// must never travel.
+const serviceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? fromDotEnv('SUPABASE_SERVICE_ROLE_KEY');
+if (serviceKey) {
+  for (const file of ['manifest.json', join('dist', 'index.mjs')]) {
+    if (readFileSync(join(stageDir, file), 'utf8').includes(serviceKey)) {
+      rmSync(stageDir, { recursive: true, force: true });
+      console.error(`ABORT: the service_role key leaked into ${file} — refusing to pack.`);
+      process.exit(1);
+    }
+  }
+  console.log('secret check: service_role key is NOT in the bundle ✓');
+}
+
 execSync(`npx --yes @anthropic-ai/mcpb validate "${join(stageDir, 'manifest.json')}"`, {
   stdio: 'inherit',
 });
