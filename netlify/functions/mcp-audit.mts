@@ -3,7 +3,7 @@
 // is written exclusively by mcp-draft.mts on an executed write.
 
 import { requireAdmin } from './lib/session';
-import { json, supaHeaders, supabaseEnv } from './lib/supabase';
+import { json, supaHeaders, supabaseEnv, upstreamFailure } from './lib/supabase';
 import { enforceRateLimit } from './lib/mcp';
 import { isValidSlug } from '../../src/data/surveys';
 
@@ -42,6 +42,6 @@ export default async (req: Request): Promise<Response> => {
   const res = await fetch(`${env.url}/rest/v1/mcp_audit_log?${filters}`, {
     headers: supaHeaders(env.key),
   });
-  if (!res.ok) return new Response('upstream error', { status: 502 });
+  if (!res.ok) return upstreamFailure(res, 'table', 'mcp_audit_log');
   return json({ entries: await res.json() });
 };

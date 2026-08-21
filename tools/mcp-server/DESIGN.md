@@ -149,8 +149,8 @@ where the same `validateConfig` gates it again.
   statement — a read-then-write in the function would race). Budgets are
   env-tunable (`MCP_WRITE_LIMIT_PER_HOUR`, `MCP_READ_LIMIT_PER_HOUR`); the
   429 body and `Retry-After` header carry the seconds until the window turns.
-  It fails **closed**: if the counter is unreachable, the request is a 502,
-  not a free pass.
+  It fails **closed**: if the counter is unreachable, no request passes — a
+  limiter that fails open is not a limiter.
 - **Idempotency keys** store only *executed* writes (rejections are
   deterministic and cheap to recompute), scoped per `(user, key, survey)` — the
   same key on another survey executes rather than silently replaying a foreign
@@ -161,4 +161,25 @@ where the same `validateConfig` gates it again.
   budget), with an index on `created_at` so the sweep is not a table scan.
 - **The audit log** records who/when/survey/revision-before/revision-after plus
   the agent-supplied summary, on every executed write. It has no FK to
-  `surveys`: a log that can block a survey delete is not a log.
+  `surveys`: a log that can block a survey delete is not a log. The write itself never
+  fails because of it, but a failed log is no longer silent: it comes back as a
+  `warnings` entry on the successful response and the tool repeats it to the
+  user, because the alternative was evidence that existed only in the database
+  logs.
+
+- **A database that is behind the code names itself.** PostgREST answers a
+  missing function or table with `404 PGRST202`/`PGRST205`, which every endpoint
+  used to flatten into `502 upstream error`. That reads as an outage and sends
+  the reader after a paused project or a broken deploy — exactly what happened
+  when `supabase/schema.sql`'s MCP block had never been run against the cloud
+  project and all seven tools were dead. Those two codes are now their own
+  answer: `500` with `error: "schema-drift"`, every missing object enumerated
+  (the rate limiter probes the other MCP tables once it has hit drift, so one
+  failed call reports the whole picture rather than the first wall), and the fix
+  — run `supabase/schema.sql` — in the body. The tool layer turns it into "stop,
+  do not retry, no other tool will work either, here is what a person has to
+  do". Genuine upstream failures stay 502, now carrying the upstream status and
+  the object the call was reaching for. Pinned in
+  `tests/mcp/schema-drift.test.ts`; the repo-side half — every object the code
+  reads is defined in `schema.sql` — is pinned in
+  `tests/sync/schema-objects.test.ts`.

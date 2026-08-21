@@ -16,6 +16,7 @@ import type {
   AuditEntry,
   CreatedSurvey,
   DraftResponse,
+  DraftWriteResult,
   PutDraftBody,
   SurveySummary,
 } from '../../tools/mcp-server/src/api';
@@ -33,6 +34,12 @@ export class FakeApi implements ApiClient {
   writesExecuted = 0;
   /** When set, the next call fails this way instead of (or after) executing */
   failNext: Failure | 'network' | 'network-after-write' | null = null;
+  /**
+   * Best-effort bookkeeping the endpoint could not complete — the audit row or
+   * the idempotency key. The write itself succeeded, so these ride back on a
+   * 200 as warnings rather than turning the call into a failure.
+   */
+  warnOnWrite: string[] | null = null;
   private tick = 0;
 
   private nowIso(): string {
@@ -48,6 +55,12 @@ export class FakeApi implements ApiClient {
 
   seedPublished(slug: string, config: SurveyConfig, version = `2026-08-01.1-${slug}`): void {
     this.published.set(slug, [...(this.published.get(slug) ?? []), { version, config }]);
+  }
+
+  /** The warnings this write carries back, consumed so they apply once. */
+  private takeWarnings(): { warnings?: string[] } {
+    if (!this.warnOnWrite?.length) return {};
+    return { warnings: this.warnOnWrite };
   }
 
   private takeFailure(): Failure | 'network' | null {
@@ -107,7 +120,10 @@ export class FakeApi implements ApiClient {
       summary: `יצירת שאלון חדש "${name}" עם טיוטת שלד`,
       created_at: updated_at,
     });
-    return { ok: true, data: { slug, name, draft_updated_at: updated_at } };
+    return {
+      ok: true,
+      data: { slug, name, draft_updated_at: updated_at, ...this.takeWarnings() },
+    };
   }
 
   async getDraft(slug: string, includePublished: boolean): Promise<ApiResult<DraftResponse>> {
@@ -127,7 +143,7 @@ export class FakeApi implements ApiClient {
     };
   }
 
-  async putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<{ updated_at: string }>> {
+  async putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<DraftWriteResult>> {
     const injected = this.takeFailure();
     if (injected === 'network') throw new Error('fetch failed');
     if (injected) return { ok: false, status: injected.status, body: injected.body };
@@ -179,7 +195,7 @@ export class FakeApi implements ApiClient {
       this.failNext = null;
       throw new Error('socket hang up');
     }
-    return { ok: true, data: response };
+    return { ok: true, data: { ...response, ...this.takeWarnings() } };
   }
 
   async getAudit(

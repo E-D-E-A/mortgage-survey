@@ -80,7 +80,11 @@ async function createSurvey(req: Request, env: SupabaseEnv, email: string): Prom
   // Creation is an MCP write, so it belongs in the same log as every draft
   // write — otherwise a survey appears in the console with no record of who
   // brought it into being. revision_before is null: there was no revision.
-  await recordAudit(env, {
+  //
+  // The log is best-effort (the survey exists either way), but not silent: a
+  // failure comes back as a warning on the successful answer, so an unlogged
+  // creation is visible to the caller rather than only in the database logs.
+  const auditNote = await recordAudit(env, {
     user_email: email,
     survey_id: slug,
     revision_before: null,
@@ -88,5 +92,6 @@ async function createSurvey(req: Request, env: SupabaseEnv, email: string): Prom
     summary: `יצירת שאלון חדש "${name}" עם טיוטת שלד`,
   });
 
-  return json({ slug, name, draft_updated_at: created.draftUpdatedAt });
+  const result = { slug, name, draft_updated_at: created.draftUpdatedAt };
+  return json(auditNote ? { ...result, warnings: [auditNote] } : result);
 }
