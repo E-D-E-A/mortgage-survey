@@ -77,6 +77,21 @@ const errorResult = (text: string): CallToolResult => ({
 });
 
 /**
+ * Best-effort bookkeeping the server could not complete, appended to an
+ * otherwise successful answer. The write happened, so this is not an error —
+ * but it is not nothing either: an unlogged change or an unstored idempotency
+ * key is exactly the kind of half-failure that used to be visible only in the
+ * database logs, and the user has to hear about it from the tool that caused it.
+ */
+function serverWarnings(warnings: string[] | undefined): string {
+  if (!warnings?.length) return '';
+  return (
+    '\n\n⚠️ אזהרות מהשרת (הפעולה עצמה הצליחה) — יש לדווח עליהן למשתמש:\n' +
+    warnings.map((w) => `- ${w}`).join('\n')
+  );
+}
+
+/**
  * The config argument, as an object, whatever shape it arrived in.
  *
  * It is declared `z.unknown()` so the SDK hands it over untouched (see the
@@ -117,6 +132,28 @@ function configAsObject(value: unknown): { ok: true; config: unknown } | { ok: f
 /** A failed admin-API call, translated into guidance the model can act on. */
 function failureResult(f: ApiFailure): CallToolResult {
   const detail = jsonBlock(f.body);
+  // Matched on the error code rather than the status: this is the one failure
+  // whose fix lives outside the running system, and the whole point of the
+  // branch is that the answer travels in the response. Without it a database
+  // that never had supabase/schema.sql applied surfaced as a bare 502 — which
+  // reads as an outage and sends the reader hunting a paused project or a bad
+  // deploy, with the real cause visible only to someone holding the Supabase
+  // logs and the Netlify deploy state.
+  if (f.body.error === 'schema-drift') {
+    const missing = (f.body.missing ?? []).map((o) => `${o.kind} ${o.name}`);
+    return errorResult(
+      `Database schema is behind the code — the server is missing ${missing.join(', ') || 'objects it needs'}. ` +
+        'This is NOT an outage and NOT transient: STOP, do not retry, and do not try other tools — ' +
+        'every tool on this server passes the same gate and will fail identically.\n' +
+        'Tell the user the fix, which only a person with database access can do: ' +
+        'run supabase/schema.sql against the Supabase project (SQL Editor in the dashboard), ' +
+        'or `npm run db:schema` against a local stack. The file is idempotent and safe to re-run.\n' +
+        'בסיס הנתונים אינו מעודכן מול הקוד — חסרים בו אובייקטים שהשרת זקוק להם. ' +
+        'זו אינה תקלה זמנית ואין טעם לנסות שוב או לנסות כלים אחרים. ' +
+        'התיקון: להריץ את supabase/schema.sql מול הפרויקט ב-Supabase.\n' +
+        detail,
+    );
+  }
   if (f.status === 401) {
     return errorResult(
       `Authentication expired or revoked (401). ההתחברות פגה או בוטלה — הקריאה הבאה לכל כלי תפתח דפדפן להתחברות מחדש עם חשבון first-edea.com. אין ולא יהיה שימוש בהרשאה משותפת.\n${detail}`,
@@ -162,6 +199,16 @@ function failureResult(f: ApiFailure): CallToolResult {
   if (f.status === 413) {
     return errorResult(
       `Config too large (413). הקונפיג חורג מ־500KB ולא נשמר — יש לצמצם.\n${detail}`,
+    );
+  }
+  if (f.body.error === 'upstream') {
+    const target = f.body.target as { kind?: string; name?: string } | undefined;
+    const named = target?.name ? ` reaching ${target.kind ?? 'object'} ${target.name}` : '';
+    return errorResult(
+      `The admin API's database call failed${named} (${f.status}). ` +
+        'This one may be transient — report it to the user with the detail below; ' +
+        'if it repeats identically, it is not a blip and the detail names what to look at.\n' +
+        detail,
     );
   }
   return errorResult(`Admin API call failed with status ${f.status}.\n${detail}`);
@@ -267,6 +314,7 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         slug: z.string(),
         name: z.string(),
         draft_updated_at: z.string(),
+        warnings: z.array(z.string()).optional(),
       },
       annotations: {
         readOnlyHint: false,
@@ -282,11 +330,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         `נוצר שאלון "${res.data.name}" (${res.data.slug}) עם טיוטת שלד — מסך פתיחה ומסך סיום בלבד.\n` +
           `מזהה הגרסה של הטיוטה: ${res.data.draft_updated_at}\n` +
           'עכשיו: בנו את השאלון עם propose_change (העבירו את מזהה הגרסה הזה כ־base_updated_at), ' +
-          'הציגו למשתמש את ה-diff, ורק אחרי אישור מפורש קראו ל-apply_change.',
+          'הציגו למשתמש את ה-diff, ורק אחרי אישור מפורש קראו ל-apply_change.' +
+          serverWarnings(res.data.warnings),
         {
           slug: res.data.slug,
           name: res.data.name,
           draft_updated_at: res.data.draft_updated_at,
+          ...(res.data.warnings?.length ? { warnings: res.data.warnings } : {}),
         },
       );
     }),
@@ -487,6 +537,7 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         applied: z.boolean(),
         survey: z.string(),
         updated_at: z.string(),
+        warnings: z.array(z.string()).optional(),
       },
       // destructiveHint stays true (the spec's default): the write REPLACES
       // the draft revision it was proposed against, and a client that gates
@@ -525,8 +576,14 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
       return textResult(
         `הטיוטה נשמרה. עדכון: ${res.data.updated_at} (שאלון "${proposal.survey}").\n` +
           'עכשיו: הריצו simulate_path לכל פרסונה/מסלול שהשינוי נוגע בהם ודווחו למשתמש; ' +
-          'הזכירו למשתמש לעבור על הטיוטה בקונסולת /admin ולפרסם משם — פרסום הוא פעולה אנושית בלבד.',
-        { applied: true, survey: proposal.survey, updated_at: res.data.updated_at },
+          'הזכירו למשתמש לעבור על הטיוטה בקונסולת /admin ולפרסם משם — פרסום הוא פעולה אנושית בלבד.' +
+          serverWarnings(res.data.warnings),
+        {
+          applied: true,
+          survey: proposal.survey,
+          updated_at: res.data.updated_at,
+          ...(res.data.warnings?.length ? { warnings: res.data.warnings } : {}),
+        },
       );
     }),
   );

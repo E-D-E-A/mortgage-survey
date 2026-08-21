@@ -44,6 +44,12 @@ export interface AuditEntry {
   created_at: string;
 }
 
+/** A database object the admin API needs and could not find. */
+export interface MissingDbObject {
+  kind: 'function' | 'table';
+  name: string;
+}
+
 /** A failed call, with whatever structured body the server sent. */
 export interface ApiFailure {
   ok: false;
@@ -56,6 +62,8 @@ export interface ApiFailure {
     errors?: ValidationIssue[];
     warnings?: ValidationIssue[];
     locked?: CodeLockViolation[];
+    /** error: 'schema-drift' — the objects supabase/schema.sql would create */
+    missing?: MissingDbObject[];
     [key: string]: unknown;
   };
 }
@@ -67,13 +75,21 @@ export interface CreatedSurvey {
   name: string;
   /** The skeleton draft's revision token — hand it straight to propose_change. */
   draft_updated_at: string;
+  /** Best-effort bookkeeping that failed; the write itself succeeded. */
+  warnings?: string[];
+}
+
+/** A successful draft write, plus any best-effort bookkeeping that failed with it. */
+export interface DraftWriteResult {
+  updated_at: string;
+  warnings?: string[];
 }
 
 export interface ApiClient {
   listSurveys(): Promise<ApiResult<{ surveys: SurveySummary[] }>>;
   createSurvey(slug: string, name: string): Promise<ApiResult<CreatedSurvey>>;
   getDraft(slug: string, includePublished: boolean): Promise<ApiResult<DraftResponse>>;
-  putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<{ updated_at: string }>>;
+  putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<DraftWriteResult>>;
   getAudit(survey: string | null, limit: number): Promise<ApiResult<{ entries: AuditEntry[] }>>;
 }
 
@@ -144,8 +160,8 @@ export class HttpApiClient implements ApiClient {
     return this.call(`mcp-draft?survey=${encodeURIComponent(slug)}${include}`);
   }
 
-  putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<{ updated_at: string }>> {
-    return this.call(`mcp-draft?survey=${encodeURIComponent(slug)}`, {
+  putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<DraftWriteResult>> {
+    return this.call<DraftWriteResult>(`mcp-draft?survey=${encodeURIComponent(slug)}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });

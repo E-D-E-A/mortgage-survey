@@ -25,7 +25,7 @@
 // survey deletion — publishing stays a human action in /admin.
 
 import { requireAdmin } from './lib/session';
-import { json, supaHeaders, supabaseEnv, type SupabaseEnv } from './lib/supabase';
+import { json, supaHeaders, supabaseEnv, upstreamFailure, type SupabaseEnv } from './lib/supabase';
 import {
   enforceRateLimit,
   findIdempotentReplay,
@@ -73,7 +73,7 @@ async function getDraft(
     `${env.url}/rest/v1/survey_drafts?${scope}&select=config,updated_at`,
     { headers },
   );
-  if (!res.ok) return new Response('upstream error', { status: 502 });
+  if (!res.ok) return upstreamFailure(res, 'table', 'survey_drafts');
   const rows = (await res.json()) as { config: unknown; updated_at: string }[];
   const draft = rows.length > 0 ? rows[0] : { config: null, updated_at: null };
 
@@ -87,7 +87,7 @@ async function getDraft(
     `${env.url}/rest/v1/survey_configs?${scope}&select=version,config&order=published_at.desc&limit=1`,
     { headers: { ...headers, Prefer: 'count=exact' } },
   );
-  if (!pubRes.ok) return new Response('upstream error', { status: 502 });
+  if (!pubRes.ok) return upstreamFailure(pubRes, 'table', 'survey_configs');
   const published = (await pubRes.json()) as { version: string; config: unknown }[];
   const total = Number(pubRes.headers.get('content-range')?.split('/')[1] ?? published.length);
   return json({
@@ -197,7 +197,7 @@ async function putDraft(
     `${env.url}/rest/v1/survey_configs?${scope}&select=config&order=published_at.desc&limit=1`,
     { headers },
   );
-  if (!pubRes.ok) return new Response('upstream error', { status: 502 });
+  if (!pubRes.ok) return upstreamFailure(pubRes, 'table', 'survey_configs');
   const publishedRows = (await pubRes.json()) as { config: SurveyConfig }[];
   if (publishedRows.length > 0) {
     let locked: ReturnType<typeof codeLockViolations>;
@@ -238,7 +238,7 @@ async function putDraft(
       }
       return conflictWithCurrent(env, slug);
     }
-    if (!res.ok) return new Response('upstream error', { status: 502 });
+    if (!res.ok) return upstreamFailure(res, 'table', 'survey_drafts');
     return finishWrite(env, email, idemKey, slug, null, now, summary as string);
   }
 
@@ -250,7 +250,7 @@ async function putDraft(
       body: JSON.stringify({ config, updated_at: now, updated_by: email }),
     },
   );
-  if (!res.ok) return new Response('upstream error', { status: 502 });
+  if (!res.ok) return upstreamFailure(res, 'table', 'survey_drafts');
   const updated = (await res.json()) as unknown[];
   if (updated.length === 0) return conflictWithCurrent(env, slug);
 
@@ -279,6 +279,18 @@ async function conflictWithCurrent(env: SupabaseEnv, slug: string): Promise<Resp
   );
 }
 
+/**
+ * The draft is written; the audit row and the idempotency key are not part of
+ * that promise. Both stay best-effort — failing the request here would tell the
+ * client the draft was not saved when it was — but their failures now travel
+ * back in `warnings` instead of only into the database logs. A caller that has
+ * no access to those logs still learns that this write went unlogged, or that
+ * the safe-retry guarantee it was given no longer holds.
+ *
+ * The STORED response deliberately omits the warnings: they describe what
+ * happened on this attempt, and replaying the key a day later must not repeat
+ * them as if they had just occurred.
+ */
 async function finishWrite(
   env: SupabaseEnv,
   email: string,
@@ -288,7 +300,7 @@ async function finishWrite(
   after: string,
   summary: string,
 ): Promise<Response> {
-  await recordAudit(env, {
+  const auditNote = await recordAudit(env, {
     user_email: email,
     survey_id: slug,
     revision_before: before,
@@ -296,6 +308,7 @@ async function finishWrite(
     summary: summary.trim(),
   });
   const response = { updated_at: after };
-  await storeIdempotentResult(env, email, idemKey, slug, 200, response);
-  return json(response);
+  const idemNote = await storeIdempotentResult(env, email, idemKey, slug, 200, response);
+  const warnings = [auditNote, idemNote].filter((n): n is string => n !== null);
+  return json(warnings.length > 0 ? { ...response, warnings } : response);
 }
