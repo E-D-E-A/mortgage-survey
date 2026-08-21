@@ -1,8 +1,11 @@
-// The MCP server: six small tools over the admin API, shaped for the
-// propose→confirm→apply flow. Deliberately absent: publish, archive, delete —
-// not blocked, but unbuildable from here; no code path in this package or in
-// the endpoints it calls can reach survey_configs or survey rows. Publishing
-// stays a human action in /admin.
+// The MCP server: seven small tools over the admin API, shaped for the
+// propose→confirm→apply flow. create_survey is the one survey-management verb
+// here — it inserts a survey row and a skeleton draft, so a questionnaire can
+// be built end to end from a chat rather than starting with a manual step in
+// the console. Deliberately absent: publish, archive, rename, delete — not
+// blocked, but unbuildable from here; no code path in this package or in the
+// endpoints it calls can reach survey_configs, or update or remove a survey row
+// once it exists. Publishing stays a human action in /admin.
 //
 // The server is constructed around an injected ApiClient so the integration
 // tests can drive every tool — full flows and every edge case — through the
@@ -22,7 +25,14 @@ import { AuthRequiredError } from './auth';
 import { buildOutline } from '../../../src/admin/outline';
 import { diffConfigs, renderDiff } from '../../../src/admin/diff';
 import { ProposalStore } from './proposals';
-import { configSchema, quotaCellsSchema, seedVarsSchema, slugSchema, summarySchema } from './schema';
+import {
+  configSchema,
+  quotaCellsSchema,
+  seedVarsSchema,
+  slugSchema,
+  summarySchema,
+  surveyNameSchema,
+} from './schema';
 
 /** Above this size get_draft returns the outline only, unless full JSON is asked for. */
 const INLINE_CONFIG_LIMIT_CHARS = 60_000;
@@ -41,9 +51,13 @@ user-facing messages are Hebrew. Follow this workflow strictly:
 4. apply_change applies exactly the proposed config (hash-verified), with optimistic
    locking. After a successful apply, run simulate_path for each persona or path the
    change affects and report the resulting screen sequences to the user.
-5. Drafts only: this server cannot publish, archive, or delete surveys — those are human
-   actions in the /admin console. After applying, remind the user to review the draft in
-   /admin and publish it themselves.
+5. create_survey makes a new survey and its skeleton draft, and it writes IMMEDIATELY —
+   there is no dry run and no undo from here. Take the slug and the Hebrew name from the
+   user; never invent either. It returns the draft's revision token, which you pass
+   straight to propose_change as base_updated_at when you fill in the questionnaire.
+6. Drafts and new surveys only: this server cannot publish, archive, rename or delete a
+   survey — those are human actions in the /admin console. After applying, remind the user
+   to review the draft in /admin and publish it themselves.
 
 Error handling: on a draft conflict (someone saved concurrently), re-fetch with get_draft
 and re-propose — never merge blindly. On a code-lock rejection, explain that analysis
@@ -128,6 +142,16 @@ function failureResult(f: ApiFailure): CallToolResult {
     const names = (f.body.locked ?? []).map((v) => (v.value ? `${v.name}=${v.value}` : v.name));
     return errorResult(
       `Code lock (409). קודי אנליזה נעולים: ${names.join(', ')}. מהפרסום הראשון של שאלון אסור לשנות או למחוק קוד של סימון, הגרלה או ערך — תשובות שכבר נאספו רשומות תחת הקודים האלה, ושינוי היה מנתק אותן. אפשר להוסיף קודים חדשים; אי אפשר לשנות קיימים.\n${detail}`,
+    );
+  }
+  if (f.status === 409 && f.body.error === 'slug-exists') {
+    return errorResult(
+      `Slug already taken (409). כבר קיים שאלון עם המזהה הזה. אל תיצרו אותו שוב — בקשו מהמשתמש מזהה אחר, או המשיכו לערוך את השאלון הקיים עם get_draft.\n${detail}`,
+    );
+  }
+  if (f.status === 400) {
+    return errorResult(
+      `Rejected by the server (400) — the arguments did not pass its own checks. תקנו את הארגומנטים לפי ההודעה ונסו שוב.\n${detail}`,
     );
   }
   if (f.status === 422) {
@@ -222,6 +246,49 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         return `- ${s.slug}: "${s.name}"${archived} — ${status}${s.has_draft ? `; טיוטה עודכנה ${s.draft_updated_at}` : '; אין טיוטה'}`;
       });
       return textResult(lines.join('\n') || 'אין שאלונים.', { surveys: res.data.surveys });
+    }),
+  );
+
+  server.registerTool(
+    'create_survey',
+    {
+      title: 'יצירת שאלון חדש',
+      description:
+        'Creates a new survey and its skeleton draft — one opening screen and one end screen — ' +
+        'and returns the draft revision token to pass to propose_change as base_updated_at. ' +
+        'WRITES IMMEDIATELY: there is no dry run and no undo from this server, so take the slug ' +
+        'and the Hebrew name from the user and never invent them. Build the questionnaire itself ' +
+        'afterwards with propose_change and apply_change.',
+      inputSchema: {
+        survey: slugSchema,
+        name: surveyNameSchema,
+      },
+      outputSchema: {
+        slug: z.string(),
+        name: z.string(),
+        draft_updated_at: z.string(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    guarded(async ({ survey, name }) => {
+      const res = await api.createSurvey(survey, name);
+      if (!res.ok) return failureResult(res);
+      return textResult(
+        `נוצר שאלון "${res.data.name}" (${res.data.slug}) עם טיוטת שלד — מסך פתיחה ומסך סיום בלבד.\n` +
+          `מזהה הגרסה של הטיוטה: ${res.data.draft_updated_at}\n` +
+          'עכשיו: בנו את השאלון עם propose_change (העבירו את מזהה הגרסה הזה כ־base_updated_at), ' +
+          'הציגו למשתמש את ה-diff, ורק אחרי אישור מפורש קראו ל-apply_change.',
+        {
+          slug: res.data.slug,
+          name: res.data.name,
+          draft_updated_at: res.data.draft_updated_at,
+        },
+      );
     }),
   );
 
