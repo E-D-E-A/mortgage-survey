@@ -1,7 +1,11 @@
-// A structured diff between the current draft and a proposed config — the
-// heart of the propose→confirm→apply flow. The human confirms what they can
-// read, so condition changes are rendered as the same Hebrew sentences the
-// console shows (conditionSentence), never as raw JSON.
+// A structured diff between two survey configs, rendered as the same Hebrew
+// sentences the console shows (conditionSentence) rather than raw JSON —
+// because a human confirms what they can read.
+//
+// One implementation, two callers on purpose: the MCP server's
+// propose→confirm→apply flow, and the console's version comparison. If they
+// each had their own, the agent and the console could describe the same change
+// differently, and the one you trusted would be whichever you happened to open.
 
 import {
   makeNaming,
@@ -9,8 +13,8 @@ import {
   screenLabel,
   squash,
   type Naming,
-} from '../../../src/admin/display';
-import type { Screen, SurveyConfig } from '../../../src/engine/types';
+} from './display';
+import type { Screen, SurveyConfig } from '../engine/types';
 
 export interface ScreenChange {
   id: string;
@@ -185,8 +189,11 @@ export function diffConfigs(before: SurveyConfig | null, after: SurveyConfig): C
 }
 
 /** The diff as indented Hebrew text — what the model shows the human for confirmation. */
-export function renderDiff(diff: ConfigDiff): string {
-  if (diff.empty) return 'אין הבדל בין ההצעה לטיוטה הנוכחית.';
+export function renderDiff(diff: ConfigDiff, emptyMessage = 'אין הבדל בין השניים.'): string {
+  // The empty case is the one line that cannot be caller-neutral: the MCP flow
+  // is comparing a proposal against the draft, the console is comparing two
+  // published versions. Everything else here reads the same either way.
+  if (diff.empty) return emptyMessage;
   const lines: string[] = [];
   if (diff.screens_added.length > 0) {
     lines.push('מסכים שנוספו:');

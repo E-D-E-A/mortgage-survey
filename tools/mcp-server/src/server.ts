@@ -1,8 +1,11 @@
-// The MCP server: six small tools over the admin API, shaped for the
-// propose→confirm→apply flow. Deliberately absent: publish, archive, delete —
-// not blocked, but unbuildable from here; no code path in this package or in
-// the endpoints it calls can reach survey_configs or survey rows. Publishing
-// stays a human action in /admin.
+// The MCP server: seven small tools over the admin API, shaped for the
+// propose→confirm→apply flow. create_survey is the one survey-management verb
+// here — it inserts a survey row and a skeleton draft, so a questionnaire can
+// be built end to end from a chat rather than starting with a manual step in
+// the console. Deliberately absent: publish, archive, rename, delete — not
+// blocked, but unbuildable from here; no code path in this package or in the
+// endpoints it calls can reach survey_configs, or update or remove a survey row
+// once it exists. Publishing stays a human action in /admin.
 //
 // The server is constructed around an injected ApiClient so the integration
 // tests can drive every tool — full flows and every edge case — through the
@@ -19,10 +22,17 @@ import { screenKindLabel, screenLabel } from '../../../src/admin/display';
 import type { Answers, SurveyConfig, Vars } from '../../../src/engine/types';
 import type { ApiClient, ApiFailure } from './api';
 import { AuthRequiredError } from './auth';
-import { buildOutline } from './outline';
-import { diffConfigs, renderDiff } from './diff';
+import { buildOutline } from '../../../src/admin/outline';
+import { diffConfigs, renderDiff } from '../../../src/admin/diff';
 import { ProposalStore } from './proposals';
-import { configSchema, quotaCellsSchema, seedVarsSchema, slugSchema, summarySchema } from './schema';
+import {
+  configSchema,
+  quotaCellsSchema,
+  seedVarsSchema,
+  slugSchema,
+  summarySchema,
+  surveyNameSchema,
+} from './schema';
 
 /** Above this size get_draft returns the outline only, unless full JSON is asked for. */
 const INLINE_CONFIG_LIMIT_CHARS = 60_000;
@@ -41,9 +51,13 @@ user-facing messages are Hebrew. Follow this workflow strictly:
 4. apply_change applies exactly the proposed config (hash-verified), with optimistic
    locking. After a successful apply, run simulate_path for each persona or path the
    change affects and report the resulting screen sequences to the user.
-5. Drafts only: this server cannot publish, archive, or delete surveys — those are human
-   actions in the /admin console. After applying, remind the user to review the draft in
-   /admin and publish it themselves.
+5. create_survey makes a new survey and its skeleton draft, and it writes IMMEDIATELY —
+   there is no dry run and no undo from here. Take the slug and the Hebrew name from the
+   user; never invent either. It returns the draft's revision token, which you pass
+   straight to propose_change as base_updated_at when you fill in the questionnaire.
+6. Drafts and new surveys only: this server cannot publish, archive, rename or delete a
+   survey — those are human actions in the /admin console. After applying, remind the user
+   to review the draft in /admin and publish it themselves.
 
 Error handling: on a draft conflict (someone saved concurrently), re-fetch with get_draft
 and re-propose — never merge blindly. On a code-lock rejection, explain that analysis
@@ -61,6 +75,44 @@ const errorResult = (text: string): CallToolResult => ({
   content: [{ type: 'text', text }],
   isError: true,
 });
+
+/**
+ * The config argument, as an object, whatever shape it arrived in.
+ *
+ * It is declared `z.unknown()` so the SDK hands it over untouched (see the
+ * comment on propose_change's inputSchema). The cost of an untyped parameter
+ * is that its JSON Schema carries no `type`, and a client that decides how to
+ * serialise an argument from its declared type sends the config as JSON *text*
+ * instead of as an object — every propose then dies on "(root): Expected
+ * object, received string" with nothing the caller can do about it.
+ *
+ * Parsing that text here is not a second interpretation of the config: it is
+ * the same bytes the client composed, and JSON.parse preserves their key
+ * order, so the byte-identical round-trip the opacity exists to protect still
+ * holds.
+ */
+function configAsObject(value: unknown): { ok: true; config: unknown } | { ok: false; error: string } {
+  if (typeof value !== 'string') return { ok: true, config: value };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error:
+          'The config arrived as JSON text that does not describe an object. הקונפיג חייב להיות אובייקט JSON מלא.',
+      };
+    }
+    return { ok: true, config: parsed };
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        'The config arrived as text that is not valid JSON: ' +
+        (e instanceof Error ? e.message : String(e)) +
+        '\nהקונפיג הגיע כמחרוזת שאינה JSON תקין.',
+    };
+  }
+}
 
 /** A failed admin-API call, translated into guidance the model can act on. */
 function failureResult(f: ApiFailure): CallToolResult {
@@ -90,6 +142,16 @@ function failureResult(f: ApiFailure): CallToolResult {
     const names = (f.body.locked ?? []).map((v) => (v.value ? `${v.name}=${v.value}` : v.name));
     return errorResult(
       `Code lock (409). קודי אנליזה נעולים: ${names.join(', ')}. מהפרסום הראשון של שאלון אסור לשנות או למחוק קוד של סימון, הגרלה או ערך — תשובות שכבר נאספו רשומות תחת הקודים האלה, ושינוי היה מנתק אותן. אפשר להוסיף קודים חדשים; אי אפשר לשנות קיימים.\n${detail}`,
+    );
+  }
+  if (f.status === 409 && f.body.error === 'slug-exists') {
+    return errorResult(
+      `Slug already taken (409). כבר קיים שאלון עם המזהה הזה. אל תיצרו אותו שוב — בקשו מהמשתמש מזהה אחר, או המשיכו לערוך את השאלון הקיים עם get_draft.\n${detail}`,
+    );
+  }
+  if (f.status === 400) {
+    return errorResult(
+      `Rejected by the server (400) — the arguments did not pass its own checks. תקנו את הארגומנטים לפי ההודעה ונסו שוב.\n${detail}`,
     );
   }
   if (f.status === 422) {
@@ -188,6 +250,49 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
   );
 
   server.registerTool(
+    'create_survey',
+    {
+      title: 'יצירת שאלון חדש',
+      description:
+        'Creates a new survey and its skeleton draft — one opening screen and one end screen — ' +
+        'and returns the draft revision token to pass to propose_change as base_updated_at. ' +
+        'WRITES IMMEDIATELY: there is no dry run and no undo from this server, so take the slug ' +
+        'and the Hebrew name from the user and never invent them. Build the questionnaire itself ' +
+        'afterwards with propose_change and apply_change.',
+      inputSchema: {
+        survey: slugSchema,
+        name: surveyNameSchema,
+      },
+      outputSchema: {
+        slug: z.string(),
+        name: z.string(),
+        draft_updated_at: z.string(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    guarded(async ({ survey, name }) => {
+      const res = await api.createSurvey(survey, name);
+      if (!res.ok) return failureResult(res);
+      return textResult(
+        `נוצר שאלון "${res.data.name}" (${res.data.slug}) עם טיוטת שלד — מסך פתיחה ומסך סיום בלבד.\n` +
+          `מזהה הגרסה של הטיוטה: ${res.data.draft_updated_at}\n` +
+          'עכשיו: בנו את השאלון עם propose_change (העבירו את מזהה הגרסה הזה כ־base_updated_at), ' +
+          'הציגו למשתמש את ה-diff, ורק אחרי אישור מפורש קראו ל-apply_change.',
+        {
+          slug: res.data.slug,
+          name: res.data.name,
+          draft_updated_at: res.data.draft_updated_at,
+        },
+      );
+    }),
+  );
+
+  server.registerTool(
     'get_draft',
     {
       title: 'טעינת טיוטה',
@@ -251,9 +356,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         // objects and reorders keys, and the config must reach the server
         // byte-identical to what was composed. The boundary validation runs
         // in-handler (configSchema.safeParse) against the untouched value.
+        // Untyped means some clients send it as JSON text; configAsObject
+        // absorbs that without the SDK ever touching the value.
         config: z
           .unknown()
-          .describe('The complete intended SurveyConfig JSON — not a partial patch'),
+          .describe(
+            'The complete intended SurveyConfig JSON — not a partial patch. A JSON object, or the same object as a JSON string.',
+          ),
         base_updated_at: z
           .string()
           .nullable()
@@ -272,7 +381,13 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    guarded(async ({ survey, config, base_updated_at, summary }) => {
+    guarded(async ({ survey, config: incoming, base_updated_at, summary }) => {
+      // Normalise before the size check — a config sent as text would otherwise
+      // be measured with its quoting and escapes counted in.
+      const asObject = configAsObject(incoming);
+      if (!asObject.ok) return errorResult(asObject.error);
+      const config = asObject.config;
+
       // Mirror the server's 500KB cap before doing any work — a looping agent
       // proposing oversized configs should hit a cheap local wall, not fill
       // the proposal store and then discover the 413 at apply time.
@@ -352,7 +467,7 @@ export function createSurveyMcpServer({ api, proposals = new ProposalStore() }: 
         warnings.length > 0 ? `\n\nאזהרות (לא חוסמות):\n${warnings.map((w) => `- ${w.message}`).join('\n')}` : '';
       return textResult(
         `הצעה מוכנה (טרם נשמר דבר). change_id: ${changeId}\n\n` +
-          `תקציר: ${summary}\n\nהשינויים:\n${renderDiff(diff)}${warningText}\n\n` +
+          `תקציר: ${summary}\n\nהשינויים:\n${renderDiff(diff, 'אין הבדל בין ההצעה לטיוטה הנוכחית.')}${warningText}\n\n` +
           'הציגו את השינויים והאזהרות למשתמש וקבלו אישור מפורש לפני apply_change.',
         { ok: true, change_id: changeId, diff, errors: [], warnings, code_lock: [] },
       );

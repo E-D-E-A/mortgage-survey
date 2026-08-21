@@ -62,8 +62,16 @@ export interface ApiFailure {
 
 export type ApiResult<T> = { ok: true; data: T } | ApiFailure;
 
+export interface CreatedSurvey {
+  slug: string;
+  name: string;
+  /** The skeleton draft's revision token — hand it straight to propose_change. */
+  draft_updated_at: string;
+}
+
 export interface ApiClient {
   listSurveys(): Promise<ApiResult<{ surveys: SurveySummary[] }>>;
+  createSurvey(slug: string, name: string): Promise<ApiResult<CreatedSurvey>>;
   getDraft(slug: string, includePublished: boolean): Promise<ApiResult<DraftResponse>>;
   putDraft(slug: string, body: PutDraftBody): Promise<ApiResult<{ updated_at: string }>>;
   getAudit(survey: string | null, limit: number): Promise<ApiResult<{ entries: AuditEntry[] }>>;
@@ -122,6 +130,13 @@ export class HttpApiClient implements ApiClient {
 
   listSurveys(): Promise<ApiResult<{ surveys: SurveySummary[] }>> {
     return this.call('mcp-surveys');
+  }
+
+  createSurvey(slug: string, name: string): Promise<ApiResult<CreatedSurvey>> {
+    return this.call('mcp-surveys', {
+      method: 'POST',
+      body: JSON.stringify({ slug, name }),
+    });
   }
 
   getDraft(slug: string, includePublished: boolean): Promise<ApiResult<DraftResponse>> {

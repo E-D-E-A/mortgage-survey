@@ -7,11 +7,10 @@
 
 import { requireAdmin } from './lib/session';
 import { json, supaHeaders, supabaseEnv } from './lib/supabase';
-import { DEFAULT_SURVEY_SLUG, isValidSlug } from '../../src/data/surveys';
+import { DEFAULT_SURVEY_SLUG, isValidSlug, MAX_VERSION_CHARS } from '../../src/data/surveys';
 import { validateConfig } from '../../src/engine/validate';
 import type { SurveyConfig } from '../../src/engine/types';
 
-const MAX_VERSION_CHARS = 100;
 
 export default async (req: Request): Promise<Response> => {
   const session = await requireAdmin(req);

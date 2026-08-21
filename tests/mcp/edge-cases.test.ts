@@ -174,6 +174,58 @@ describe('invalid configs', () => {
       }),
     ).resolves.toBeDefined();
   });
+
+  // config is declared z.unknown() so the SDK never rebuilds it; the price is a
+  // JSON Schema with no type, and clients that serialise from the declared type
+  // send the config as text. Every propose from such a client used to die at the
+  // zod boundary.
+  it('a config sent as JSON text is accepted and round-trips byte-identical', async () => {
+    harness = await connectHarness();
+    const updatedAt = harness.api.seedDraft('demo', baseConfig());
+    const config = goldenConfig();
+
+    const res = await harness.callTool<{ change_id: string }>('propose_change', {
+      survey: 'demo',
+      config: JSON.stringify(config),
+      base_updated_at: updatedAt,
+      summary: 'קונפיג שנשלח כטקסט',
+    });
+
+    expect(res.isError).toBe(false);
+    expect(res.structured.change_id).toBeTruthy();
+
+    const applied = await harness.callTool('apply_change', {
+      change_id: res.structured.change_id,
+    });
+    expect(applied.isError).toBe(false);
+    expect(harness.api.drafts.get('demo')!.config).toEqual(config);
+  });
+
+  it('text that is not valid JSON is refused with a usable message', async () => {
+    harness = await connectHarness();
+    const updatedAt = harness.api.seedDraft('demo', baseConfig());
+    const res = await harness.callTool('propose_change', {
+      survey: 'demo',
+      config: '{"screens": [',
+      base_updated_at: updatedAt,
+      summary: 'טקסט שבור',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('not valid JSON');
+  });
+
+  it('JSON text that is not an object is refused', async () => {
+    harness = await connectHarness();
+    const updatedAt = harness.api.seedDraft('demo', baseConfig());
+    const res = await harness.callTool('propose_change', {
+      survey: 'demo',
+      config: '[1, 2, 3]',
+      base_updated_at: updatedAt,
+      summary: 'מערך במקום אובייקט',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('does not describe an object');
+  });
 });
 
 describe('retries and idempotency', () => {

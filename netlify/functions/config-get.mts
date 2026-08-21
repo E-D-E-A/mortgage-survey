@@ -8,9 +8,8 @@
 // An archived survey returns 410 for a new session: the link was handed out, and
 // the respondent deserves an explanation rather than an error.
 
-import { DEFAULT_SURVEY_SLUG, isValidSlug } from '../../src/data/surveys';
+import { DEFAULT_SURVEY_SLUG, isValidSlug, MAX_VERSION_CHARS } from '../../src/data/surveys';
 
-const MAX_VERSION_CHARS = 100;
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'GET') {

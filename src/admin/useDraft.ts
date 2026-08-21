@@ -57,6 +57,15 @@ export interface Draft {
   canRedo: boolean;
   /** Updates the config in memory (marks it dirty and records it in the history) */
   update: (fn: (cfg: SurveyConfig) => SurveyConfig) => void;
+  /**
+   * Replaces the whole draft — restoring a published version.
+   *
+   * Deliberately not `update`: that one is an edit primitive and returns early
+   * when there is no config, so a survey whose draft never loaded, or has none
+   * at all, would swallow the restore and report success. Those are exactly the
+   * states restore is reached for.
+   */
+  replace: (config: SurveyConfig) => void;
   undo: () => void;
   redo: () => void;
   save: () => Promise<boolean>;
@@ -120,6 +129,20 @@ export function useDraft(slug: string, onAuthError: () => void): Draft {
       const past = coalesce ? s.past : [...s.past.slice(-(HISTORY_LIMIT - 1)), s.config];
       return { config: next, past, future: [] };
     });
+  }, []);
+
+  const replace = useCallback((config: SurveyConfig) => {
+    // A restore is never a continuation of the keystroke before it: coalescing
+    // it into a neighbouring edit would put both behind one undo.
+    lastEditAt.current = 0;
+    setEdit((s) => ({
+      config,
+      past: s.config ? [...s.past.slice(-(HISTORY_LIMIT - 1)), s.config] : s.past,
+      future: [],
+    }));
+    // A survey with no draft now has one in memory; without this the editor
+    // stays on its "no draft yet" screen with the restored config invisible.
+    setPhase((p) => (p === 'empty' ? 'ready' : p));
   }, []);
 
   const undo = useCallback(() => {
@@ -203,6 +226,7 @@ export function useDraft(slug: string, onAuthError: () => void): Draft {
     canUndo: edit.past.length > 0,
     canRedo: edit.future.length > 0,
     update,
+    replace,
     undo,
     redo,
     save,

@@ -41,6 +41,14 @@ export const configSchema = z
   })
   .passthrough();
 
+/** 80 chars to match MAX_NAME_CHARS in admin-surveys.mts, which silently truncates past it. */
+export const surveyNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .describe('The survey name shown in the console — Hebrew, taken from the user');
+
 export const summarySchema = z
   .string()
   .min(1)

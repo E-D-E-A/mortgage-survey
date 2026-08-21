@@ -8,11 +8,13 @@
 
 import { validateConfig } from '../../src/engine/validate';
 import { codeLockViolations } from '../../src/engine/lockedCodes';
+import { starterConfig } from '../../src/questionnaire/starter';
 import type { SurveyConfig } from '../../src/engine/types';
 import type {
   ApiClient,
   ApiResult,
   AuditEntry,
+  CreatedSurvey,
   DraftResponse,
   PutDraftBody,
   SurveySummary,
@@ -22,6 +24,8 @@ type Failure = { status: number; body: Record<string, unknown> };
 
 export class FakeApi implements ApiClient {
   readonly drafts = new Map<string, { config: SurveyConfig | null; updated_at: string | null }>();
+  /** Real names, for surveys created through createSurvey rather than seeded. */
+  readonly names = new Map<string, string>();
   readonly published = new Map<string, { version: string; config: SurveyConfig }[]>();
   readonly audit: AuditEntry[] = [];
   private readonly idempotency = new Map<string, { status: number; response: { updated_at: string } }>();
@@ -61,7 +65,7 @@ export class FakeApi implements ApiClient {
       const versions = this.published.get(slug) ?? [];
       return {
         slug,
-        name: `שאלון ${slug}`,
+        name: this.names.get(slug) ?? `שאלון ${slug}`,
         archived_at: null,
         has_draft: draft.config !== null,
         draft_updated_at: draft.updated_at,
@@ -70,6 +74,40 @@ export class FakeApi implements ApiClient {
       };
     });
     return { ok: true, data: { surveys } };
+  }
+
+  /**
+   * Faithful to mcp-surveys.mts's POST: the slug is the primary key, so a
+   * second create on the same slug is a 409 and not an overwrite — the case
+   * that matters, because an agent that retries a create must not be able to
+   * blank an existing survey's draft.
+   */
+  async createSurvey(slug: string, name: string): Promise<ApiResult<CreatedSurvey>> {
+    const injected = this.takeFailure();
+    if (injected === 'network') throw new Error('fetch failed');
+    if (injected) return { ok: false, status: injected.status, body: injected.body };
+
+    if (this.drafts.has(slug)) {
+      return {
+        ok: false,
+        status: 409,
+        body: { error: 'slug-exists', message: `כבר קיים שאלון עם המזהה "${slug}"` },
+      };
+    }
+
+    const updated_at = this.nowIso();
+    this.names.set(slug, name);
+    this.drafts.set(slug, { config: starterConfig(name), updated_at });
+    this.writesExecuted++;
+    this.audit.push({
+      user_email: 'fake@first-edea.com',
+      survey_id: slug,
+      revision_before: null,
+      revision_after: updated_at,
+      summary: `יצירת שאלון חדש "${name}" עם טיוטת שלד`,
+      created_at: updated_at,
+    });
+    return { ok: true, data: { slug, name, draft_updated_at: updated_at } };
   }
 
   async getDraft(slug: string, includePublished: boolean): Promise<ApiResult<DraftResponse>> {

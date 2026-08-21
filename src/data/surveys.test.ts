@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SURVEY_SLUG,
   isValidSlug,
-  slugFromPath,
+  resolveRoute,
+  SURVEY_SLUG_MAX,
   slugify,
   surveyPath,
 } from './surveys';
@@ -48,23 +49,54 @@ describe('slugify', () => {
   });
 });
 
-describe('surveyPath / slugFromPath', () => {
-  it('keeps the default survey on the original link', () => {
-    expect(surveyPath(DEFAULT_SURVEY_SLUG)).toBe('/');
-    expect(slugFromPath('/')).toBe(DEFAULT_SURVEY_SLUG);
-    expect(slugFromPath('/index.html')).toBe(DEFAULT_SURVEY_SLUG);
+describe('surveyPath / resolveRoute', () => {
+  it('puts every survey under /s/, the default one included', () => {
+    expect(surveyPath(DEFAULT_SURVEY_SLUG)).toBe(`/s/${DEFAULT_SURVEY_SLUG}`);
+    expect(surveyPath('pilot-2')).toBe('/s/pilot-2');
   });
 
   it('round-trips a named survey', () => {
-    expect(surveyPath('pilot-2')).toBe('/s/pilot-2');
-    expect(slugFromPath('/s/pilot-2')).toBe('pilot-2');
-    expect(slugFromPath('/s/pilot-2/')).toBe('pilot-2');
+    expect(resolveRoute('/s/pilot-2')).toEqual({ kind: 'survey', slug: 'pilot-2' });
+    expect(resolveRoute('/s/pilot-2/')).toEqual({ kind: 'survey', slug: 'pilot-2' });
   });
 
-  it('returns null for a broken link instead of silently serving another survey', () => {
-    expect(slugFromPath('/s/')).toBeNull();
-    expect(slugFromPath('/s/Bad Slug')).toBeNull();
-    expect(slugFromPath('/s/%E4%A1')).toBeNull();
+  // The reason this rule exists: App logs session_start on mount, so any path
+  // that resolves to a survey becomes a counted respondent. `/` used to serve
+  // the main survey, and so did every typo and crawler hit.
+  it('never serves a survey from a path that is not /s/<slug>', () => {
+    for (const path of ['/', '/index.html', '/pricing', '/s', '/s/pilot-2/extra', '/admn']) {
+      expect(resolveRoute(path)).toEqual({ kind: 'landing' });
+    }
+  });
+
+  it('marks a malformed /s/ link as broken rather than serving another survey', () => {
+    expect(resolveRoute('/s/')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/Bad Slug')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/%E4%A1')).toEqual({ kind: 'broken-link' });
+  });
+
+  // Two different failures, and only one of them throws. %E4%A1 above is
+  // undecodable, so decodeURIComponent raises and the catch handles it. These
+  // decode perfectly well and are then rejected by isValidSlug — a separate
+  // branch, and the one that would quietly mount a survey under a slug nobody
+  // created if it ever stopped rejecting.
+  it('rejects input that decodes cleanly but is still not a slug', () => {
+    expect(resolveRoute('/s/%20')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/%D7%A9%D7%9C%D7%95%D7%9D')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/-leading-hyphen')).toEqual({ kind: 'broken-link' });
+    expect(resolveRoute('/s/UPPER')).toEqual({ kind: 'broken-link' });
+  });
+
+  it('applies the slug length limit on the path, not just in isValidSlug', () => {
+    const longest = 'a'.repeat(SURVEY_SLUG_MAX);
+    expect(resolveRoute(`/s/${longest}`)).toEqual({ kind: 'survey', slug: longest });
+    expect(resolveRoute(`/s/${'a'.repeat(SURVEY_SLUG_MAX + 1)}`)).toEqual({ kind: 'broken-link' });
+  });
+
+  it('routes the console', () => {
+    expect(resolveRoute('/admin')).toEqual({ kind: 'admin' });
+    expect(resolveRoute('/admin/demo')).toEqual({ kind: 'admin' });
+    expect(resolveRoute('/admin/demo/stats')).toEqual({ kind: 'admin' });
   });
 });
 

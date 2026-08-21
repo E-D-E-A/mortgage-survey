@@ -4,8 +4,8 @@
 // sessionStorage, and if that is lost, a fetch by version). Only a new session
 // gets the latest active version.
 //
-// The survey is selected by the slug in the path (`/s/<slug>`); the old `/` path
-// serves the default survey. The storage keys carry the slug
+// The survey is selected by the slug in the path, and `/s/<slug>` is the only
+// shape that resolves to one. The storage keys carry the slug
 // (session-scope.ts), so two surveys in the same tab do not overwrite each
 // other's session.
 //
@@ -14,7 +14,6 @@
 
 import type { SurveyConfig } from '../engine/types';
 import { questionnaire } from '../questionnaire/survey-v1';
-import { DEFAULT_SURVEY_SLUG } from './surveys';
 import { scopedKey } from './session-scope';
 
 const ENDPOINT = '/.netlify/functions/config-get';
@@ -88,7 +87,10 @@ async function fetchConfig(slug: string, version: string | null): Promise<Config
   return data;
 }
 
-export async function loadConfig(slug: string = DEFAULT_SURVEY_SLUG): Promise<SurveyConfig> {
+// The slug is required: a caller that omitted it used to get the main survey
+// silently, which is the same implicit-default trap resolveRoute removed from
+// the URL side.
+export async function loadConfig(slug: string): Promise<SurveyConfig> {
   if (!import.meta.env.PROD) return questionnaire;
 
   const pinned = pinnedVersion();

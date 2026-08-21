@@ -99,10 +99,62 @@ async function readBody(req: Request): Promise<Record<string, unknown> | null> {
   }
 }
 
-function cleanName(value: unknown): string | null {
+/** Exported so mcp-surveys.mts applies the identical name rule to its own body. */
+export function cleanName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim().slice(0, MAX_NAME_CHARS);
   return name.length > 0 ? name : null;
+}
+
+/**
+ * The survey row and its skeleton draft — the two inserts that make a survey
+ * exist. Exported so mcp-surveys.mts can offer creation behind its own write
+ * budget and its own structured errors, without a second copy of the pair.
+ *
+ * Returns data rather than a Response so each caller shapes its own: the
+ * console answers in plain text, the MCP endpoint in the structured JSON its
+ * client translates into guidance.
+ */
+export async function createSurveyRecord(
+  url: string,
+  headers: Record<string, string>,
+  email: string,
+  slug: string,
+  name: string,
+): Promise<{ ok: true; draftUpdatedAt: string } | { ok: false; status: number }> {
+  const created = await fetch(`${url}/rest/v1/surveys`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify({ slug, name, created_by: email }),
+  });
+  if (created.status === 409) return { ok: false, status: 409 };
+  if (!created.ok) return { ok: false, status: 502 };
+
+  // A skeleton draft right at creation — a survey with no draft is a state the
+  // editor cannot fix from the survey list. A failure here does not undo the
+  // survey: opening the editor will create one.
+  //
+  // return=representation, not minimal: the revision token has to be the one
+  // the DB will hand back from get_draft, and PostgREST renders timestamptz as
+  // "…+00:00" where toISOString() renders "…Z". Returning the locally built
+  // string looks right and then fails the optimistic-lock comparison on the
+  // very next call — so the value that leaves here is the stored one.
+  const now = new Date().toISOString();
+  const draft = await fetch(`${url}/rest/v1/survey_drafts`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=representation' },
+    body: JSON.stringify({
+      survey_id: slug,
+      config: starterConfig(name),
+      updated_at: now,
+      updated_by: email,
+    }),
+  });
+  const stored = draft.ok
+    ? ((await draft.json()) as { updated_at?: string }[])[0]?.updated_at
+    : undefined;
+
+  return { ok: true, draftUpdatedAt: stored ?? now };
 }
 
 async function createSurvey(
@@ -118,28 +170,11 @@ async function createSurvey(
   if (!isValidSlug(slug)) return new Response('invalid slug', { status: 400 });
   if (!name) return new Response('invalid name', { status: 400 });
 
-  const created = await fetch(`${url}/rest/v1/surveys`, {
-    method: 'POST',
-    headers: { ...headers, Prefer: 'return=minimal' },
-    body: JSON.stringify({ slug, name, created_by: email }),
-  });
-  if (created.status === 409) return new Response('slug already exists', { status: 409 });
-  if (!created.ok) return new Response('upstream error', { status: 502 });
-
-  // A skeleton draft right at creation — a survey with no draft is a state the
-  // editor cannot fix from the survey list. A failure here does not undo the
-  // survey: opening the editor will create one.
-  const now = new Date().toISOString();
-  await fetch(`${url}/rest/v1/survey_drafts`, {
-    method: 'POST',
-    headers: { ...headers, Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      survey_id: slug,
-      config: starterConfig(name),
-      updated_at: now,
-      updated_by: email,
-    }),
-  });
+  const created = await createSurveyRecord(url, headers, email, slug, name);
+  if (!created.ok) {
+    if (created.status === 409) return new Response('slug already exists', { status: 409 });
+    return new Response('upstream error', { status: 502 });
+  }
 
   return json({ slug, name });
 }

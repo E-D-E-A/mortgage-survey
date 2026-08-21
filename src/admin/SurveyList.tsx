@@ -13,6 +13,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { SURVEY_SLUG_MAX, SURVEY_SLUG_RE, slugify, surveyPath } from '../data/surveys';
+import { LINK_SOURCES, sourceLink } from '../data/link-sources';
 import type { SurveySummary } from './api';
 import type { Surveys } from './useSurveys';
 import { CloseIcon, CopyIcon, ErrorIcon, PlusIcon, TrashIcon } from './Icons';
@@ -198,7 +199,24 @@ function SurveyCard({
               <a href={url} target="_blank" rel="noreferrer" dir="ltr">
                 {url}
               </a>
-              <CopyLinkButton url={url} />
+              {/* An archived survey keeps its link — it still shows the past
+                  respondents where they were — but it accepts nobody new, so
+                  handing it to a channel would spend on a closed door. The link
+                  stays readable; the copy buttons do not. */}
+              {survey.archived_at ? (
+                <span className="a-hint">— בארכיון: הקישור מציג ״השאלון נסגר״ ואינו מקבל משיבים</span>
+              ) : (
+                <div className="survey-sources">
+                  {LINK_SOURCES.map((source) => (
+                    <CopyLinkButton
+                      key={source.id}
+                      url={sourceLink(url, source)}
+                      label={source.label}
+                      test={source.test}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <span className="a-hint">
@@ -268,11 +286,16 @@ function SurveyCard({
   );
 }
 
-function CopyLinkButton({ url }: { url: string }) {
+function CopyLinkButton({ url, label, test }: { url: string; label: string; test?: true }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="a-btn ghost small"
+      className={`a-btn ghost small${test ? ' copy-test' : ''}`}
+      title={
+        test
+          ? `${url} — לשימוש פנימי בלבד: הסשן לא ייספר בסטטיסטיקות ולא במכסות`
+          : `${url} — הקישור לערוץ הזה, כדי שאפשר יהיה להשוות ערוצים בסטטיסטיקות`
+      }
       onClick={() => {
         navigator.clipboard.writeText(url).then(
           () => {
@@ -285,7 +308,7 @@ function CopyLinkButton({ url }: { url: string }) {
         );
       }}
     >
-      <CopyIcon /> {copied ? 'הקישור הועתק ✓' : 'העתקת הקישור'}
+      <CopyIcon /> {copied ? `${label} ✓` : label}
     </button>
   );
 }
